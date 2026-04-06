@@ -103,11 +103,10 @@ export async function copyTaskPromptAndDispatch(
   api: ApiClientLike,
   clipboard: ClipboardLike | undefined,
   taskId: number,
-  includeUsage: boolean
 ): Promise<string> {
   const promptResponse = await api.post<{ prompt: string }>(
     `/api/tasks/${taskId}/generate-prompt`,
-    { include_usage: includeUsage }
+    {}
   );
   await copyText(promptResponse.prompt, clipboard);
   await api.post(`/api/tasks/${taskId}/dispatch`);

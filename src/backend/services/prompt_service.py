@@ -1,4 +1,5 @@
 import json
+import re
 
 from sqlalchemy.orm import Session
 
@@ -9,10 +10,12 @@ def generate_plan_prompt(
     project: Project,
     selected_agents: list[Agent],
     plan_path: str,
-    usage_path: str | None = None,
-) -> str:
+    usage_path: str | None = None,  # kept for API compat, no longer used
+    selected_agent_models: dict[int, str | None] | None = None,
+) -> tuple[str, dict[int, str | None]]:
+    resolved_models = resolve_selected_agent_models(project.goal or "", selected_agents, selected_agent_models or {})
     selected_lines = "\n".join(
-        f"- {agent.name} ({agent.slug}, {agent.agent_type}{f', {agent.model_name}' if agent.model_name else ''})"
+        _format_agent_line(agent, resolved_models.get(agent.id))
         for agent in selected_agents
     ) or "- 未指定参与 Agent"
 
@@ -38,20 +41,98 @@ def generate_plan_prompt(
 将计划写入 {plan_path} 文件。
 完成后执行 git add、git commit、git push。"""
 
-    if usage_path:
-        prompt += f"""
+    return prompt, resolved_models
 
-额外要求：
-- 请在 {usage_path} 中写入本次生成计划时的模型用量或剩余额度信息（若当前 Agent 支持提供）。"""
 
-    return prompt
+def _parse_agent_models(agent: Agent) -> list[dict[str, str | None]]:
+    if agent.models_json:
+        try:
+            parsed = json.loads(agent.models_json)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            models = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                model_name = str(item.get("model_name") or "").strip()
+                if not model_name:
+                    continue
+                capability = item.get("capability")
+                models.append({
+                    "model_name": model_name,
+                    "capability": str(capability).strip() if capability else None,
+                })
+            if models:
+                return models
+    if agent.model_name:
+        return [{"model_name": agent.model_name, "capability": agent.capability}]
+    return []
+
+
+def _tokenize_text(value: str) -> list[str]:
+    if not value:
+        return []
+    parts = re.split(r"[\s,，。；;、/\\()\[\]{}:+\-]+", value.lower())
+    return [part for part in parts if len(part) >= 2]
+
+
+def _score_model_fit(requirement_text: str, capability: str | None) -> int:
+    if not capability:
+        return 0
+    requirement_lower = requirement_text.lower()
+    score = 0
+    for token in _tokenize_text(capability):
+        if token in requirement_lower:
+            score += max(2, len(token))
+    return score
+
+
+def resolve_selected_agent_models(
+    requirement_text: str,
+    selected_agents: list[Agent],
+    preferred_models: dict[int, str | None],
+) -> dict[int, str | None]:
+    resolved: dict[int, str | None] = {}
+    for agent in selected_agents:
+        models = _parse_agent_models(agent)
+        if not models:
+            resolved[agent.id] = None
+            continue
+        preferred_model = (preferred_models.get(agent.id) or "").strip()
+        if preferred_model:
+            matched = next((model for model in models if model["model_name"] == preferred_model), None)
+            if matched:
+                resolved[agent.id] = matched["model_name"]
+                continue
+        best_model = max(
+            models,
+            key=lambda model: (
+                _score_model_fit(requirement_text, model.get("capability")),
+                1 if model.get("capability") else 0,
+            ),
+        )
+        resolved[agent.id] = best_model["model_name"]
+    return resolved
+
+
+def _format_agent_line(agent: Agent, selected_model_name: str | None) -> str:
+    models = _parse_agent_models(agent)
+    chosen = next((model for model in models if model["model_name"] == selected_model_name), None)
+    if chosen:
+        capability_text = f"，能力：{chosen['capability']}" if chosen.get("capability") else ""
+        return f"- {agent.name} ({agent.slug}, {agent.agent_type}, 使用模型：{chosen['model_name']}{capability_text})"
+    if models:
+        model_names = " / ".join(model["model_name"] for model in models)
+        return f"- {agent.name} ({agent.slug}, {agent.agent_type}, 可用模型：{model_names})"
+    return f"- {agent.name} ({agent.slug}, {agent.agent_type})"
 
 
 def generate_task_prompt(
     db: Session,
     project: Project,
     task: Task,
-    include_usage: bool = False,
+    include_usage: bool = False,  # kept for API compat, no longer used
 ) -> str:
     # Gather predecessor output paths
     depends_on = json.loads(task.depends_on_json) if task.depends_on_json else []
@@ -86,10 +167,5 @@ def generate_task_prompt(
 1. 将输出写入路径：outputs/{task.task_code}/result.json
 2. 文件中必须包含字段 "task_code": "{task.task_code}"
 3. 完成后执行 git add、git commit、git push"""
-
-    if include_usage:
-        prompt += f"""
-
-4. 在 outputs/{task.task_code}/usage.json 中写入当前剩余用量信息"""
 
     return prompt

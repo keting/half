@@ -1,9 +1,10 @@
 import json
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -14,9 +15,26 @@ from services.prompt_service import generate_plan_prompt
 router = APIRouter(prefix="/api/projects", tags=["plans"])
 
 
+def _try_repair_json(raw: str) -> dict | None:
+    """Attempt limited auto-repair of common JSON format issues."""
+    text = raw.strip()
+    # Strip markdown code fences (```json ... ```)
+    text = re.sub(r'^```(?:json)?\s*\n?', '', text)
+    text = re.sub(r'\n?```\s*$', '', text)
+    # Remove trailing commas before } or ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+    # Try parsing after repairs
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    return None
+
+
 class PlanPromptRequest(BaseModel):
     include_usage: bool = False
-    selected_agent_ids: list[int] = []
+    selected_agent_ids: list[int] = Field(default_factory=list)
+    selected_agent_models: dict[int, Optional[str]] = Field(default_factory=dict)
 
 
 class PlanImport(BaseModel):
@@ -36,6 +54,7 @@ class PlanResponse(BaseModel):
     source_path: Optional[str]
     include_usage: bool
     selected_agent_ids: list[int]
+    selected_agent_models: dict[int, Optional[str]]
     dispatched_at: Optional[datetime]
     detected_at: Optional[datetime]
     last_error: Optional[str]
@@ -77,6 +96,7 @@ def _build_plan_response(plan: ProjectPlan) -> PlanResponse:
         source_path=plan.source_path,
         include_usage=plan.include_usage,
         selected_agent_ids=_parse_selected_agent_ids(plan.selected_agent_ids_json),
+        selected_agent_models=_parse_selected_agent_models(plan.selected_agent_models_json),
         dispatched_at=plan.dispatched_at,
         detected_at=plan.detected_at,
         last_error=plan.last_error,
@@ -98,6 +118,30 @@ def _plan_usage_path(project: Project, plan_id: int) -> str:
     return f"{base_dir}/{filename}" if base_dir else filename
 
 
+def _parse_selected_agent_models(value: Optional[str]) -> dict[int, Optional[str]]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    result: dict[int, Optional[str]] = {}
+    for key, model_name in parsed.items():
+        try:
+            agent_id = int(key)
+        except (TypeError, ValueError):
+            continue
+        normalized = str(model_name).strip() if model_name else None
+        result[agent_id] = normalized or None
+    return result
+
+
+def _serialize_selected_agent_models(value: dict[int, Optional[str]]) -> str:
+    return json.dumps({str(agent_id): model_name for agent_id, model_name in value.items()}, ensure_ascii=False)
+
+
 class FinalizeRequest(BaseModel):
     plan_id: int
 
@@ -117,6 +161,11 @@ def plan_generate_prompt(
         raise HTTPException(status_code=400, detail="Some selected agents do not exist")
     if not selected_agents:
         raise HTTPException(status_code=400, detail="At least one participating agent must be selected")
+    selected_agent_models = {}
+    for agent in selected_agents:
+        selected_model = body.selected_agent_models.get(agent.id)
+        if selected_model:
+            selected_agent_models[agent.id] = selected_model
 
     now = datetime.now(timezone.utc)
     plan = ProjectPlan(
@@ -128,6 +177,7 @@ def plan_generate_prompt(
         source_path="",
         include_usage=body.include_usage,
         selected_agent_ids_json=json.dumps(body.selected_agent_ids),
+        selected_agent_models_json=_serialize_selected_agent_models(selected_agent_models),
         is_selected=False,
     )
     db.add(plan)
@@ -135,9 +185,10 @@ def plan_generate_prompt(
 
     source_path = _plan_file_path(project, plan.id)
     usage_path = _plan_usage_path(project, plan.id) if body.include_usage else None
-    prompt = generate_plan_prompt(project, selected_agents, source_path, usage_path)
+    prompt, resolved_models = generate_plan_prompt(project, selected_agents, source_path, usage_path, selected_agent_models)
     plan.prompt_text = prompt
     plan.source_path = source_path
+    plan.selected_agent_models_json = _serialize_selected_agent_models(resolved_models)
 
     # Update project status to planning
     if project.status == "draft":
@@ -183,6 +234,7 @@ def dispatch_plan(
             source_path="",
             include_usage=plan.include_usage,
             selected_agent_ids_json=plan.selected_agent_ids_json,
+            selected_agent_models_json=plan.selected_agent_models_json,
             dispatched_at=now,
             is_selected=False,
         )
@@ -190,12 +242,14 @@ def dispatch_plan(
         db.flush()
         selected_agents = db.query(Agent).filter(Agent.id.in_(_parse_selected_agent_ids(plan.selected_agent_ids_json))).all()
         plan.source_path = _plan_file_path(project, plan.id)
-        plan.prompt_text = generate_plan_prompt(
+        plan.prompt_text, resolved_models = generate_plan_prompt(
             project,
             selected_agents,
             plan.source_path,
             _plan_usage_path(project, plan.id) if plan.include_usage else None,
+            _parse_selected_agent_models(plan.selected_agent_models_json),
         )
+        plan.selected_agent_models_json = _serialize_selected_agent_models(resolved_models)
     else:
         plan.status = "running"
         plan.dispatched_at = now
@@ -240,6 +294,7 @@ def import_plan(project_id: int, body: PlanImport, db: Session = Depends(get_db)
         status="completed",
         source_path=f"{project.collaboration_dir.rstrip('/')}/plan.json" if project.collaboration_dir else "plan.json",
         selected_agent_ids_json="[]",
+        selected_agent_models_json="{}",
         detected_at=now,
         is_selected=False,
     )
@@ -276,11 +331,15 @@ def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(
     if existing_tasks > 0:
         raise HTTPException(status_code=400, detail="Project already has tasks from a finalized plan")
 
-    # Parse plan JSON
+    # Parse plan JSON with limited auto-repair
+    raw_json = plan.plan_json
     try:
-        plan_data = json.loads(plan.plan_json)
+        plan_data = json.loads(raw_json)
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid plan JSON")
+        repaired = _try_repair_json(raw_json)
+        if repaired is None:
+            raise HTTPException(status_code=400, detail="Invalid plan JSON")
+        plan_data = repaired
 
     tasks_data = plan_data.get("tasks", [])
     if not tasks_data:

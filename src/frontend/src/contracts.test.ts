@@ -83,6 +83,10 @@ describe('contracts helpers', () => {
       slug: 'claude-main',
       agent_type: 'claude',
       model_name: 'claude-sonnet-4-5',
+      models: [
+        { model_name: 'claude-sonnet-4-5', capability: '长文本分析、任务拆解' },
+        { model_name: 'claude-opus-4-1', capability: '复杂规划' },
+      ],
       capability: '长文本分析、任务拆解',
       machine_label: 'macbook-1',
       is_active: true,

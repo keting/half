@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import engine, SessionLocal, Base
-from models import User
+from models import User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap
 from auth import hash_password
 from routers import auth as auth_router
 from routers import agents as agents_router
@@ -16,6 +16,7 @@ from routers import projects as projects_router
 from routers import plans as plans_router
 from routers import tasks as tasks_router
 from routers import polling as polling_router
+from routers import agent_settings as agent_settings_router
 from services.polling_service import polling_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -83,12 +84,15 @@ def ensure_schema_updates():
     required_columns = {
         "agents": {
             "capability": "TEXT",
+            "models_json": "TEXT DEFAULT '[]'",
             "short_term_reset_at": "DATETIME",
             "short_term_reset_interval_hours": "INTEGER",
             "short_term_reset_needs_confirmation": "BOOLEAN DEFAULT 0",
             "long_term_reset_at": "DATETIME",
             "long_term_reset_interval_days": "INTEGER",
             "long_term_reset_needs_confirmation": "BOOLEAN DEFAULT 0",
+            "long_term_reset_mode": "TEXT DEFAULT 'days'",
+            "display_order": "INTEGER DEFAULT 0",
         },
         "projects": {
             "collaboration_dir": "TEXT",
@@ -99,9 +103,17 @@ def ensure_schema_updates():
             "source_path": "TEXT",
             "include_usage": "BOOLEAN DEFAULT 0",
             "selected_agent_ids_json": "TEXT DEFAULT '[]'",
+            "selected_agent_models_json": "TEXT DEFAULT '{}'",
             "dispatched_at": "DATETIME",
             "detected_at": "DATETIME",
             "last_error": "TEXT",
+        },
+        "agent_type_configs": {
+            "description": "TEXT",
+            "display_order": "INTEGER DEFAULT 0",
+        },
+        "agent_type_model_map": {
+            "display_order": "INTEGER DEFAULT 0",
         },
     }
 
@@ -152,11 +164,47 @@ def repair_legacy_agent_reset_times():
             logger.info("Adjusted legacy agent reset times to Beijing-local storage for %s rows", updated.rowcount)
 
 
+def seed_agent_type_configs():
+    """Seed agent type configs and model definitions from hardcoded defaults if tables are empty."""
+    db = SessionLocal()
+    try:
+        if db.query(AgentTypeConfig).first() is not None:
+            return  # Already seeded
+
+        SEED_TYPES = {
+            "claude": ["claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet-latest"],
+            "codex": ["codex-mini-latest", "codex-1", "gpt-5-codex"],
+            "cursor": ["cursor-default", "gpt-5", "claude-sonnet-4-5"],
+            "windsurf": ["windsurf-default", "claude-sonnet-4-5", "gpt-5"],
+        }
+
+        model_cache: dict[str, ModelDefinition] = {}
+        for type_name, model_names in SEED_TYPES.items():
+            agent_type = AgentTypeConfig(name=type_name)
+            db.add(agent_type)
+            db.flush()
+            for model_name in model_names:
+                if model_name not in model_cache:
+                    model_def = ModelDefinition(name=model_name)
+                    db.add(model_def)
+                    db.flush()
+                    model_cache[model_name] = model_def
+                db.add(AgentTypeModelMap(
+                    agent_type_id=agent_type.id,
+                    model_definition_id=model_cache[model_name].id,
+                ))
+        db.commit()
+        logger.info("Seeded agent type configs with %d types and %d models", len(SEED_TYPES), len(model_cache))
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     ensure_schema_updates()
     migrate_task_code_unique_constraint()
     repair_legacy_agent_reset_times()
+    seed_agent_type_configs()
     db = SessionLocal()
     try:
         admin = db.query(User).filter(User.username == "admin").first()
@@ -205,8 +253,14 @@ app.include_router(projects_router.router)
 app.include_router(plans_router.router)
 app.include_router(tasks_router.router)
 app.include_router(polling_router.router)
+app.include_router(agent_settings_router.router)
 
 
 @app.get("/")
 def root():
     return {"name": "HALF Backend", "version": "1.0.0"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

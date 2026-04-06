@@ -9,6 +9,7 @@ import PlanPage from './pages/PlanPage';
 import TasksPage from './pages/TasksPage';
 import SummaryPage from './pages/SummaryPage';
 import AgentsPage from './pages/AgentsPage';
+import AgentSettingsPage from './pages/AgentSettingsPage';
 import ChangeLogPage from './pages/ChangeLogPage';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="projects/:id/tasks" element={<TasksPage />} />
           <Route path="projects/:id/summary" element={<SummaryPage />} />
           <Route path="agents" element={<AgentsPage />} />
+          <Route path="agents/settings" element={<AgentSettingsPage />} />
           <Route path="change-log" element={<ChangeLogPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

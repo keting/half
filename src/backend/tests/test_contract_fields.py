@@ -15,7 +15,9 @@ from routers.tasks import TaskResponse, TaskUpdateRequest
 class ContractFieldTests(unittest.TestCase):
     def test_agent_contracts_expose_capability(self):
         self.assertIn('capability', AgentCreate.model_fields)
+        self.assertIn('models', AgentCreate.model_fields)
         self.assertIn('capability', AgentResponse.model_fields)
+        self.assertIn('models', AgentResponse.model_fields)
         self.assertIn('short_term_reset_at', AgentCreate.model_fields)
         self.assertIn('long_term_reset_at', AgentCreate.model_fields)
         self.assertIn('short_term_reset_interval_hours', AgentCreate.model_fields)
@@ -34,12 +36,14 @@ class ContractFieldTests(unittest.TestCase):
     def test_plan_contracts_expose_generation_status_fields(self):
         self.assertIn('include_usage', PlanPromptRequest.model_fields)
         self.assertIn('selected_agent_ids', PlanPromptRequest.model_fields)
+        self.assertIn('selected_agent_models', PlanPromptRequest.model_fields)
         self.assertIn('plan_id', PromptResponse.model_fields)
         self.assertIn('source_path', PromptResponse.model_fields)
         self.assertIn('status', PlanResponse.model_fields)
         self.assertIn('prompt_text', PlanResponse.model_fields)
         self.assertIn('source_path', PlanResponse.model_fields)
         self.assertIn('selected_agent_ids', PlanResponse.model_fields)
+        self.assertIn('selected_agent_models', PlanResponse.model_fields)
 
     def test_task_contracts_expose_edit_fields(self):
         self.assertIn('task_name', TaskUpdateRequest.model_fields)

@@ -28,6 +28,7 @@ class Agent(Base):
     slug = Column(Text, unique=True, nullable=False)
     agent_type = Column(Text, nullable=False)
     model_name = Column(Text)
+    models_json = Column(Text, default="[]")
     capability = Column(Text)
     machine_label = Column(Text)
     is_active = Column(Boolean, default=True)
@@ -38,7 +39,9 @@ class Agent(Base):
     short_term_reset_needs_confirmation = Column(Boolean, default=False)
     long_term_reset_at = Column(DateTime, nullable=True)
     long_term_reset_interval_days = Column(Integer, nullable=True)
+    long_term_reset_mode = Column(Text, default="days")  # days / monthly
     long_term_reset_needs_confirmation = Column(Boolean, default=False)
+    display_order = Column(Integer, default=0)
     last_usage_update_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -72,6 +75,7 @@ class ProjectPlan(Base):
     source_path = Column(Text)
     include_usage = Column(Boolean, default=False)
     selected_agent_ids_json = Column(Text, default="[]")
+    selected_agent_models_json = Column(Text, default="{}")
     dispatched_at = Column(DateTime, nullable=True)
     detected_at = Column(DateTime, nullable=True)
     last_error = Column(Text)
@@ -104,6 +108,40 @@ class Task(Base):
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class AgentTypeConfig(Base):
+    __tablename__ = "agent_type_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(Text, unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    display_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ModelDefinition(Base):
+    __tablename__ = "model_definitions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(Text, unique=True, nullable=False)
+    alias = Column(Text, nullable=True)
+    capability = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class AgentTypeModelMap(Base):
+    __tablename__ = "agent_type_model_map"
+    __table_args__ = (
+        UniqueConstraint("agent_type_id", "model_definition_id", name="uq_type_model"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_type_id = Column(Integer, ForeignKey("agent_type_configs.id", ondelete="CASCADE"), nullable=False)
+    model_definition_id = Column(Integer, ForeignKey("model_definitions.id", ondelete="CASCADE"), nullable=False)
+    display_order = Column(Integer, default=0)
 
 
 class TaskEvent(Base):

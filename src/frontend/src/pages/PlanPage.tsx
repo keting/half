@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { copyText, getPlanIdToFinalize } from '../contracts';
 import { Agent, Plan, Project } from '../types';
+import { getAgentModels } from '../utils/agents';
 
 function formatDuration(seconds: number): string {
   const safeSeconds = Math.max(0, seconds);
@@ -33,7 +34,7 @@ export default function PlanPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [planningBrief, setPlanningBrief] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>([]);
-  const [includeUsage, setIncludeUsage] = useState(false);
+  const [selectedAgentModels, setSelectedAgentModels] = useState<Record<number, string | null>>({});
   const [promptText, setPromptText] = useState('');
   const [currentPlanId, setCurrentPlanId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,12 +62,13 @@ export default function PlanPage() {
       if (latestPlan) {
         setPromptText(latestPlan.prompt_text || '');
         setCurrentPlanId(latestPlan.id);
-        setIncludeUsage(Boolean(latestPlan.include_usage));
         setSelectedAgentIds(latestPlan.selected_agent_ids?.length ? latestPlan.selected_agent_ids : (projectData.agent_ids || []));
+        setSelectedAgentModels(latestPlan.selected_agent_models || {});
       } else {
         setPromptText('');
         setCurrentPlanId(null);
         setSelectedAgentIds(projectData.agent_ids || []);
+        setSelectedAgentModels({});
       }
     } catch (err) {
       setError(`加载 Plan 页面失败：${err}`);
@@ -132,9 +134,30 @@ export default function PlanPage() {
   }, [currentPlanId, id, latestPlan]);
 
   function toggleSelectedAgent(agentId: number) {
-    setSelectedAgentIds((current) =>
-      current.includes(agentId) ? current.filter((idValue) => idValue !== agentId) : [...current, agentId]
-    );
+    setSelectedAgentIds((current) => {
+      const isSelected = current.includes(agentId);
+      setSelectedAgentModels((currentModels) => {
+        if (!isSelected) {
+          return currentModels;
+        }
+        const next = { ...currentModels };
+        delete next[agentId];
+        return next;
+      });
+      return isSelected ? current.filter((idValue) => idValue !== agentId) : [...current, agentId];
+    });
+  }
+
+  function updateSelectedAgentModel(agentId: number, modelName: string) {
+    setSelectedAgentModels((current) => {
+      const next = { ...current };
+      if (!modelName) {
+        delete next[agentId];
+      } else {
+        next[agentId] = modelName;
+      }
+      return next;
+    });
   }
 
   async function handleSaveBrief() {
@@ -165,8 +188,8 @@ export default function PlanPage() {
       const result = await api.post<{ prompt: string; plan_id: number; source_path: string }>(
         `/api/projects/${id}/plans/generate-prompt`,
         {
-          include_usage: includeUsage,
           selected_agent_ids: selectedAgentIds,
+          selected_agent_models: selectedAgentModels,
         }
       );
       setPromptText(result.prompt);
@@ -322,28 +345,39 @@ export default function PlanPage() {
               <label>本次参与规划的 Agent</label>
               <div className="plan-agent-grid">
                 {projectAgents.map((agent) => (
-                  <label key={agent.id} className="agent-option">
-                    <input
-                      type="checkbox"
-                      checked={selectedAgentIds.includes(agent.id)}
-                      onChange={() => toggleSelectedAgent(agent.id)}
-                    />
-                    <span className="agent-option-name">{agent.name}</span>
-                    <span className="agent-option-type">{agent.agent_type}{agent.model_name ? ` / ${agent.model_name}` : ''}</span>
-                  </label>
+                  <div key={agent.id} className={`agent-option ${selectedAgentIds.includes(agent.id) ? 'selected' : ''}`}>
+                    <label className="agent-option-check">
+                      <input
+                        type="checkbox"
+                        checked={selectedAgentIds.includes(agent.id)}
+                        onChange={() => toggleSelectedAgent(agent.id)}
+                      />
+                      <span className="agent-option-name">{agent.name}</span>
+                      {' '}
+                      <span className="agent-option-type">{agent.agent_type}</span>
+                    </label>
+                    <span className="agent-option-model-list">
+                      {getAgentModels(agent).map((model) => model.model_name).join(' / ') || '未配置模型'}
+                    </span>
+                    {selectedAgentIds.includes(agent.id) && getAgentModels(agent).length > 0 && (
+                      <div className="agent-option-model-picker">
+                        <label>本项目使用模型</label>
+                        <select
+                          value={selectedAgentModels[agent.id] || ''}
+                          onChange={(event) => updateSelectedAgentModel(agent.id, event.target.value)}
+                        >
+                          <option value="">自动选择最适合的模型</option>
+                          {getAgentModels(agent).map((model) => (
+                            <option key={model.model_name} value={model.model_name}>
+                              {model.model_name}{model.capability ? ` | ${model.capability}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
-            </div>
-
-            <div className="plan-checkbox-row">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={includeUsage}
-                  onChange={(event) => setIncludeUsage(event.target.checked)}
-                />
-                是否查询模型用量
-              </label>
             </div>
 
             <div className="plan-field">
@@ -393,6 +427,7 @@ export default function PlanPage() {
               <li>点击“生成 Prompt”只会生成提示词，不会启动轮询。</li>
               <li>点击“拷贝 Prompt”后才会正式启动或恢复本次规划的轮询。</li>
               <li>若轮询已完成，再次点击“拷贝 Prompt”会启动新一轮轮询。</li>
+              <li>每个参与规划的 Agent 都可以手动指定一个模型；留空时系统会根据任务目标和模型能力自动选择。</li>
               <li>每一轮规划都会使用唯一文件名，例如 `plan-123.json`，避免复用旧结果。</li>
               <li>查询到合法规划结果后，系统会自动定稿并跳转到执行页面。</li>
             </ul>

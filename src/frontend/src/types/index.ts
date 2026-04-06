@@ -1,20 +1,42 @@
+export interface AgentModelConfig {
+  model_name: string;
+  capability: string | null;
+}
+
 export interface Agent {
   id: number;
   name: string;
   slug: string;
   agent_type: string;
   model_name: string | null;
+  models: AgentModelConfig[];
   capability: string | null;
   machine_label: string | null;
   is_active: boolean;
   availability_status: string;
+  display_order: number;
   subscription_expires_at: string | null;
   short_term_reset_at: string | null;
   short_term_reset_interval_hours: number | null;
   short_term_reset_needs_confirmation: boolean;
   long_term_reset_at: string | null;
   long_term_reset_interval_days: number | null;
+  long_term_reset_mode: string;
   long_term_reset_needs_confirmation: boolean;
+}
+
+export interface ModelDefinition {
+  id: number;
+  name: string;
+  alias: string | null;
+  capability: string | null;
+}
+
+export interface AgentTypeConfig {
+  id: number;
+  name: string;
+  description: string | null;
+  models: ModelDefinition[];
 }
 
 export interface Project {
@@ -51,6 +73,7 @@ export interface Plan {
   source_path?: string | null;
   include_usage?: boolean;
   selected_agent_ids: number[];
+  selected_agent_models?: Record<number, string | null>;
   dispatched_at?: string | null;
   detected_at?: string | null;
   last_error?: string | null;

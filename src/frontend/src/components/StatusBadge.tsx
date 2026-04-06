@@ -1,6 +1,7 @@
 import React from 'react';
 
 const STATUS_COLORS: Record<string, string> = {
+  // Task / Project statuses
   pending: '#9ca3af',
   running: '#ef4444',
   completed: '#22c55e',
@@ -9,13 +10,20 @@ const STATUS_COLORS: Record<string, string> = {
   draft: '#9ca3af',
   planning: '#3b82f6',
   executing: '#ef4444',
+  // Legacy agent statuses
   online: '#22c55e',
   quota_exhausted: '#eab308',
   expired: '#ef4444',
   unknown: '#9ca3af',
+  // Four-state agent system (PRD required)
+  available: '#22c55e',
+  unavailable: '#9ca3af',
+  short_reset_pending: '#3b82f6',
+  long_reset_pending: '#eab308',
 };
 
 const STATUS_LABELS: Record<string, string> = {
+  // Task / Project statuses
   pending: '待处理',
   running: '运行中',
   completed: '已完成',
@@ -24,10 +32,16 @@ const STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
   planning: '规划中',
   executing: '执行中',
+  // Legacy agent statuses
   online: '在线',
   quota_exhausted: '额度不足',
   expired: '已过期',
   unknown: '未知',
+  // Four-state agent system (PRD required)
+  available: '可用',
+  unavailable: '不可用',
+  short_reset_pending: '待短周期重置',
+  long_reset_pending: '待长周期重置',
 };
 
 interface Props {

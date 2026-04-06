@@ -12,9 +12,10 @@ interface Props {
 }
 
 export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: Props) {
-  const [includeUsage, setIncludeUsage] = useState(false);
   const [loading, setLoading] = useState('');
   const [copied, setCopied] = useState(false);
+  const [showDispatchReminder, setShowDispatchReminder] = useState(false);
+  const dispatchReminderRef = React.useRef<number | null>(null);
   const [draftTaskName, setDraftTaskName] = useState(task.task_name);
   const [draftDescription, setDraftDescription] = useState(task.description || '');
   const [draftExpectedOutput, setDraftExpectedOutput] = useState(task.expected_output_path || '');
@@ -86,9 +87,12 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
     }
     setLoading('dispatch');
     try {
-      await copyTaskPromptAndDispatch(api, navigator.clipboard, task.id, includeUsage);
+      await copyTaskPromptAndDispatch(api, navigator.clipboard, task.id);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      setShowDispatchReminder(false);
+      if (dispatchReminderRef.current) clearTimeout(dispatchReminderRef.current);
+      dispatchReminderRef.current = window.setTimeout(() => setShowDispatchReminder(true), 5 * 60 * 1000);
       onRefresh();
     } catch (err) {
       alert(`派发失败：${err}`);
@@ -226,13 +230,6 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
         </div>
       )}
 
-      {task.usage_file_path && (
-        <div className="detail-section">
-          <label>Usage 信息</label>
-          <p>{task.usage_file_path}</p>
-        </div>
-      )}
-
       {task.last_error && (
         <div className="detail-section error-section">
           <label>最近错误</label>
@@ -270,15 +267,12 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
             >
               {copied ? 'Prompt 已复制' : '复制 Prompt 并派发'}
             </button>
-            <label className="checkbox-label" title="勾选后，生成 Prompt 时会附带 Usage 信息路径。">
-              <input
-                type="checkbox"
-                checked={includeUsage}
-                onChange={(e) => setIncludeUsage(e.target.checked)}
-                title="是否在任务 Prompt 中附带 Usage 信息"
-              />
-              包含 Usage
-            </label>
+          </div>
+        )}
+
+        {showDispatchReminder && task.status === 'running' && (
+          <div className="helper-text helper-text-warning">
+            已超过 5 分钟未检测到 Git 变更，是否已将 Prompt 发送给 Agent？
           </div>
         )}
 

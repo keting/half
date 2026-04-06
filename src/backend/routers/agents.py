@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -14,11 +14,17 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 BEIJING_TZ = timezone(timedelta(hours=8))
 
 
+class AgentModelConfig(BaseModel):
+    model_name: str
+    capability: Optional[str] = None
+
+
 class AgentCreate(BaseModel):
     name: str
     agent_type: str
     model_name: Optional[str] = None
     capability: Optional[str] = None
+    models: list[AgentModelConfig] = Field(default_factory=list)
     machine_label: Optional[str] = None
     is_active: bool = True
     availability_status: str = "unknown"
@@ -27,6 +33,7 @@ class AgentCreate(BaseModel):
     short_term_reset_interval_hours: Optional[int] = None
     long_term_reset_at: Optional[datetime] = None
     long_term_reset_interval_days: Optional[int] = None
+    long_term_reset_mode: str = "days"
 
 
 class AgentUpdate(BaseModel):
@@ -34,6 +41,7 @@ class AgentUpdate(BaseModel):
     agent_type: Optional[str] = None
     model_name: Optional[str] = None
     capability: Optional[str] = None
+    models: Optional[list[AgentModelConfig]] = None
     machine_label: Optional[str] = None
     is_active: Optional[bool] = None
     availability_status: Optional[str] = None
@@ -42,6 +50,15 @@ class AgentUpdate(BaseModel):
     short_term_reset_interval_hours: Optional[int] = None
     long_term_reset_at: Optional[datetime] = None
     long_term_reset_interval_days: Optional[int] = None
+    long_term_reset_mode: Optional[str] = None
+
+
+class StatusUpdate(BaseModel):
+    availability_status: str
+
+
+class ReorderRequest(BaseModel):
+    agent_ids: list[int]
 
 
 class AgentResponse(BaseModel):
@@ -50,16 +67,19 @@ class AgentResponse(BaseModel):
     slug: str
     agent_type: str
     model_name: Optional[str]
+    models: list[AgentModelConfig] = Field(default_factory=list)
     capability: Optional[str]
     machine_label: Optional[str]
     is_active: bool
     availability_status: str
+    display_order: int = 0
     subscription_expires_at: Optional[datetime]
     short_term_reset_at: Optional[datetime]
     short_term_reset_interval_hours: Optional[int]
     short_term_reset_needs_confirmation: bool
     long_term_reset_at: Optional[datetime]
     long_term_reset_interval_days: Optional[int]
+    long_term_reset_mode: str = "days"
     long_term_reset_needs_confirmation: bool
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
@@ -85,6 +105,75 @@ def _generate_unique_slug(db: Session, name: str) -> str:
     return candidate
 
 
+def _parse_agent_models(agent: Agent) -> list[AgentModelConfig]:
+    if agent.models_json:
+        try:
+            parsed = json.loads(agent.models_json)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            models: list[AgentModelConfig] = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                model_name = str(item.get("model_name") or "").strip()
+                if not model_name:
+                    continue
+                capability = item.get("capability")
+                models.append(
+                    AgentModelConfig(
+                        model_name=model_name,
+                        capability=str(capability).strip() if capability else None,
+                    )
+                )
+            if models:
+                return models
+    if agent.model_name:
+        return [AgentModelConfig(model_name=agent.model_name, capability=agent.capability)]
+    return []
+
+
+def _normalize_models_payload(
+    models: Optional[list],
+    fallback_model_name: Optional[str],
+    fallback_capability: Optional[str],
+) -> list[dict]:
+    normalized: list[dict] = []
+    for model in models or []:
+        if isinstance(model, dict):
+            raw_name = model.get("model_name", "")
+            raw_cap = model.get("capability")
+        else:
+            raw_name = model.model_name
+            raw_cap = model.capability
+        model_name = (raw_name or "").strip()
+        if not model_name:
+            continue
+        capability = raw_cap.strip() if raw_cap else None
+        normalized.append({"model_name": model_name, "capability": capability or None})
+    if normalized:
+        return normalized
+    fallback_name = (fallback_model_name or "").strip()
+    if fallback_name:
+        return [{
+            "model_name": fallback_name,
+            "capability": fallback_capability.strip() if fallback_capability else None,
+        }]
+    return []
+
+
+def _derive_primary_fields_from_models(models: list[dict]) -> tuple[Optional[str], Optional[str]]:
+    if not models:
+        return None, None
+    primary_model = models[0]["model_name"]
+    capabilities = [model["capability"] for model in models if model.get("capability")]
+    if not capabilities:
+        return primary_model, None
+    if len(capabilities) == 1:
+        return primary_model, capabilities[0]
+    return primary_model, "；".join(capabilities)
+
+
 def _normalize_beijing_datetime(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
         return None
@@ -94,6 +183,18 @@ def _normalize_beijing_datetime(value: Optional[datetime]) -> Optional[datetime]
 
 
 def _normalize_agent_input(payload: dict) -> dict:
+    # Only touch model fields when model-related data is explicitly provided,
+    # so that partial updates (e.g. status-only) never wipe existing models.
+    has_model_fields = "models" in payload or "model_name" in payload or "capability" in payload
+    if has_model_fields:
+        normalized_models = _normalize_models_payload(
+            payload.get("models"),
+            payload.get("model_name"),
+            payload.get("capability"),
+        )
+        payload["models_json"] = json.dumps(normalized_models, ensure_ascii=False)
+        payload["model_name"], payload["capability"] = _derive_primary_fields_from_models(normalized_models)
+        payload.pop("models", None)
     for field in ("short_term_reset_at", "long_term_reset_at"):
         if field in payload:
             payload[field] = _normalize_beijing_datetime(payload[field])
@@ -118,15 +219,48 @@ def _advance_reset_time(current: Optional[datetime], interval: Optional[int], *,
     return current.replace(tzinfo=None)
 
 
+def _same_day_next_month(dt: datetime) -> datetime:
+    """Return the same day/time in the next month. If the day doesn't exist
+    in the next month (e.g. 31st), clamp to the last day of that month."""
+    import calendar
+    year = dt.year + (1 if dt.month == 12 else 0)
+    month = 1 if dt.month == 12 else dt.month + 1
+    max_day = calendar.monthrange(year, month)[1]
+    day = min(dt.day, max_day)
+    return dt.replace(year=year, month=month, day=day)
+
+
+def _advance_reset_time_monthly(current: Optional[datetime]) -> Optional[datetime]:
+    """Advance to the same day/time of the next month (preserving day and time)."""
+    if not current:
+        return current
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=BEIJING_TZ)
+    else:
+        current = current.astimezone(BEIJING_TZ)
+    now = datetime.now(BEIJING_TZ)
+    while current <= now:
+        current = _same_day_next_month(current)
+    return current.replace(tzinfo=None)
+
+
 def _normalize_agent_reset_times(agent: Agent, *, mark_confirmation: bool) -> bool:
     next_short = _advance_reset_time(agent.short_term_reset_at, agent.short_term_reset_interval_hours, hours=True)
-    next_long = _advance_reset_time(agent.long_term_reset_at, agent.long_term_reset_interval_days, hours=False)
+    mode = agent.long_term_reset_mode or "days"
+    if mode == "monthly":
+        next_long = _advance_reset_time_monthly(agent.long_term_reset_at)
+    else:
+        next_long = _advance_reset_time(agent.long_term_reset_at, agent.long_term_reset_interval_days, hours=False)
     changed = next_short != agent.short_term_reset_at or next_long != agent.long_term_reset_at
     if changed:
         if mark_confirmation and next_short != agent.short_term_reset_at:
             agent.short_term_reset_needs_confirmation = True
+            if agent.availability_status == "short_reset_pending":
+                agent.availability_status = "available"
         if mark_confirmation and next_long != agent.long_term_reset_at:
             agent.long_term_reset_needs_confirmation = True
+            if agent.availability_status == "long_reset_pending":
+                agent.availability_status = "available"
         agent.short_term_reset_at = next_short
         agent.long_term_reset_at = next_long
         agent.updated_at = datetime.now(timezone.utc)
@@ -136,7 +270,7 @@ def _normalize_agent_reset_times(agent: Agent, *, mark_confirmation: bool) -> bo
 def _clear_confirmation_flags_on_manual_update(agent: Agent, update_data: dict):
     if "short_term_reset_at" in update_data or "short_term_reset_interval_hours" in update_data:
         agent.short_term_reset_needs_confirmation = False
-    if "long_term_reset_at" in update_data or "long_term_reset_interval_days" in update_data:
+    if "long_term_reset_at" in update_data or "long_term_reset_interval_days" in update_data or "long_term_reset_mode" in update_data:
         agent.long_term_reset_needs_confirmation = False
 
 
@@ -147,10 +281,36 @@ def _get_agent_or_404(db: Session, agent_id: int) -> Agent:
     return agent
 
 
+def _build_agent_response(agent: Agent) -> AgentResponse:
+    return AgentResponse(
+        id=agent.id,
+        name=agent.name,
+        slug=agent.slug,
+        agent_type=agent.agent_type,
+        model_name=agent.model_name,
+        models=_parse_agent_models(agent),
+        capability=agent.capability,
+        machine_label=agent.machine_label,
+        is_active=agent.is_active,
+        availability_status=agent.availability_status,
+        display_order=agent.display_order or 0,
+        subscription_expires_at=agent.subscription_expires_at,
+        short_term_reset_at=agent.short_term_reset_at,
+        short_term_reset_interval_hours=agent.short_term_reset_interval_hours,
+        short_term_reset_needs_confirmation=agent.short_term_reset_needs_confirmation,
+        long_term_reset_at=agent.long_term_reset_at,
+        long_term_reset_interval_days=agent.long_term_reset_interval_days,
+        long_term_reset_mode=agent.long_term_reset_mode or "days",
+        long_term_reset_needs_confirmation=agent.long_term_reset_needs_confirmation,
+        created_at=agent.created_at,
+        updated_at=agent.updated_at,
+    )
+
+
 
 @router.get("", response_model=list[AgentResponse])
 def list_agents(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agents = db.query(Agent).all()
+    agents = db.query(Agent).order_by(Agent.display_order, Agent.id).all()
     changed = False
     for agent in agents:
         changed = _normalize_agent_reset_times(agent, mark_confirmation=True) or changed
@@ -158,7 +318,23 @@ def list_agents(db: Session = Depends(get_db), _user: User = Depends(get_current
         db.commit()
         for agent in agents:
             db.refresh(agent)
-    return agents
+    return [_build_agent_response(agent) for agent in agents]
+
+
+@router.put("/reorder", response_model=list[AgentResponse])
+def reorder_agents(body: ReorderRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    for index, agent_id in enumerate(body.agent_ids):
+        agent = db.query(Agent).filter(Agent.id == agent_id).first()
+        if agent:
+            agent.display_order = index
+    db.commit()
+    agents = db.query(Agent).order_by(Agent.display_order, Agent.id).all()
+    for agent in agents:
+        _normalize_agent_reset_times(agent, mark_confirmation=True)
+    db.commit()
+    for agent in agents:
+        db.refresh(agent)
+    return [_build_agent_response(agent) for agent in agents]
 
 
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
@@ -170,7 +346,7 @@ def create_agent(body: AgentCreate, db: Session = Depends(get_db), _user: User =
     db.add(agent)
     db.commit()
     db.refresh(agent)
-    return agent
+    return _build_agent_response(agent)
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
@@ -181,10 +357,33 @@ def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db)
         setattr(agent, key, value)
     _clear_confirmation_flags_on_manual_update(agent, update_data)
     _normalize_agent_reset_times(agent, mark_confirmation=False)
+    # If subscription was renewed (future date), auto-set status to available
+    if "subscription_expires_at" in update_data and agent.subscription_expires_at:
+        if agent.subscription_expires_at > _now_beijing_naive():
+            if agent.availability_status in ("expired", "unknown"):
+                agent.availability_status = "available"
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return agent
+    return _build_agent_response(agent)
+
+
+@router.patch("/{agent_id}/status", response_model=AgentResponse)
+def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    """Only modify availability_status. Must NOT call _normalize_agent_input or touch
+    model_name / models_json / capability — status changes are isolated from model config."""
+    agent = _get_agent_or_404(db, agent_id)
+    # Block status change if subscription expired
+    if agent.subscription_expires_at and agent.subscription_expires_at <= _now_beijing_naive():
+        raise HTTPException(status_code=400, detail="订阅已过期，无法更改状态")
+    valid_statuses = ("available", "short_reset_pending", "long_reset_pending")
+    if body.availability_status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"无效状态，允许的值：{', '.join(valid_statuses)}")
+    agent.availability_status = body.availability_status
+    agent.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(agent)
+    return _build_agent_response(agent)
 
 
 @router.post("/{agent_id}/short-term-reset/reset", response_model=AgentResponse)
@@ -194,10 +393,11 @@ def reset_short_term(agent_id: int, db: Session = Depends(get_db), _user: User =
         raise HTTPException(status_code=400, detail="短期重置时间或间隔未设置")
     agent.short_term_reset_at = _now_beijing_naive() + timedelta(hours=agent.short_term_reset_interval_hours)
     agent.short_term_reset_needs_confirmation = False
+    agent.availability_status = "available"
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return agent
+    return _build_agent_response(agent)
 
 
 @router.post("/{agent_id}/short-term-reset/confirm", response_model=AgentResponse)
@@ -207,20 +407,32 @@ def confirm_short_term(agent_id: int, db: Session = Depends(get_db), _user: User
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return agent
+    return _build_agent_response(agent)
 
 
 @router.post("/{agent_id}/long-term-reset/reset", response_model=AgentResponse)
 def reset_long_term(agent_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     agent = _get_agent_or_404(db, agent_id)
-    if not agent.long_term_reset_at or not agent.long_term_reset_interval_days:
-        raise HTTPException(status_code=400, detail="长期重置时间或间隔未设置")
-    agent.long_term_reset_at = _now_beijing_naive() + timedelta(days=agent.long_term_reset_interval_days)
+    mode = agent.long_term_reset_mode or "days"
+    if not agent.long_term_reset_at:
+        raise HTTPException(status_code=400, detail="长期重置时间未设置")
+    if mode == "days" and not agent.long_term_reset_interval_days:
+        raise HTTPException(status_code=400, detail="长期重置间隔未设置")
+    if mode == "monthly":
+        current_bj = agent.long_term_reset_at.replace(tzinfo=BEIJING_TZ) if agent.long_term_reset_at.tzinfo is None else agent.long_term_reset_at.astimezone(BEIJING_TZ)
+        agent.long_term_reset_at = _same_day_next_month(current_bj).replace(tzinfo=None)
+    else:
+        agent.long_term_reset_at = _now_beijing_naive() + timedelta(days=agent.long_term_reset_interval_days)
     agent.long_term_reset_needs_confirmation = False
+    # 长期重置同时触发短期重置
+    if agent.short_term_reset_at and agent.short_term_reset_interval_hours:
+        agent.short_term_reset_at = _now_beijing_naive() + timedelta(hours=agent.short_term_reset_interval_hours)
+        agent.short_term_reset_needs_confirmation = False
+    agent.availability_status = "available"
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return agent
+    return _build_agent_response(agent)
 
 
 @router.post("/{agent_id}/long-term-reset/confirm", response_model=AgentResponse)
@@ -230,7 +442,7 @@ def confirm_long_term(agent_id: int, db: Session = Depends(get_db), _user: User 
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return agent
+    return _build_agent_response(agent)
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)

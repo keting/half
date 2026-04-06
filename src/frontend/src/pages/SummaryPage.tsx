@@ -124,7 +124,13 @@ export default function SummaryPage() {
                 <td>{getAgentName(task.assignee_agent_id)}</td>
                 <td>
                   {task.result_file_path ? (
-                    <span className="file-link">{task.result_file_path}</span>
+                    <span
+                      className="file-link file-link-copy"
+                      title="点击复制路径"
+                      onClick={() => navigator.clipboard?.writeText(task.result_file_path!)}
+                    >
+                      {task.result_file_path}
+                    </span>
                   ) : (
                     <span className="text-muted">-</span>
                   )}

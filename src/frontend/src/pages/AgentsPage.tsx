@@ -1,16 +1,25 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { Agent } from '../types';
-import StatusBadge from '../components/StatusBadge';
+import { Agent, AgentModelConfig, AgentTypeConfig, ModelDefinition } from '../types';
+import PageHeader from '../components/PageHeader';
+import SectionCard from '../components/SectionCard';
+// StatusBadge is rendered inline in agent cards for the dropdown interaction
+import ModelBadge from '../components/ModelBadge';
+import CountdownChip from '../components/CountdownChip';
+import { deriveAgentStatus, isSubscriptionExpiringSoon, getAgentModels } from '../utils/agents';
+
+interface AgentModelForm {
+  model_name: string;
+  custom_model_name: string;
+  capability: string;
+}
 
 interface AgentForm {
   name: string;
   agent_type: string;
   custom_agent_type: string;
-  model_name: string;
-  custom_model_name: string;
-  machine_label: string;
-  capability: string;
+  models: AgentModelForm[];
   subscription_expires_at: string;
   short_term_reset_at: string;
   short_term_reset_timezone: string;
@@ -18,35 +27,13 @@ interface AgentForm {
   long_term_reset_at: string;
   long_term_reset_timezone: string;
   long_term_reset_interval_days: string;
+  long_term_reset_mode: string;
 }
 
-const AGENT_TYPE_OPTIONS = ['claude', 'codex', 'cursor', 'windsurf'];
-const MODEL_OPTIONS: Record<string, string[]> = {
-  claude: ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-3-7-sonnet-latest'],
-  codex: ['codex-mini-latest', 'codex-1', 'gpt-5-codex'],
-  cursor: ['cursor-default', 'gpt-5', 'claude-sonnet-4-5'],
-  windsurf: ['windsurf-default', 'claude-sonnet-4-5', 'gpt-5'],
-};
-
-const emptyForm: AgentForm = {
-  name: '',
-  agent_type: '',
-  custom_agent_type: '',
-  model_name: '',
-  custom_model_name: '',
-  machine_label: '',
-  capability: '',
-  subscription_expires_at: '',
-  short_term_reset_at: '',
-  short_term_reset_timezone: 'CST',
-  short_term_reset_interval_hours: '',
-  long_term_reset_at: '',
-  long_term_reset_timezone: 'CST',
-  long_term_reset_interval_days: '',
-};
+// Agent types and models are fetched from /api/agent-settings/types
 
 const TIMEZONE_OPTIONS = [
-  { value: 'CST', label: 'CST (UTC+8，北京时间)', offsetMinutes: 8 * 60 },
+  { value: 'CST', label: 'CST (UTC+8)', offsetMinutes: 8 * 60 },
   { value: 'UTC', label: 'UTC (UTC+0)', offsetMinutes: 0 },
   { value: 'GMT', label: 'GMT (UTC+0)', offsetMinutes: 0 },
   { value: 'EST', label: 'EST (UTC-5)', offsetMinutes: -5 * 60 },
@@ -56,6 +43,39 @@ const TIMEZONE_OPTIONS = [
   { value: 'PST', label: 'PST (UTC-8)', offsetMinutes: -8 * 60 },
   { value: 'PDT', label: 'PDT (UTC-7)', offsetMinutes: -7 * 60 },
 ];
+
+function createEmptyModelForm(): AgentModelForm {
+  return { model_name: '', custom_model_name: '', capability: '' };
+}
+
+function createEmptyForm(): AgentForm {
+  return {
+    name: '',
+    agent_type: '',
+    custom_agent_type: '',
+    models: [createEmptyModelForm()],
+    subscription_expires_at: '',
+    short_term_reset_at: '',
+    short_term_reset_timezone: 'CST',
+    short_term_reset_interval_hours: '',
+    long_term_reset_at: '',
+    long_term_reset_timezone: 'CST',
+    long_term_reset_interval_days: '',
+    long_term_reset_mode: 'days',
+  };
+}
+
+function normalizeAgentModelsForForm(agent: Agent, modelOptions: string[]): AgentModelForm[] {
+  const agentModels = getAgentModels(agent);
+  if (agentModels.length === 0) {
+    return [createEmptyModelForm()];
+  }
+  return agentModels.map((model) => ({
+    model_name: modelOptions.includes(model.model_name) ? model.model_name : '__custom__',
+    custom_model_name: modelOptions.includes(model.model_name) ? '' : model.model_name,
+    capability: model.capability || '',
+  }));
+}
 
 function pad2(value: number) {
   return String(value).padStart(2, '0');
@@ -71,36 +91,19 @@ function formatForDateTimeLocal(value: string | null | undefined) {
 function parseDateTimeLocal(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) return null;
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    day: Number(match[3]),
-    hour: Number(match[4]),
-    minute: Number(match[5]),
-  };
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]), hour: Number(match[4]), minute: Number(match[5]) };
 }
 
 function parseStoredDateTime(value: string | null | undefined) {
   if (!value) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(value);
   if (!match) return null;
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    day: Number(match[3]),
-    hour: Number(match[4]),
-    minute: Number(match[5]),
-  };
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]), hour: Number(match[4]), minute: Number(match[5]) };
 }
 
 function formatPartsForDateTimeLocal(parts: ReturnType<typeof parseDateTimeLocal>) {
   if (!parts) return '';
   return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}`;
-}
-
-function formatPartsForDisplay(parts: ReturnType<typeof parseDateTimeLocal>) {
-  if (!parts) return <span className="text-muted">-</span>;
-  return `${parts.year}/${parts.month}/${parts.day} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
 }
 
 function formatPartsForPreview(parts: ReturnType<typeof parseDateTimeLocal>) {
@@ -112,15 +115,11 @@ function convertToBeijingLocalValue(localValue: string, timezoneCode: string) {
   if (!localValue) return null;
   const parsed = parseDateTimeLocal(localValue);
   if (!parsed) return null;
-  const timezone = TIMEZONE_OPTIONS.find((option) => option.value === timezoneCode) || TIMEZONE_OPTIONS[0];
+  const timezone = TIMEZONE_OPTIONS.find((o) => o.value === timezoneCode) || TIMEZONE_OPTIONS[0];
   const totalMinutes = (parsed.hour * 60 + parsed.minute) - timezone.offsetMinutes + (8 * 60);
   const shiftedDate = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day, 0, 0));
   shiftedDate.setUTCMinutes(totalMinutes);
-  return [
-    shiftedDate.getUTCFullYear(),
-    pad2(shiftedDate.getUTCMonth() + 1),
-    pad2(shiftedDate.getUTCDate()),
-  ].join('-') + `T${pad2(shiftedDate.getUTCHours())}:${pad2(shiftedDate.getUTCMinutes())}`;
+  return [shiftedDate.getUTCFullYear(), pad2(shiftedDate.getUTCMonth() + 1), pad2(shiftedDate.getUTCDate())].join('-') + `T${pad2(shiftedDate.getUTCHours())}:${pad2(shiftedDate.getUTCMinutes())}`;
 }
 
 function formatBeijingPreview(localValue: string, timezoneCode: string) {
@@ -131,10 +130,6 @@ function formatBeijingStoredForInput(value: string | null | undefined) {
   return formatPartsForDateTimeLocal(parseStoredDateTime(value));
 }
 
-function formatBeijingTime(value: string | null | undefined) {
-  return formatPartsForDisplay(parseStoredDateTime(value));
-}
-
 function beijingPartsToEpoch(parts: ReturnType<typeof parseDateTimeLocal>) {
   if (!parts) return Number.NaN;
   return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour - 8, parts.minute);
@@ -142,87 +137,123 @@ function beijingPartsToEpoch(parts: ReturnType<typeof parseDateTimeLocal>) {
 
 function getCurrentBeijingParts() {
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   });
   const values = Object.fromEntries(
-    formatter.formatToParts(new Date())
-      .filter((part) => part.type !== 'literal')
-      .map((part) => [part.type, Number(part.value)]),
+    formatter.formatToParts(new Date()).filter((p) => p.type !== 'literal').map((p) => [p.type, Number(p.value)]),
   );
-  return {
-    year: values.year,
-    month: values.month,
-    day: values.day,
-    hour: values.hour,
-    minute: values.minute,
-  };
+  return { year: values.year, month: values.month, day: values.day, hour: values.hour, minute: values.minute };
+}
+
+function formatCountdown(resetTime: string | null | undefined) {
+  if (!resetTime) return { display: '-', tooltip: '', diffMs: Infinity };
+  const parts = parseStoredDateTime(resetTime);
+  const resetEpoch = beijingPartsToEpoch(parts);
+  const nowEpoch = beijingPartsToEpoch(getCurrentBeijingParts());
+  if (Number.isNaN(resetEpoch) || Number.isNaN(nowEpoch)) return { display: '-', tooltip: '', diffMs: Infinity };
+  const diffMs = resetEpoch - nowEpoch;
+  const tooltip = parts ? `${parts.year}/${parts.month}/${parts.day} ${pad2(parts.hour)}:${pad2(parts.minute)}` : '';
+  if (diffMs < 0) return { display: '已过期', tooltip, diffMs };
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const days = Math.floor(diffMinutes / (24 * 60));
+  const hours = Math.floor((diffMinutes % (24 * 60)) / 60);
+  const minutes = diffMinutes % 60;
+  let display = '';
+  if (days > 0) display = `${days}d ${hours}h ${minutes}m`;
+  else if (hours > 0) display = `${hours}h ${minutes}m`;
+  else display = `${minutes}m`;
+  return { display, tooltip, diffMs };
+}
+
+function formatBeijingDisplay(value: string | null | undefined) {
+  const parts = parseStoredDateTime(value);
+  if (!parts) return null;
+  return `${parts.year}/${pad2(parts.month)}/${pad2(parts.day)} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
 }
 
 export default function AgentsPage() {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<AgentForm>(emptyForm);
+  const [form, setForm] = useState<AgentForm>(createEmptyForm);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [actionAgentId, setActionAgentId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [statusDropdownAgentId, setStatusDropdownAgentId] = useState<number | null>(null);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const [agentTypeConfigs, setAgentTypeConfigs] = useState<AgentTypeConfig[]>([]);
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (!statusDropdownAgentId) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownAgentId(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [statusDropdownAgentId]);
+
+  const agentTypeNames = useMemo(() => agentTypeConfigs.map((t) => t.name), [agentTypeConfigs]);
   const effectiveAgentType = form.agent_type === '__custom__' ? form.custom_agent_type.trim() : form.agent_type;
-  const modelOptions = useMemo(() => MODEL_OPTIONS[effectiveAgentType] || [], [effectiveAgentType]);
-  const usesCustomModel = form.model_name === '__custom__' || (form.model_name === '' && modelOptions.length === 0 && !!form.custom_model_name);
+  const currentTypeConfig = useMemo(() => agentTypeConfigs.find((t) => t.name === effectiveAgentType), [agentTypeConfigs, effectiveAgentType]);
+  const modelOptions = useMemo(() => currentTypeConfig?.models || [], [currentTypeConfig]);
+  const modelOptionNames = useMemo(() => modelOptions.map((m) => m.name), [modelOptions]);
 
-  const fetchAgents = useCallback(() => {
-    api.get<Agent[]>('/api/agents')
-      .then(setAgents)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetchAgents();
-  }, [fetchAgents]);
-
-  useEffect(() => {
-    const countdownTimer = window.setInterval(() => {
-      setNowTick(Date.now());
-    }, 30 * 1000);
-    const refreshTimer = window.setInterval(() => {
-      fetchAgents();
-    }, 60 * 1000);
-    return () => {
-      window.clearInterval(countdownTimer);
-      window.clearInterval(refreshTimer);
-    };
-  }, [fetchAgents]);
-
-  function handleAdd() {
-    setForm(emptyForm);
-    setEditingId(null);
-    setShowForm(true);
-    setError('');
+  // Look up capability from model definition for a given model name
+  function getModelCapability(modelName: string): string {
+    for (const typeConfig of agentTypeConfigs) {
+      for (const model of typeConfig.models) {
+        if (model.name === modelName || model.alias === modelName) {
+          return model.capability || '';
+        }
+      }
+    }
+    return '';
   }
 
+  const resolvedFormModels = form.models
+    .map((model) => {
+      const name = model.model_name.trim();
+      return { model_name: name, capability: getModelCapability(name) || model.capability.trim() };
+    })
+    .filter((model) => model.model_name);
+  const resolvedCapabilitySummary = Array.from(new Set(resolvedFormModels.map((model) => model.capability).filter(Boolean))).join('；');
+  const canSubmitModels = resolvedFormModels.length > 0;
+
+  const fetchAgents = useCallback(() => {
+    api.get<Agent[]>('/api/agents').then(setAgents).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const fetchTypeConfigs = useCallback(() => {
+    api.get<AgentTypeConfig[]>('/api/agent-settings/types').then(setAgentTypeConfigs).catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchAgents(); fetchTypeConfigs(); }, [fetchAgents, fetchTypeConfigs]);
+
+  useEffect(() => {
+    const ct = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    const rt = window.setInterval(() => fetchAgents(), 60_000);
+    return () => { window.clearInterval(ct); window.clearInterval(rt); };
+  }, [fetchAgents]);
+
+  function handleAdd() { setForm(createEmptyForm()); setEditingId(null); setShowForm(true); setError(''); }
+
   function handleEdit(agent: Agent) {
-    const knownType = AGENT_TYPE_OPTIONS.includes(agent.agent_type);
-    const knownModels = MODEL_OPTIONS[agent.agent_type] || [];
-    const knownModel = agent.model_name ? knownModels.includes(agent.model_name) : false;
+    const knownType = agentTypeNames.includes(agent.agent_type);
+    const typeConfig = agentTypeConfigs.find((t) => t.name === agent.agent_type);
+    const knownModels = typeConfig?.models.map((m) => m.name) || [];
     setForm({
       name: agent.name,
       agent_type: knownType ? agent.agent_type : '__custom__',
       custom_agent_type: knownType ? '' : agent.agent_type,
-      model_name: agent.model_name ? (knownModel ? agent.model_name : '__custom__') : '',
-      custom_model_name: agent.model_name && !knownModel ? agent.model_name : '',
-      machine_label: agent.machine_label || '',
-      capability: agent.capability || '',
+      models: normalizeAgentModelsForForm(agent, knownModels),
       subscription_expires_at: formatForDateTimeLocal(agent.subscription_expires_at),
       short_term_reset_at: formatBeijingStoredForInput(agent.short_term_reset_at),
       short_term_reset_timezone: 'CST',
@@ -230,520 +261,531 @@ export default function AgentsPage() {
       long_term_reset_at: formatBeijingStoredForInput(agent.long_term_reset_at),
       long_term_reset_timezone: 'CST',
       long_term_reset_interval_days: agent.long_term_reset_interval_days != null ? String(agent.long_term_reset_interval_days) : '',
+      long_term_reset_mode: agent.long_term_reset_mode || 'days',
     });
     setEditingId(agent.id);
     setShowForm(true);
     setError('');
   }
 
-  function handleCancel() {
-    setShowForm(false);
-    setEditingId(null);
-    setError('');
+  function handleCancel() { setShowForm(false); setEditingId(null); setError(''); }
+  function updateField(field: keyof AgentForm, value: string) { setForm((prev) => ({ ...prev, [field]: value })); }
+  function updateModelField(index: number, field: keyof AgentModelForm, value: string) {
+    setForm((prev) => ({
+      ...prev,
+      models: prev.models.map((model, modelIndex) => modelIndex === index ? { ...model, [field]: value } : model),
+    }));
   }
-
-  function updateField(field: keyof AgentForm, value: string) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  function addModelRow() {
+    setForm((prev) => ({ ...prev, models: [...prev.models, createEmptyModelForm()] }));
+  }
+  function removeModelRow(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      models: prev.models.length === 1 ? [createEmptyModelForm()] : prev.models.filter((_, modelIndex) => modelIndex !== index),
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError('');
-
-    const resolvedAgentType = effectiveAgentType;
-    const resolvedModelName = form.model_name === '__custom__' ? form.custom_model_name.trim() : form.model_name.trim();
-
     try {
       const payload = {
         name: form.name.trim(),
-        agent_type: resolvedAgentType,
-        model_name: resolvedModelName || null,
-        capability: form.capability.trim() || null,
+        agent_type: effectiveAgentType,
+        model_name: resolvedFormModels[0]?.model_name || null,
+        capability: resolvedCapabilitySummary || null,
+        models: resolvedFormModels.map((model) => ({
+          model_name: model.model_name,
+          capability: model.capability,
+        })),
         subscription_expires_at: form.subscription_expires_at || null,
         short_term_reset_at: convertToBeijingLocalValue(form.short_term_reset_at, form.short_term_reset_timezone),
         short_term_reset_interval_hours: form.short_term_reset_interval_hours.trim() ? Number(form.short_term_reset_interval_hours) : null,
         long_term_reset_at: convertToBeijingLocalValue(form.long_term_reset_at, form.long_term_reset_timezone),
-        long_term_reset_interval_days: form.long_term_reset_interval_days.trim() ? Number(form.long_term_reset_interval_days) : null,
+        long_term_reset_interval_days: form.long_term_reset_mode === 'days' && form.long_term_reset_interval_days.trim() ? Number(form.long_term_reset_interval_days) : null,
+        long_term_reset_mode: form.long_term_reset_mode,
       };
-      if (editingId) {
-        await api.put(`/api/agents/${editingId}`, payload);
-      } else {
-        await api.post('/api/agents', payload);
-      }
+      if (editingId) await api.put(`/api/agents/${editingId}`, payload);
+      else await api.post('/api/agents', payload);
       setShowForm(false);
       setEditingId(null);
       fetchAgents();
-    } catch (err) {
-      setError(`保存 Agent 失败：${err}`);
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) { setError(`保存失败：${err}`); }
+    finally { setSaving(false); }
   }
 
   async function handleDelete(agent: Agent) {
-    if (!confirm(`确认删除 Agent “${agent.name}” 吗？`)) return;
-    setDeletingId(agent.id);
-    setError('');
-    try {
-      await api.delete(`/api/agents/${agent.id}`);
-      fetchAgents();
-    } catch (err) {
-      setError(`删除 Agent 失败：${err}`);
-    } finally {
-      setDeletingId(null);
-    }
+    if (!confirm(`确认删除 "${agent.name}" 吗？`)) return;
+    setDeletingId(agent.id); setError('');
+    try { await api.delete(`/api/agents/${agent.id}`); fetchAgents(); }
+    catch (err) { setError(`删除失败：${err}`); }
+    finally { setDeletingId(null); }
   }
 
   async function handleResetAction(agentId: number, mode: 'short' | 'long') {
-    setActionAgentId(agentId);
-    setError('');
+    setActionAgentId(agentId); setError('');
     try {
-      const updatedAgent = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/reset`);
-      setAgents((prev) => prev.map((agent) => agent.id === agentId ? updatedAgent : agent));
-    } catch (err) {
-      setError(`${mode === 'short' ? '短期' : '长期'}重置失败：${err}`);
-    } finally {
-      setActionAgentId(null);
-    }
+      const updated = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/reset`);
+      setAgents((prev) => prev.map((a) => a.id === agentId ? updated : a));
+    } catch (err) { setError(`${mode === 'short' ? '短期' : '长期'}重置失败：${err}`); }
+    finally { setActionAgentId(null); }
   }
 
   async function handleConfirmAction(agentId: number, mode: 'short' | 'long') {
-    setActionAgentId(agentId);
+    setActionAgentId(agentId); setError('');
+    try {
+      const updated = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/confirm`);
+      setAgents((prev) => prev.map((a) => a.id === agentId ? updated : a));
+    } catch (err) { setError(`确认失败：${err}`); }
+    finally { setActionAgentId(null); }
+  }
+
+  async function handleStatusChange(agentId: number, newStatus: string) {
+    setStatusDropdownAgentId(null);
     setError('');
     try {
-      const updatedAgent = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/confirm`);
-      setAgents((prev) => prev.map((agent) => agent.id === agentId ? updatedAgent : agent));
+      const updated = await api.patch<Agent>(`/api/agents/${agentId}/status`, { availability_status: newStatus });
+      setAgents((prev) => prev.map((a) => a.id === agentId ? updated : a));
     } catch (err) {
-      setError(`${mode === 'short' ? '短期' : '长期'}确认失败：${err}`);
-    } finally {
-      setActionAgentId(null);
+      setError(`状态更新失败：${err}`);
     }
   }
 
-  // 根据订阅到期时间自动推导可用状态
-  function deriveAvailabilityStatus(agent: Agent): string {
-    if (agent.subscription_expires_at) {
-      const expiresDate = new Date(agent.subscription_expires_at);
-      if (!Number.isNaN(expiresDate.getTime()) && expiresDate.getTime() > Date.now()) {
-        return 'online';
-      }
-      return 'expired';
-    }
-    return agent.availability_status || 'unknown';
-  }
-
-  // 计算倒计时
-  function formatCountdown(resetTime: string | null | undefined) {
-    if (!resetTime) return { display: '-', tooltip: '', diffMs: Infinity };
-
-    const parts = parseStoredDateTime(resetTime);
-    const resetEpoch = beijingPartsToEpoch(parts);
-    const nowEpoch = beijingPartsToEpoch(getCurrentBeijingParts());
-    if (Number.isNaN(resetEpoch) || Number.isNaN(nowEpoch)) return { display: '-', tooltip: '', diffMs: Infinity };
-    const diffMs = resetEpoch - nowEpoch;
-    const tooltip = parts ? `${parts.year}/${parts.month}/${parts.day} ${pad2(parts.hour)}:${pad2(parts.minute)}` : '';
-
-    if (diffMs < 0) return { display: '已过期', tooltip, diffMs };
-
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const days = Math.floor(diffMinutes / (24 * 60));
-    const hours = Math.floor((diffMinutes % (24 * 60)) / 60);
-    const minutes = diffMinutes % 60;
-
-    let display = '';
-    if (days > 0) {
-      display = `${days}d${hours}h${minutes}m`;
-    } else if (hours > 0) {
-      display = `${hours}h${minutes}m`;
-    } else {
-      display = `${minutes}m`;
-    }
-
-    return { display, tooltip, diffMs };
-  }
-
-  // 排序：按最近重置时间排序（最先重置的排最前面）
   const sortedAgents = useMemo(() => {
+    return [...agents].sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+  }, [agents]);
+
+  // Compute the auto-sorted order (by status group, then reset time)
+  const autoSortedIds = useMemo(() => {
+    const statusGroupOrder = (agent: Agent): number => {
+      const s = deriveAgentStatus(agent).status;
+      if (s === 'available') return 0;
+      if (s === 'short_reset_pending' || s === 'long_reset_pending') return 1;
+      return 2; // unavailable
+    };
+    // For pending group: use the reset time matching the pending status
+    const getPendingResetEpoch = (agent: Agent): number => {
+      const s = deriveAgentStatus(agent).status;
+      if (s === 'short_reset_pending' && agent.short_term_reset_at) {
+        const ep = beijingPartsToEpoch(parseStoredDateTime(agent.short_term_reset_at));
+        if (!Number.isNaN(ep)) return ep;
+      }
+      if (s === 'long_reset_pending' && agent.long_term_reset_at) {
+        const ep = beijingPartsToEpoch(parseStoredDateTime(agent.long_term_reset_at));
+        if (!Number.isNaN(ep)) return ep;
+      }
+      return Infinity;
+    };
+    // For available group: use the earliest of short/long reset times
+    const getNearestResetEpoch = (agent: Agent): number => {
+      let earliest = Infinity;
+      if (agent.short_term_reset_at) {
+        const ep = beijingPartsToEpoch(parseStoredDateTime(agent.short_term_reset_at));
+        if (!Number.isNaN(ep) && ep < earliest) earliest = ep;
+      }
+      if (agent.long_term_reset_at) {
+        const ep = beijingPartsToEpoch(parseStoredDateTime(agent.long_term_reset_at));
+        if (!Number.isNaN(ep) && ep < earliest) earliest = ep;
+      }
+      return earliest;
+    };
     return [...agents].sort((a, b) => {
-      const getMinResetMs = (agent: Agent) => {
-        const times: number[] = [];
-        if (agent.short_term_reset_at) {
-          const ms = beijingPartsToEpoch(parseStoredDateTime(agent.short_term_reset_at)) - beijingPartsToEpoch(getCurrentBeijingParts());
-          if (!Number.isNaN(ms)) times.push(ms);
-        }
-        if (agent.long_term_reset_at) {
-          const ms = beijingPartsToEpoch(parseStoredDateTime(agent.long_term_reset_at)) - beijingPartsToEpoch(getCurrentBeijingParts());
-          if (!Number.isNaN(ms)) times.push(ms);
-        }
-        return times.length > 0 ? Math.min(...times) : Infinity;
-      };
-      return getMinResetMs(a) - getMinResetMs(b);
-    });
+      const groupDiff = statusGroupOrder(a) - statusGroupOrder(b);
+      if (groupDiff !== 0) return groupDiff;
+      const group = statusGroupOrder(a);
+      if (group === 0) {
+        const epochDiff = getNearestResetEpoch(a) - getNearestResetEpoch(b);
+        if (epochDiff !== 0) return epochDiff;
+      }
+      if (group === 1) {
+        const epochDiff = getPendingResetEpoch(a) - getPendingResetEpoch(b);
+        if (epochDiff !== 0) return epochDiff;
+      }
+      return a.id - b.id;
+    }).map((a) => a.id);
   }, [agents, nowTick]);
+
+  const isManuallyOrdered = useMemo(() => {
+    if (agents.length <= 1) return false;
+    const currentIds = sortedAgents.map((a) => a.id);
+    return currentIds.some((id, i) => id !== autoSortedIds[i]);
+  }, [sortedAgents, autoSortedIds, agents.length]);
+
+  // Build a map of agent_type -> description from settings
+  const typeDescriptionMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of agentTypeConfigs) {
+      if (t.description) map[t.name] = t.description;
+    }
+    return map;
+  }, [agentTypeConfigs]);
+
+  // Determine which (agentId, modelName) pairs should show capability:
+  // only the first occurrence of each model_name in auto-sort order
+  const modelsWithCapability = useMemo(() => {
+    const seen = new Set<string>();
+    const result = new Set<string>();
+    for (const agentId of autoSortedIds) {
+      const agent = agents.find((a) => a.id === agentId);
+      if (!agent) continue;
+      for (const model of getAgentModels(agent)) {
+        if (!seen.has(model.model_name)) {
+          seen.add(model.model_name);
+          result.add(`${agentId}:${model.model_name}`);
+        }
+      }
+    }
+    return result;
+  }, [autoSortedIds, agents]);
+
+  async function handleAutoSort() {
+    const updated = autoSortedIds.map((id, i) => {
+      const agent = agents.find((a) => a.id === id)!;
+      return { ...agent, display_order: i };
+    });
+    setAgents(updated);
+    try {
+      const result = await api.put<Agent[]>('/api/agents/reorder', { agent_ids: autoSortedIds });
+      setAgents(result);
+    } catch {
+      fetchAgents();
+    }
+  }
+
+  async function handleReorder(fromId: number, toId: number) {
+    if (fromId === toId) return;
+    const ordered = [...sortedAgents];
+    const fromIndex = ordered.findIndex((a) => a.id === fromId);
+    const toIndex = ordered.findIndex((a) => a.id === toId);
+    if (fromIndex === -1 || toIndex === -1) return;
+    const [moved] = ordered.splice(fromIndex, 1);
+    ordered.splice(toIndex, 0, moved);
+    // Optimistic update
+    const updated = ordered.map((a, i) => ({ ...a, display_order: i }));
+    setAgents(updated);
+    try {
+      const result = await api.put<Agent[]>('/api/agents/reorder', { agent_ids: updated.map((a) => a.id) });
+      setAgents(result);
+    } catch {
+      fetchAgents();
+    }
+  }
 
   if (loading) return <div className="page-loading">正在加载智能体...</div>;
 
-  return (
-    <div className="page">
-      <div className="page-header">
-        <h1>智能体</h1>
-        <button className="btn btn-primary" onClick={handleAdd} title="新增一个可用于项目执行的智能体">
-          新增智能体
-        </button>
-      </div>
-
-      {error && <div className="error-message">{error}</div>}
-
-      {showForm && (
-        <div className="agent-form-card">
-          <h3>{editingId ? '编辑 Agent' : '新增 Agent'}</h3>
-          <form className="form" onSubmit={handleSubmit}>
-            <div className="form-row compact-form-row">
-              <div className="form-group">
-                <label title="填写便于识别的 Agent 名称。">名称</label>
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => updateField('name', e.target.value)}
-                  required
-                  title="例如：Claude 主力、Codex 执行器。"
-                  placeholder="例如：Claude 主力"
-                />
+  // --- Form rendering ---
+  function renderForm() {
+    return (
+      <div className="agent-form-overlay">
+        <div className="agent-form-container">
+          <div className="agent-form-header">
+            <h2>{editingId ? '编辑智能体' : '新增智能体'}</h2>
+            <button className="btn btn-ghost btn-sm" onClick={handleCancel}>关闭</button>
+          </div>
+          <form className="agent-form" onSubmit={handleSubmit}>
+            <SectionCard title="基本信息">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>名称</label>
+                  <input type="text" value={form.name} onChange={(e) => updateField('name', e.target.value)} required placeholder="例如：Claude 主力" />
+                </div>
+                <div className="form-group">
+                  <label>订阅到期时间</label>
+                  <input type="datetime-local" value={form.subscription_expires_at} onChange={(e) => updateField('subscription_expires_at', e.target.value)} />
+                </div>
               </div>
-              <div className="form-group">
-                <label title="选择 Agent 类型；如果列表里没有，可切换为自定义。">Agent Type</label>
-                <select
-                  value={form.agent_type}
-                  onChange={(e) => {
-                    updateField('agent_type', e.target.value);
-                    updateField('model_name', '');
-                    updateField('custom_model_name', '');
-                  }}
-                  title="优先从常见 Agent 类型中选择。"
-                >
-                  <option value="">请选择 Agent Type</option>
-                  {AGENT_TYPE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                  <option value="__custom__">其他类型</option>
-                </select>
+            </SectionCard>
+
+            <SectionCard title="模型与能力">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Agent 类型</label>
+                  <select
+                    value={form.agent_type}
+                    onChange={(e) => {
+                      updateField('agent_type', e.target.value);
+                      setForm((prev) => ({ ...prev, agent_type: e.target.value, models: prev.models.map(() => createEmptyModelForm()) }));
+                    }}
+                  >
+                    <option value="">请选择</option>
+                    {agentTypeNames.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </div>
               </div>
-            </div>
-
-            {form.agent_type === '__custom__' && (
-              <div className="form-group">
-                <label title="输入列表里没有的 Agent 类型。">自定义 Agent Type</label>
-                <input
-                  type="text"
-                  value={form.custom_agent_type}
-                  onChange={(e) => updateField('custom_agent_type', e.target.value)}
-                  required
-                  placeholder="例如：custom-runner"
-                  title="仅在预设列表没有时填写。"
-                />
+              <div className="model-capability-list">
+                {form.models.map((model, index) => (
+                  <div className="model-capability-item" key={index}>
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label>{`模型 ${index + 1}`}</label>
+                        <select value={model.model_name} onChange={(e) => updateModelField(index, 'model_name', e.target.value)}>
+                          <option value="">请选择模型</option>
+                          {modelOptions.map((option) => <option key={option.id} value={option.name}>{option.name}{option.alias ? ` (${option.alias})` : ''}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>能力描述 <span className="helper-text">（在智能体设置中修改）</span></label>
+                        <textarea
+                          value={getModelCapability(model.model_name.trim()) || model.capability}
+                          readOnly
+                          rows={2}
+                          className="textarea-readonly"
+                          placeholder="请在智能体设置中配置模型能力描述"
+                        />
+                      </div>
+                    </div>
+                    <div className="model-capability-actions">
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeModelRow(index)}>
+                        删除该模型
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
-
-            <div className="form-group">
-              <label title="根据 Agent Type 选择常见模型，没有时可改为手工输入。">Model Name</label>
-              {modelOptions.length > 0 ? (
-                <select
-                  value={form.model_name}
-                  onChange={(e) => updateField('model_name', e.target.value)}
-                  title="优先选择常见模型。"
-                >
-                  <option value="">未指定</option>
-                  {modelOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                  <option value="__custom__">手工输入</option>
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={form.custom_model_name}
-                  onChange={(e) => updateField('custom_model_name', e.target.value)}
-                  placeholder="例如：gpt-5-codex"
-                  title="当前类型没有预设模型，请手工输入。"
-                />
-              )}
-            </div>
-
-            {modelOptions.length > 0 && form.model_name === '__custom__' && (
-              <div className="form-group">
-                <label title="输入预设列表中没有的模型名。">自定义 Model Name</label>
-                <input
-                  type="text"
-                  value={form.custom_model_name}
-                  onChange={(e) => updateField('custom_model_name', e.target.value)}
-                  placeholder="例如：custom-model"
-                  title="仅在预设模型没有时填写。"
-                />
-              </div>
-            )}
-
-
-            <div className="form-group">
-              <label title="填写该 Agent 或模型最擅长处理的能力方向，例如长文本分析、任务拆解、代码实现。">能力</label>
-              <textarea
-                value={form.capability}
-                onChange={(e) => updateField('capability', e.target.value)}
-                rows={3}
-                required
-                placeholder="例如：长文本分析、任务拆解、代码实现"
-                title="建议用顿号或逗号列出 2 到 5 项核心能力。"
-              />
-            </div>
-
-            <div className="form-group form-group-half">
-              <label title="可选，用于记录 Agent 订阅到期时间。">订阅到期时间</label>
-              <input
-                type="datetime-local"
-                value={form.subscription_expires_at}
-                onChange={(e) => updateField('subscription_expires_at', e.target.value)}
-                title="选填，填写后会在列表中展示。"
-              />
-            </div>
-
-            <div className="form-row compact-form-row">
-              <div className="form-group">
-                <label title="选填，表示下一次短期重置时间。可先按原时区录入，系统会自动换算成北京时间保存。">短期重置</label>
-                <input
-                  type="datetime-local"
-                  value={form.short_term_reset_at}
-                  onChange={(e) => updateField('short_term_reset_at', e.target.value)}
-                  title="选填，精确到分钟。"
-                />
-                <select
-                  value={form.short_term_reset_timezone}
-                  onChange={(e) => updateField('short_term_reset_timezone', e.target.value)}
-                  title="选择当前录入时间所属的时区。"
-                >
-                  {TIMEZONE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <div className="helper-text">北京时间：{formatBeijingPreview(form.short_term_reset_at, form.short_term_reset_timezone)}</div>
-              </div>
-              <div className="form-group">
-                <label title="选填，表示短期重置每隔多少小时自动续推一次。">短期重置间隔（小时）</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={form.short_term_reset_interval_hours}
-                  onChange={(e) => updateField('short_term_reset_interval_hours', e.target.value)}
-                  placeholder="例如：5"
-                  title="选填。设置后，短期重置时间到期会自动加上该间隔。"
-                />
-              </div>
-            </div>
-
-            <div className="form-row compact-form-row">
-              <div className="form-group">
-                <label title="选填，表示下一次长期重置时间。可先按原时区录入，系统会自动换算成北京时间保存。">长期重置</label>
-                <input
-                  type="datetime-local"
-                  value={form.long_term_reset_at}
-                  onChange={(e) => updateField('long_term_reset_at', e.target.value)}
-                  title="选填，精确到分钟。"
-                />
-                <select
-                  value={form.long_term_reset_timezone}
-                  onChange={(e) => updateField('long_term_reset_timezone', e.target.value)}
-                  title="选择当前录入时间所属的时区。"
-                >
-                  {TIMEZONE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <div className="helper-text">北京时间：{formatBeijingPreview(form.long_term_reset_at, form.long_term_reset_timezone)}</div>
-              </div>
-              <div className="form-group">
-                <label title="选填，表示长期重置每隔多少天自动续推一次。">长期重置间隔（天）</label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={form.long_term_reset_interval_days}
-                  onChange={(e) => updateField('long_term_reset_interval_days', e.target.value)}
-                  placeholder="例如：7"
-                  title="选填。设置后，长期重置时间到期会自动加上该间隔。"
-                />
-              </div>
-            </div>
-
-            <div className="helper-text">新增时不再要求填写 Slug。系统会根据名称自动生成唯一标识。</div>
-            <div className="helper-text">短期重置和长期重置都按北京时间存储与展示；录入时可先选择原始时区。</div>
-            <div className="helper-text">如果同时设置了重置时间和重置间隔，到期后系统会自动将该时间向后顺延一轮。</div>
-
-            <div className="form-actions">
-              <button type="button" className="btn btn-ghost" onClick={handleCancel} title="关闭表单并放弃当前编辑内容">
-                取消
+              <button type="button" className="btn btn-secondary btn-sm" onClick={addModelRow}>
+                新增模型
               </button>
-              <button type="submit" className="btn btn-primary" disabled={saving || !form.name.trim() || !effectiveAgentType || !form.capability.trim() || (usesCustomModel && !form.custom_model_name.trim())} title="保存当前 Agent 配置">
-                {saving ? '保存中...' : editingId ? '更新 Agent' : '创建 Agent'}
+            </SectionCard>
+
+            <SectionCard title="短期重置策略" description="小时级或短窗口额度恢复周期">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>下次重置时间</label>
+                  <input type="datetime-local" value={form.short_term_reset_at} onChange={(e) => updateField('short_term_reset_at', e.target.value)} />
+                  <select className="tz-select" value={form.short_term_reset_timezone} onChange={(e) => updateField('short_term_reset_timezone', e.target.value)}>
+                    {TIMEZONE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <div className="helper-text">北京时间：{formatBeijingPreview(form.short_term_reset_at, form.short_term_reset_timezone)}</div>
+                </div>
+                <div className="form-group">
+                  <label>重置间隔（小时）</label>
+                  <input type="number" min="1" step="1" value={form.short_term_reset_interval_hours} onChange={(e) => updateField('short_term_reset_interval_hours', e.target.value)} placeholder="例如：5" />
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="长期重置策略" description="日级、周级、月级或长窗口额度恢复周期">
+              <div className="form-row">
+                <div className="form-group">
+                  <label>下次重置时间</label>
+                  <input type="datetime-local" value={form.long_term_reset_at} onChange={(e) => updateField('long_term_reset_at', e.target.value)} />
+                  <select className="tz-select" value={form.long_term_reset_timezone} onChange={(e) => updateField('long_term_reset_timezone', e.target.value)}>
+                    {TIMEZONE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <div className="helper-text">北京时间：{formatBeijingPreview(form.long_term_reset_at, form.long_term_reset_timezone)}</div>
+                </div>
+                <div className="form-group">
+                  <label>重置间隔模式</label>
+                  <select value={form.long_term_reset_mode} onChange={(e) => updateField('long_term_reset_mode', e.target.value)}>
+                    <option value="days">按天</option>
+                    <option value="monthly">{(() => {
+                      const bj = convertToBeijingLocalValue(form.long_term_reset_at, form.long_term_reset_timezone);
+                      const parts = bj ? parseDateTimeLocal(bj) : null;
+                      return parts ? `每月${parts.day}日 ${pad2(parts.hour)}:${pad2(parts.minute)}` : '每月（请先设置下次重置时间）';
+                    })()}</option>
+                  </select>
+                </div>
+                {form.long_term_reset_mode === 'days' && (
+                  <div className="form-group">
+                    <label>重置间隔（天）</label>
+                    <input type="number" min="1" step="1" value={form.long_term_reset_interval_days} onChange={(e) => updateField('long_term_reset_interval_days', e.target.value)} placeholder="例如：7" />
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+
+            {error && <div className="error-message">{error}</div>}
+
+            <div className="agent-form-footer">
+              <button type="button" className="btn btn-ghost" onClick={handleCancel}>取消</button>
+              <button type="submit" className="btn btn-primary" disabled={saving || !form.name.trim() || !effectiveAgentType || !canSubmitModels}>
+                {saving ? '保存中...' : editingId ? '更新' : '创建'}
               </button>
             </div>
           </form>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      <table className="data-table agents-table">
-        <colgroup>
-          <col className="agents-col-name" />
-          <col className="agents-col-type" />
-          <col className="agents-col-model" />
-          <col className="agents-col-capability" />
-          <col className="agents-col-status" />
-          <col className="agents-col-subscription" />
-          <col className="agents-col-short-reset" />
-          <col className="agents-col-short-interval" />
-          <col className="agents-col-long-reset" />
-          <col className="agents-col-long-interval" />
-          <col className="agents-col-actions" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>类型</th>
-            <th>模型</th>
-            <th>能力</th>
-            <th>状态</th>
-            <th>订阅到期</th>
-            <th className="agents-stacked-header">
-              <span>短期</span>
-              <span>重置</span>
-              <span>剩余</span>
-              <span>时间</span>
-            </th>
-            <th>短期间隔</th>
-            <th className="agents-stacked-header">
-              <span>长期</span>
-              <span>重置</span>
-              <span>剩余</span>
-              <span>时间</span>
-            </th>
-            <th>长期间隔</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sortedAgents.map((agent) => {
-            const shortTermCountdown = formatCountdown(agent.short_term_reset_at);
-            const longTermCountdown = formatCountdown(agent.long_term_reset_at);
-            const derivedStatus = deriveAvailabilityStatus(agent);
-            const showShortResetActions = Boolean(
-              agent.short_term_reset_at
-              && agent.short_term_reset_interval_hours
-              && agent.short_term_reset_needs_confirmation,
-            );
-            const showLongResetActions = Boolean(
-              agent.long_term_reset_at
-              && agent.long_term_reset_interval_days
-              && agent.long_term_reset_needs_confirmation,
-            );
+  return (
+    <div className="page">
+      <PageHeader title="智能体" description="管理可参与项目执行的 AI Agent">
+        {isManuallyOrdered && (
+          <button
+            className="btn btn-auto-sort"
+            onClick={handleAutoSort}
+            title="恢复系统默认排序：按状态分组（可用→重置后可用→不可用），重置后可用组内按重置时间从近到远排列"
+          >
+            自动排序
+          </button>
+        )}
+        <button className="btn btn-primary" onClick={handleAdd}>新增智能体</button>
+        <button className="btn btn-secondary" onClick={() => navigate('/agents/settings')}>设置</button>
+      </PageHeader>
 
-            // 短期重置：不足1小时为红色
-            const shortTermColor = shortTermCountdown.diffMs >= 0 && shortTermCountdown.diffMs < 60 * 60 * 1000 && shortTermCountdown.display !== '-'
-              ? '#ef4444' : undefined;
-            // 长期重置：不足1天为红色，不足2天为橙黄色
-            let longTermColor: string | undefined;
-            if (longTermCountdown.display !== '-' && longTermCountdown.diffMs >= 0) {
-              if (longTermCountdown.diffMs < 24 * 60 * 60 * 1000) {
-                longTermColor = '#ef4444';
-              } else if (longTermCountdown.diffMs < 2 * 24 * 60 * 60 * 1000) {
-                longTermColor = '#e89a1d';
-              }
-            }
+      {error && !showForm && <div className="error-message">{error}</div>}
+      {showForm && renderForm()}
 
-            return (
-              <tr key={agent.id}>
-                <td className="agent-name-cell">{agent.name}</td>
-                <td className="agent-type-cell">{agent.agent_type}</td>
-                <td className="agent-model-cell">{agent.model_name || <span className="text-muted">-</span>}</td>
-                <td className="agent-capability-cell">{agent.capability || <span className="text-muted">-</span>}</td>
-                <td className="agent-status-cell"><StatusBadge status={derivedStatus} /></td>
-                <td className="agent-subscription-cell">
-                  {formatBeijingTime(agent.subscription_expires_at)}
-                </td>
-                <td className="agent-reset-cell">
-                  <div className="reset-cell">
-                    <div title={shortTermCountdown.tooltip} style={shortTermColor ? { color: shortTermColor, fontWeight: 600 } : undefined}>
-                      {shortTermCountdown.display === '-' ? <span className="text-muted">-</span> : shortTermCountdown.display}
-                    </div>
-                    {showShortResetActions && (
-                      <div className="reset-action-row">
-                        <button
-                          className="btn btn-sm btn-warning"
-                          title="点击重置短期剩余时间"
-                          onClick={() => handleResetAction(agent.id, 'short')}
-                          disabled={actionAgentId === agent.id}
+      <div className="agent-card-list">
+        {sortedAgents.map((agent) => {
+          const shortTerm = formatCountdown(agent.short_term_reset_at);
+          const longTerm = formatCountdown(agent.long_term_reset_at);
+          const derivedStatus = deriveAgentStatus(agent);
+          const showShortActions = Boolean(agent.short_term_reset_at && agent.short_term_reset_interval_hours && agent.short_term_reset_needs_confirmation);
+          const showLongActions = Boolean(agent.long_term_reset_at && (agent.long_term_reset_interval_days || agent.long_term_reset_mode === 'monthly') && agent.long_term_reset_needs_confirmation);
+
+          let shortColor: string | undefined;
+          if (shortTerm.display !== '-' && shortTerm.diffMs >= 0 && shortTerm.diffMs < 3600_000) shortColor = '#ef4444';
+
+          let longColor: string | undefined;
+          if (longTerm.display !== '-' && longTerm.diffMs >= 0) {
+            if (longTerm.diffMs < 86400_000) longColor = '#ef4444';
+            else if (longTerm.diffMs < 172800_000) longColor = '#e89a1d';
+          }
+
+          const expiryDisplay = formatBeijingDisplay(agent.subscription_expires_at);
+          const expiringSoon = isSubscriptionExpiringSoon(agent);
+
+          return (
+            <div
+              className={`agent-card${draggedId === agent.id ? ' agent-card-dragging' : ''}${dragOverId === agent.id ? ' agent-card-dragover' : ''}${derivedStatus.status !== 'available' ? ' agent-card-unavailable' : ''}`}
+              key={agent.id}
+              draggable
+              onDragStart={(e) => {
+                setDraggedId(agent.id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(agent.id));
+              }}
+              onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverId(agent.id); }}
+              onDragLeave={() => { if (dragOverId === agent.id) setDragOverId(null); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverId(null);
+                if (draggedId != null && draggedId !== agent.id) {
+                  handleReorder(draggedId, agent.id);
+                }
+                setDraggedId(null);
+              }}
+            >
+              <div className="agent-card-top">
+                <div className="agent-card-identity">
+                  <span className="agent-card-drag-handle" title="拖动排序">⠿</span>
+                  <span className="agent-card-name">{agent.name}</span>
+                  <div className="agent-status-container" ref={statusDropdownAgentId === agent.id ? statusDropdownRef : undefined}>
+                    <span
+                      className="status-badge"
+                      style={{
+                        backgroundColor: `${derivedStatus.color}20`,
+                        color: derivedStatus.color,
+                        border: `1px solid ${derivedStatus.color}40`,
+                        cursor: derivedStatus.canChangeStatus ? 'pointer' : 'default',
+                      }}
+                      title={`当前状态：${derivedStatus.label}`}
+                      onClick={() => {
+                        if (derivedStatus.canChangeStatus) {
+                          setStatusDropdownAgentId((prev) => prev === agent.id ? null : agent.id);
+                        }
+                      }}
+                    >
+                      {derivedStatus.label}
+                    </span>
+                    {statusDropdownAgentId === agent.id && (
+                      <div className="status-dropdown">
+                        <div
+                          className={`status-dropdown-item${derivedStatus.status === 'available' ? ' active' : ''}`}
+                          onClick={() => handleStatusChange(agent.id, 'available')}
                         >
-                          重置
-                        </button>
-                        <button
-                          className="btn btn-sm btn-primary"
-                          title="下次短期重置时间无误"
-                          onClick={() => handleConfirmAction(agent.id, 'short')}
-                          disabled={actionAgentId === agent.id}
+                          可用
+                        </div>
+                        <div
+                          className={`status-dropdown-item${derivedStatus.status === 'short_reset_pending' ? ' active' : ''}${!agent.short_term_reset_at ? ' disabled' : ''}`}
+                          onClick={() => agent.short_term_reset_at && handleStatusChange(agent.id, 'short_reset_pending')}
+                          title={!agent.short_term_reset_at ? '未设置短期重置时间' : undefined}
                         >
-                          确认
-                        </button>
+                          短期重置后可用
+                        </div>
+                        <div
+                          className={`status-dropdown-item${derivedStatus.status === 'long_reset_pending' ? ' active' : ''}${!agent.long_term_reset_at ? ' disabled' : ''}`}
+                          onClick={() => agent.long_term_reset_at && handleStatusChange(agent.id, 'long_reset_pending')}
+                          title={!agent.long_term_reset_at ? '未设置长期重置时间' : undefined}
+                        >
+                          长期重置后可用
+                        </div>
                       </div>
                     )}
                   </div>
-                </td>
-                <td className="agent-interval-cell">{agent.short_term_reset_interval_hours != null ? `${agent.short_term_reset_interval_hours} 小时` : <span className="text-muted">-</span>}</td>
-                <td className="agent-reset-cell">
-                  <div className="reset-cell">
-                    <div title={longTermCountdown.tooltip} style={longTermColor ? { color: longTermColor, fontWeight: 600 } : undefined}>
-                      {longTermCountdown.display === '-' ? <span className="text-muted">-</span> : longTermCountdown.display}
-                    </div>
-                    {showLongResetActions && (
-                      <div className="reset-action-row">
-                        <button
-                          className="btn btn-sm btn-warning"
-                          title="点击重置长期剩余时间"
-                          onClick={() => handleResetAction(agent.id, 'long')}
-                          disabled={actionAgentId === agent.id}
-                        >
-                          重置
-                        </button>
-                        <button
-                          className="btn btn-sm btn-primary"
-                          title="下次长期重置时间无误"
-                          onClick={() => handleConfirmAction(agent.id, 'long')}
-                          disabled={actionAgentId === agent.id}
-                        >
-                          确认
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </td>
-                <td className="agent-interval-cell">{agent.long_term_reset_interval_days != null ? `${agent.long_term_reset_interval_days} 天` : <span className="text-muted">-</span>}</td>
-                <td className="agent-operations-cell">
-                  <div className="agent-actions-cell">
-                    <button className="btn btn-sm btn-ghost" onClick={() => handleEdit(agent)} title="编辑当前智能体的配置信息">
-                      编辑
-                    </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => handleDelete(agent)} disabled={deletingId === agent.id} title="删除当前智能体">
-                      {deletingId === agent.id ? '删除中...' : '删除'}
+                  <div className="agent-card-inline-actions">
+                    <button className="btn btn-sm btn-edit" onClick={() => handleEdit(agent)}>编辑</button>
+                    <button className="btn btn-sm btn-delete" onClick={() => handleDelete(agent)} disabled={deletingId === agent.id}>
+                      {deletingId === agent.id ? '删除中' : '删除'}
                     </button>
                   </div>
-                </td>
-              </tr>
-            );
-          })}
-          {agents.length === 0 && (
-            <tr>
-              <td colSpan={11} className="empty-row">当前还没有配置智能体。</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+                </div>
+              </div>
+
+              {typeDescriptionMap[agent.agent_type] && (
+                <p className="agent-card-type-desc">{typeDescriptionMap[agent.agent_type]}</p>
+              )}
+
+              <div className="agent-card-badges">
+                {getAgentModels(agent).map((model, index) => (
+                  <ModelBadge key={`${agent.id}-${model.model_name}-${index}`} type={index === 0 ? agent.agent_type : undefined} model={model.model_name} />
+                ))}
+                {expiryDisplay && <span className={`badge badge-expiry${expiringSoon ? ' badge-expiry-warning' : ''}`} title="订阅到期时间">{expiryDisplay}</span>}
+              </div>
+
+              {getAgentModels(agent).filter((model) => modelsWithCapability.has(`${agent.id}:${model.model_name}`)).length > 0 && (
+                <div className="agent-model-capability-list">
+                  {getAgentModels(agent).map((model, index) => {
+                    if (!modelsWithCapability.has(`${agent.id}:${model.model_name}`)) return null;
+                    return (
+                      <p className="agent-card-capability" key={`${agent.id}-capability-${index}`}>
+                        <strong>{model.model_name}</strong>
+                        {model.capability ? `：${model.capability}` : ''}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="agent-card-resets">
+                <CountdownChip
+                  label="短期"
+                  display={shortTerm.display}
+                  tooltip={shortTerm.tooltip}
+                  color={shortColor}
+                  interval={agent.short_term_reset_interval_hours != null ? `${agent.short_term_reset_interval_hours}h` : undefined}
+                  showActions={showShortActions}
+                  onReset={() => handleResetAction(agent.id, 'short')}
+                  onConfirm={() => handleConfirmAction(agent.id, 'short')}
+                  disabled={actionAgentId === agent.id}
+                />
+                <CountdownChip
+                  label="长期"
+                  display={longTerm.display}
+                  tooltip={longTerm.tooltip}
+                  color={longColor}
+                  interval={agent.long_term_reset_mode === 'monthly' ? (() => {
+                    const p = parseStoredDateTime(agent.long_term_reset_at);
+                    return p ? `每月${p.day}日` : '每月';
+                  })() : agent.long_term_reset_interval_days != null ? `${agent.long_term_reset_interval_days}d` : undefined}
+                  showActions={showLongActions}
+                  onReset={() => handleResetAction(agent.id, 'long')}
+                  onConfirm={() => handleConfirmAction(agent.id, 'long')}
+                  disabled={actionAgentId === agent.id}
+                />
+              </div>
+            </div>
+          );
+        })}
+        {agents.length === 0 && (
+          <div className="empty-state">当前还没有配置智能体。</div>
+        )}
+      </div>
     </div>
   );
 }
