@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, User
+from services.path_service import normalize_expected_output_path
 from auth import get_current_user
 from services.prompt_service import generate_plan_prompt
 
@@ -106,14 +107,21 @@ def _build_plan_response(plan: ProjectPlan) -> PlanResponse:
     )
 
 
+def _normalize_collab_dir(project: Project) -> str:
+    """Return collaboration_dir without leading or trailing slashes.
+    Repo-relative paths must not start with '/', otherwise os.path.join
+    will treat them as absolute and discard the repo prefix."""
+    return (project.collaboration_dir or "").strip("/")
+
+
 def _plan_file_path(project: Project, plan_id: int) -> str:
-    base_dir = project.collaboration_dir.rstrip("/") if project.collaboration_dir else ""
+    base_dir = _normalize_collab_dir(project)
     filename = f"plan-{plan_id}.json"
     return f"{base_dir}/{filename}" if base_dir else filename
 
 
 def _plan_usage_path(project: Project, plan_id: int) -> str:
-    base_dir = project.collaboration_dir.rstrip("/") if project.collaboration_dir else ""
+    base_dir = _normalize_collab_dir(project)
     filename = f"plan-{plan_id}-usage.json"
     return f"{base_dir}/{filename}" if base_dir else filename
 
@@ -140,6 +148,33 @@ def _parse_selected_agent_models(value: Optional[str]) -> dict[int, Optional[str
 
 def _serialize_selected_agent_models(value: dict[int, Optional[str]]) -> str:
     return json.dumps({str(agent_id): model_name for agent_id, model_name in value.items()}, ensure_ascii=False)
+
+
+def _normalize_assignee_token(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return str(value).strip().casefold()
+
+
+def _resolve_assignee_agent_id(db: Session, assignee: Optional[str]) -> Optional[int]:
+    normalized = _normalize_assignee_token(assignee)
+    if not normalized:
+        return None
+
+    agents = db.query(Agent).all()
+    exact_slug = next((agent for agent in agents if _normalize_assignee_token(agent.slug) == normalized), None)
+    if exact_slug:
+        return exact_slug.id
+
+    exact_name = next((agent for agent in agents if _normalize_assignee_token(agent.name) == normalized), None)
+    if exact_name:
+        return exact_name.id
+
+    exact_type = next((agent for agent in agents if _normalize_assignee_token(agent.agent_type) == normalized), None)
+    if exact_type:
+        return exact_type.id
+
+    return None
 
 
 class FinalizeRequest(BaseModel):
@@ -292,7 +327,7 @@ def import_plan(project_id: int, body: PlanImport, db: Session = Depends(get_db)
         plan_type=body.plan_type,
         plan_json=body.plan_json,
         status="completed",
-        source_path=f"{project.collaboration_dir.rstrip('/')}/plan.json" if project.collaboration_dir else "plan.json",
+        source_path=f"{_normalize_collab_dir(project)}/plan.json" if _normalize_collab_dir(project) else "plan.json",
         selected_agent_ids_json="[]",
         selected_agent_models_json="{}",
         detected_at=now,
@@ -359,16 +394,15 @@ def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(
             raise HTTPException(status_code=400, detail="Each task must have a task_code")
 
         # Resolve assignee
-        assignee_agent_id = None
-        assignee = t.get("assignee")
-        if assignee:
-            from models import Agent
-            agent = db.query(Agent).filter(Agent.slug == assignee).first()
-            if agent:
-                assignee_agent_id = agent.id
+        assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"))
 
         depends_on = t.get("depends_on", [])
-        expected_output = t.get("expected_output", f"outputs/{task_code}/result.json")
+        collab = _normalize_collab_dir(project)
+        expected_output = normalize_expected_output_path(
+            t.get("expected_output"),
+            default_path=f"outputs/{task_code}/result.json",
+            collaboration_dir=collab,
+        )
 
         task = Task(
             project_id=project_id,

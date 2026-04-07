@@ -43,9 +43,14 @@ export default function ProjectListPage() {
     <div className="page">
       <div className="page-header">
         <h1>项目</h1>
-        <Link to="/projects/new" className="btn btn-primary" title="创建一个新的项目并配置目标与 Agent">
-          新建项目
-        </Link>
+        <div className="header-actions">
+          <Link to="/projects/new" className="btn btn-primary" title="创建一个新的项目并配置目标与 Agent">
+            新建项目
+          </Link>
+          <Link to="/settings" className="btn btn-secondary" title="设置轮询间隔、启动延迟等全局参数">
+            设置
+          </Link>
+        </div>
       </div>
 
       {error && <div className="error-message">{error}</div>}

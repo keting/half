@@ -612,7 +612,7 @@ export default function AgentsPage() {
 
   return (
     <div className="page">
-      <PageHeader title="智能体" description="管理可参与项目执行的 AI Agent">
+      <PageHeader title="智能体" description="管理可参与项目执行的Coding Agents">
         {isManuallyOrdered && (
           <button
             className="btn btn-auto-sort"

@@ -90,6 +90,18 @@ export default function PlanPage() {
   const statusMeta = getStatusMeta(latestPlan);
 
   useEffect(() => {
+    if (!latestPlan || latestPlan.status !== 'running') {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchPageData();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [fetchPageData, latestPlan]);
+
+  useEffect(() => {
     if (latestPlan?.status !== 'running' || timerPlanId !== latestPlan.id || timerStartedAtRef.current === null) {
       setElapsedSeconds(0);
       return undefined;
@@ -116,22 +128,22 @@ export default function PlanPage() {
   useEffect(() => {
     if (!latestPlan || latestPlan.status !== 'running') return undefined;
 
-    const timer = window.setInterval(async () => {
-      try {
-        await api.post(`/api/projects/${id}/poll`);
-        const planList = await api.get<Plan[]>(`/api/projects/${id}/plans`);
-        setPlans(planList);
-        const nextLatestPlan = [...planList].reverse()[0] || null;
-        if (nextLatestPlan?.id !== currentPlanId) {
-          setCurrentPlanId(nextLatestPlan?.id || null);
-        }
-      } catch {
-        // Keep polling silent while the loop is active.
+    const refreshOnFocus = () => {
+      void fetchPageData();
+    };
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchPageData();
       }
-    }, 30000);
+    };
 
-    return () => window.clearInterval(timer);
-  }, [currentPlanId, id, latestPlan]);
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnVisible);
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
+    };
+  }, [fetchPageData, latestPlan]);
 
   function toggleSelectedAgent(agentId: number) {
     setSelectedAgentIds((current) => {
@@ -337,7 +349,7 @@ export default function PlanPage() {
             <div className="plan-card-header">
               <div>
                 <h3>2. 生成规划 Prompt</h3>
-                <p>先勾选这次规划会参与的 Agent，再生成 Prompt。拷贝 Prompt 后才会正式启动后台轮询。</p>
+                <p>先勾选这次规划会参与的 Agent，再生成 Prompt。拷贝 Prompt 后由后端按项目轮询配置启动检测；页面仅做轻量状态同步，不再固定主动触发后端轮询。</p>
               </div>
             </div>
 

@@ -22,6 +22,18 @@ export default function ProjectDetailPage() {
     fetchProject();
   }, [fetchProject]);
 
+  useEffect(() => {
+    if (!project || !['planning', 'executing'].includes(project.status)) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchProject();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [fetchProject, project?.status]);
+
   if (loading) return <div className="page-loading">正在加载项目...</div>;
   if (!project) return <div className="page-loading">未找到该项目。</div>;
 

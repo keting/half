@@ -17,6 +17,10 @@ export default function ProjectNewPage() {
   const [collaborationDir, setCollaborationDir] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [pollingIntervalMin, setPollingIntervalMin] = useState<number | null>(null);
+  const [pollingIntervalMax, setPollingIntervalMax] = useState<number | null>(null);
+  const [pollingStartDelayMinutes, setPollingStartDelayMinutes] = useState<number | null>(null);
+  const [pollingStartDelaySeconds, setPollingStartDelaySeconds] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState('');
@@ -29,9 +33,20 @@ export default function ProjectNewPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [agentList, project] = await Promise.all([
+        const [agentList, project, globalPolling] = await Promise.all([
           api.get<Agent[]>('/api/agents'),
           isEditMode ? api.get<Project>(`/api/projects/${id}`) : Promise.resolve(null),
+          // In create mode we prefill the form with the current global polling
+          // defaults so the user can see them and tweak if desired. In edit
+          // mode the project's own snapshot wins.
+          isEditMode
+            ? Promise.resolve(null)
+            : api.get<{
+                polling_interval_min: number;
+                polling_interval_max: number;
+                polling_start_delay_minutes: number;
+                polling_start_delay_seconds: number;
+              }>('/api/settings/polling').catch(() => null),
         ]);
         setAgents(agentList);
         if (project) {
@@ -40,6 +55,17 @@ export default function ProjectNewPage() {
           setGitRepoUrl(project.git_repo_url || '');
           setCollaborationDir(project.collaboration_dir || '');
           setSelectedAgentIds(project.agent_ids || []);
+          setPollingIntervalMin(project.polling_interval_min ?? null);
+          setPollingIntervalMax(project.polling_interval_max ?? null);
+          setPollingStartDelayMinutes(project.polling_start_delay_minutes ?? null);
+          setPollingStartDelaySeconds(project.polling_start_delay_seconds ?? null);
+        } else if (globalPolling) {
+          // Prefill from global defaults so the user starts with the
+          // configured range/delay and can adjust per-project.
+          setPollingIntervalMin(globalPolling.polling_interval_min);
+          setPollingIntervalMax(globalPolling.polling_interval_max);
+          setPollingStartDelayMinutes(globalPolling.polling_start_delay_minutes);
+          setPollingStartDelaySeconds(globalPolling.polling_start_delay_seconds);
         }
       } catch (err) {
         setError(`加载失败：${err}`);
@@ -63,9 +89,35 @@ export default function ProjectNewPage() {
     setError('');
     if (!hasAgents) { setError('当前系统还没有 Agent，请先到智能体页面新增。'); return; }
     if (selectedAgentIds.length === 0) { setError('请至少选择 1 个 Agent。'); return; }
+    // Polling param validation (mirrors backend rules)
+    if (pollingIntervalMin !== null && (pollingIntervalMin < 1 || pollingIntervalMin > 600)) {
+      setError('轮询间隔最小值必须在 1-600 秒之间'); return;
+    }
+    if (pollingIntervalMax !== null && (pollingIntervalMax < 1 || pollingIntervalMax > 600)) {
+      setError('轮询间隔最大值必须在 1-600 秒之间'); return;
+    }
+    if (pollingIntervalMin !== null && pollingIntervalMax !== null && pollingIntervalMin > pollingIntervalMax) {
+      setError('轮询间隔最小值不得大于最大值'); return;
+    }
+    if (pollingStartDelayMinutes !== null && (pollingStartDelayMinutes < 0 || pollingStartDelayMinutes > 60)) {
+      setError('启动延迟分钟数必须在 0-60 之间'); return;
+    }
+    if (pollingStartDelaySeconds !== null && (pollingStartDelaySeconds < 0 || pollingStartDelaySeconds > 59)) {
+      setError('启动延迟秒数必须在 0-59 之间'); return;
+    }
     setLoading(true);
     try {
-      const payload = { name, goal, git_repo_url: gitRepoUrl, collaboration_dir: collaborationDir, agent_ids: selectedAgentIds };
+      const payload = {
+        name,
+        goal,
+        git_repo_url: gitRepoUrl,
+        collaboration_dir: collaborationDir.trim() || null,
+        agent_ids: selectedAgentIds,
+        polling_interval_min: pollingIntervalMin,
+        polling_interval_max: pollingIntervalMax,
+        polling_start_delay_minutes: pollingStartDelayMinutes,
+        polling_start_delay_seconds: pollingStartDelaySeconds,
+      };
       const project = isEditMode
         ? await api.put<Project>(`/api/projects/${id}`, payload)
         : await api.post<Project>('/api/projects', payload);
@@ -108,7 +160,65 @@ export default function ProjectNewPage() {
             </div>
             <div className="form-group">
               <label htmlFor="collab-dir">协作目录</label>
-              <input id="collab-dir" type="text" value={collaborationDir} onChange={(e) => setCollaborationDir(e.target.value)} placeholder="留空则使用仓库根目录" className="input-mono" />
+              <input id="collab-dir" type="text" value={collaborationDir} onChange={(e) => setCollaborationDir(e.target.value)} placeholder="留空则系统自动生成 outputs/proj-<项目id>-<随机串>" className="input-mono" />
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="轮询配置"
+          description="新建项目时已自动带出全局默认值，可按需修改。修改仅影响本项目，不会影响全局默认或其他项目"
+        >
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="polling-min">轮询间隔最小值（秒）</label>
+              <input
+                id="polling-min"
+                type="number"
+                min="1"
+                max="600"
+                value={pollingIntervalMin ?? ''}
+                onChange={(e) => setPollingIntervalMin(e.target.value === '' ? null : parseInt(e.target.value))}
+                placeholder="留空则使用全局默认"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="polling-max">轮询间隔最大值（秒）</label>
+              <input
+                id="polling-max"
+                type="number"
+                min="1"
+                max="600"
+                value={pollingIntervalMax ?? ''}
+                onChange={(e) => setPollingIntervalMax(e.target.value === '' ? null : parseInt(e.target.value))}
+                placeholder="留空则使用全局默认"
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="polling-delay-min">轮询启动延迟（分钟）</label>
+              <input
+                id="polling-delay-min"
+                type="number"
+                min="0"
+                max="60"
+                value={pollingStartDelayMinutes ?? ''}
+                onChange={(e) => setPollingStartDelayMinutes(e.target.value === '' ? null : parseInt(e.target.value))}
+                placeholder="留空则使用全局默认"
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="polling-delay-sec">轮询启动延迟（秒）</label>
+              <input
+                id="polling-delay-sec"
+                type="number"
+                min="0"
+                max="59"
+                value={pollingStartDelaySeconds ?? ''}
+                onChange={(e) => setPollingStartDelaySeconds(e.target.value === '' ? null : parseInt(e.target.value))}
+                placeholder="留空则使用全局默认"
+              />
             </div>
           </div>
         </SectionCard>

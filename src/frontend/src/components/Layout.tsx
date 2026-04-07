@@ -23,9 +23,6 @@ export default function Layout() {
           <NavLink to="/agents" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
             智能体
           </NavLink>
-          <NavLink to="/change-log" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            修改记录
-          </NavLink>
         </nav>
         <div className="sidebar-footer">
           <button className="btn btn-ghost" onClick={handleLogout} title="退出当前账号并返回登录页">

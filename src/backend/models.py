@@ -47,6 +47,17 @@ class Agent(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(Text, unique=True, nullable=False)  # polling_interval_min, polling_interval_max, polling_start_delay_minutes, polling_start_delay_seconds
+    value = Column(Text, nullable=False)  # JSON-serialized value
+    description = Column(Text)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -57,6 +68,10 @@ class Project(Base):
     collaboration_dir = Column(Text)
     status = Column(Text, default="draft")  # draft/planning/executing/completed/abandoned
     agent_ids_json = Column(Text, default="[]")  # JSON array of agent IDs participating in project
+    polling_interval_min = Column(Integer, nullable=True)  # seconds, NULL means use global default
+    polling_interval_max = Column(Integer, nullable=True)  # seconds, NULL means use global default
+    polling_start_delay_minutes = Column(Integer, nullable=True)  # NULL means use global default
+    polling_start_delay_seconds = Column(Integer, nullable=True)  # NULL means use global default
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 
@@ -8,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import engine, SessionLocal, Base
-from models import User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap
+from models import User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap, ProjectPlan, Task, GlobalSetting
 from auth import hash_password
 from routers import auth as auth_router
 from routers import agents as agents_router
@@ -17,6 +18,7 @@ from routers import plans as plans_router
 from routers import tasks as tasks_router
 from routers import polling as polling_router
 from routers import agent_settings as agent_settings_router
+from routers import settings as settings_router
 from services.polling_service import polling_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -96,6 +98,10 @@ def ensure_schema_updates():
         },
         "projects": {
             "collaboration_dir": "TEXT",
+            "polling_interval_min": "INTEGER",
+            "polling_interval_max": "INTEGER",
+            "polling_start_delay_minutes": "INTEGER",
+            "polling_start_delay_seconds": "INTEGER",
         },
         "project_plans": {
             "prompt_text": "TEXT",
@@ -199,12 +205,103 @@ def seed_agent_type_configs():
         db.close()
 
 
+def seed_global_polling_settings():
+    """Initialize global polling settings with defaults if not already set."""
+    db = SessionLocal()
+    try:
+        # Check if settings already exist
+        existing = db.query(GlobalSetting).filter(GlobalSetting.key == "polling_interval_min").first()
+        if existing is not None:
+            return  # Already seeded
+
+        defaults = {
+            "polling_interval_min": "15",  # seconds
+            "polling_interval_max": "30",  # seconds
+            "polling_start_delay_minutes": "0",
+            "polling_start_delay_seconds": "0",
+        }
+
+        descriptions = {
+            "polling_interval_min": "Minimum polling interval in seconds",
+            "polling_interval_max": "Maximum polling interval in seconds",
+            "polling_start_delay_minutes": "Minutes to delay before starting polling",
+            "polling_start_delay_seconds": "Seconds to delay before starting polling (added to minutes)",
+        }
+
+        for key, value in defaults.items():
+            setting = GlobalSetting(
+                key=key,
+                value=value,
+                description=descriptions.get(key),
+            )
+            db.add(setting)
+
+        db.commit()
+        logger.info("Global polling settings initialized with defaults")
+    except Exception as e:
+        logger.error("Failed to seed global polling settings: %s", e)
+    finally:
+        db.close()
+
+
+def repair_unassigned_tasks_from_plan_json():
+    db = SessionLocal()
+    repaired = 0
+    try:
+        tasks = db.query(Task).filter(Task.assignee_agent_id.is_(None)).all()
+        if not tasks:
+            return
+
+        plans_by_id = {
+            plan.id: plan
+            for plan in db.query(ProjectPlan).filter(ProjectPlan.id.in_([task.plan_id for task in tasks])).all()
+        }
+
+        for task in tasks:
+            plan = plans_by_id.get(task.plan_id)
+            if not plan or not plan.plan_json:
+                continue
+            try:
+                plan_data = json.loads(plan.plan_json)
+            except json.JSONDecodeError:
+                repaired_json = plans_router._try_repair_json(plan.plan_json)
+                if repaired_json is None:
+                    continue
+                plan_data = repaired_json
+
+            tasks_data = plan_data.get("tasks", [])
+            if not isinstance(tasks_data, list):
+                continue
+
+            matched_task = next(
+                (item for item in tasks_data if isinstance(item, dict) and item.get("task_code") == task.task_code),
+                None,
+            )
+            if not matched_task:
+                continue
+
+            assignee_agent_id = plans_router._resolve_assignee_agent_id(db, matched_task.get("assignee"))
+            if not assignee_agent_id:
+                continue
+
+            task.assignee_agent_id = assignee_agent_id
+            repaired += 1
+
+        if repaired:
+            db.commit()
+            logger.info("Repaired %s unassigned tasks from plan JSON assignee mappings", repaired)
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     ensure_schema_updates()
     migrate_task_code_unique_constraint()
     repair_legacy_agent_reset_times()
     seed_agent_type_configs()
+    seed_global_polling_settings()
+    repair_unassigned_tasks_from_plan_json()
     db = SessionLocal()
     try:
         admin = db.query(User).filter(User.username == "admin").first()
@@ -254,6 +351,7 @@ app.include_router(plans_router.router)
 app.include_router(tasks_router.router)
 app.include_router(polling_router.router)
 app.include_router(agent_settings_router.router)
+app.include_router(settings_router.router)
 
 
 @app.get("/")

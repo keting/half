@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Project, Task, TaskEvent, User
 from auth import get_current_user
+from services.path_service import normalize_expected_output_path
 from services.prompt_service import generate_task_prompt
 
 router = APIRouter(tags=["tasks"])
@@ -108,9 +109,15 @@ def update_task(
         raise HTTPException(status_code=400, detail="task_name is required")
 
     now = datetime.now(timezone.utc)
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    collab = (project.collaboration_dir or "").strip("/") if project else ""
     task.task_name = task_name
     task.description = body.description
-    task.expected_output_path = body.expected_output_path
+    task.expected_output_path = normalize_expected_output_path(
+        body.expected_output_path,
+        default_path=f"outputs/{task.task_code}/result.json",
+        collaboration_dir=collab,
+    )
     task.updated_at = now
     db.add(TaskEvent(
         task_id=task.id,

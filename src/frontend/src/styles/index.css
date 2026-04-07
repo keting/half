@@ -1247,35 +1247,6 @@ body {
   min-width: 240px;
 }
 
-.change-log-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 24px;
-}
-
-.change-log-meta {
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-}
-
-.change-log-section h3 {
-  font-size: 18px;
-  margin-bottom: 12px;
-}
-
-.change-log-list {
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 /* ===== Section Card ===== */
 .section-card {
   background: var(--color-surface);

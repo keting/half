@@ -7,8 +7,25 @@ from database import get_db
 from models import Project, Task, TaskEvent, User
 from auth import get_current_user
 from services.polling_service import poll_project
+from services.polling_config_service import get_project_polling_settings
 
 router = APIRouter(prefix="/api/projects", tags=["polling"])
+
+
+@router.get("/{project_id}/polling-config")
+def get_polling_config(project_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    """Get the effective polling configuration for a project."""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    settings = get_project_polling_settings(db, project)
+    return {
+        "polling_interval_min": settings["polling_interval_min"],
+        "polling_interval_max": settings["polling_interval_max"],
+        "polling_start_delay_minutes": settings["polling_start_delay_minutes"],
+        "polling_start_delay_seconds": settings["polling_start_delay_seconds"],
+    }
 
 
 @router.post("/{project_id}/poll")

@@ -48,6 +48,10 @@ export interface Project {
   status: string;
   created_at: string;
   agent_ids?: number[];
+  polling_interval_min?: number | null;
+  polling_interval_max?: number | null;
+  polling_start_delay_minutes?: number | null;
+  polling_start_delay_seconds?: number | null;
   next_step?: string | {
     action: string;
     message: string;

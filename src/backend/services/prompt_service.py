@@ -4,6 +4,7 @@ import re
 from sqlalchemy.orm import Session
 
 from models import Agent, Project, Task
+from services.path_service import normalize_expected_output_path
 
 
 def generate_plan_prompt(
@@ -134,6 +135,8 @@ def generate_task_prompt(
     task: Task,
     include_usage: bool = False,  # kept for API compat, no longer used
 ) -> str:
+    collab = (project.collaboration_dir or "").strip("/")
+
     # Gather predecessor output paths
     depends_on = json.loads(task.depends_on_json) if task.depends_on_json else []
     predecessor_lines = ""
@@ -144,7 +147,11 @@ def generate_task_prompt(
         ).all()
         paths = []
         for p in predecessors:
-            path = p.result_file_path or f"outputs/{p.task_code}/result.json"
+            path = p.result_file_path or normalize_expected_output_path(
+                p.expected_output_path,
+                default_path=f"outputs/{p.task_code}/result.json",
+                collaboration_dir=collab,
+            )
             paths.append(f"- {p.task_code}: {path}")
         if paths:
             predecessor_lines = "\n".join(paths)
@@ -152,6 +159,12 @@ def generate_task_prompt(
             predecessor_lines = "无前序任务输出"
     else:
         predecessor_lines = "无前序任务输出"
+
+    output_path = normalize_expected_output_path(
+        task.expected_output_path,
+        default_path=f"outputs/{task.task_code}/result.json",
+        collaboration_dir=collab,
+    )
 
     prompt = f"""你是项目 [{project.name}] 的执行 Agent。
 
@@ -164,7 +177,7 @@ def generate_task_prompt(
 {predecessor_lines}
 
 ## 输出要求
-1. 将输出写入路径：outputs/{task.task_code}/result.json
+1. 将输出写入路径：{output_path}
 2. 文件中必须包含字段 "task_code": "{task.task_code}"
 3. 完成后执行 git add、git commit、git push"""
 

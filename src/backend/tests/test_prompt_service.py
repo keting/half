@@ -6,8 +6,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from models import Agent, Project
-from services.prompt_service import generate_plan_prompt, resolve_selected_agent_models
+from models import Agent, Project, Task
+from services.prompt_service import generate_plan_prompt, generate_task_prompt, resolve_selected_agent_models
 
 
 class PromptServiceTests(unittest.TestCase):
@@ -36,6 +36,40 @@ class PromptServiceTests(unittest.TestCase):
         prompt, resolved = generate_plan_prompt(project, [agent], "plan-1.json", None, {})
         self.assertEqual(resolved[2], "gpt-5-codex")
         self.assertIn("使用模型：gpt-5-codex", prompt)
+
+    def test_generate_task_prompt_normalizes_output_paths(self):
+        project = Project(id=4, name="Demo", collaboration_dir="outputs/proj-4-f9a125")
+        task = Task(
+            project_id=4,
+            task_code="TASK-002",
+            task_name="处理数据",
+            description="处理 TASK-001 输出",
+            depends_on_json='["TASK-001"]',
+            expected_output_path="outputs/proj-4-f9a125/TASK-002/result.json，包含 task_code 与处理摘要",
+        )
+        predecessor = Task(
+            project_id=4,
+            task_code="TASK-001",
+            task_name="生成基础数据",
+            expected_output_path="outputs/proj-4-f9a125/TASK-001/result.json，包含 task_code 与 base.json 路径",
+        )
+
+        class FakeQuery:
+            def filter(self, *args, **kwargs):
+                return self
+
+            def all(self):
+                return [predecessor]
+
+        class FakeSession:
+            def query(self, model):
+                self.model = model
+                return FakeQuery()
+
+        prompt = generate_task_prompt(FakeSession(), project, task)
+        self.assertIn("outputs/proj-4-f9a125/TASK-001/result.json", prompt)
+        self.assertIn("outputs/proj-4-f9a125/TASK-002/result.json", prompt)
+        self.assertNotIn("包含 task_code", prompt)
 
 
 if __name__ == "__main__":

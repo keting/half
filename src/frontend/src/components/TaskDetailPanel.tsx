@@ -149,7 +149,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
 
       <div className="detail-section">
         <label>指派 Agent</label>
-        <p>{assignee ? `${assignee.name} (${assignee.agent_type}${assignee.model_name ? ` / ${assignee.model_name}` : ''})` : `Agent #${task.assignee_agent_id}`}</p>
+        <p>{assignee ? `${assignee.name} (${assignee.agent_type}${assignee.model_name ? ` / ${assignee.model_name}` : ''})` : (task.assignee_agent_id ? `Agent #${task.assignee_agent_id}` : '未指派')}</p>
       </div>
 
       <div className="detail-section">

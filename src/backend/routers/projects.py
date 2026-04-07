@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, TaskEvent, User
 from auth import get_current_user
+from services.polling_config_service import get_global_polling_settings
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -19,6 +21,10 @@ class ProjectCreate(BaseModel):
     git_repo_url: Optional[str] = None
     collaboration_dir: Optional[str] = None
     agent_ids: list[int] = []
+    polling_interval_min: Optional[int] = None  # seconds, None = use global default
+    polling_interval_max: Optional[int] = None  # seconds, None = use global default
+    polling_start_delay_minutes: Optional[int] = None  # None = use global default
+    polling_start_delay_seconds: Optional[int] = None  # None = use global default
 
 
 class ProjectUpdate(BaseModel):
@@ -28,6 +34,10 @@ class ProjectUpdate(BaseModel):
     collaboration_dir: Optional[str] = None
     status: Optional[str] = None
     agent_ids: Optional[list[int]] = None
+    polling_interval_min: Optional[int] = None
+    polling_interval_max: Optional[int] = None
+    polling_start_delay_minutes: Optional[int] = None
+    polling_start_delay_seconds: Optional[int] = None
 
 
 class ProjectResponse(BaseModel):
@@ -41,6 +51,10 @@ class ProjectResponse(BaseModel):
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     agent_ids: list[int]
+    polling_interval_min: Optional[int]
+    polling_interval_max: Optional[int]
+    polling_start_delay_minutes: Optional[int]
+    polling_start_delay_seconds: Optional[int]
 
     class Config:
         from_attributes = True
@@ -74,6 +88,10 @@ def _build_project_response(project: Project, next_step: Optional[str] = None, t
         'created_at': project.created_at,
         'updated_at': project.updated_at,
         'agent_ids': _project_agent_ids(project),
+        'polling_interval_min': project.polling_interval_min,
+        'polling_interval_max': project.polling_interval_max,
+        'polling_start_delay_minutes': project.polling_start_delay_minutes,
+        'polling_start_delay_seconds': project.polling_start_delay_seconds,
     }
     if next_step is not None and task_summary is not None:
         return ProjectDetailResponse(next_step=next_step, task_summary=task_summary, **payload)
@@ -143,18 +161,122 @@ def list_projects(db: Session = Depends(get_db), _user: User = Depends(get_curre
     return [_build_project_response(project) for project in db.query(Project).all()]
 
 
+def _normalize_collab_dir_input(value: Optional[str]) -> Optional[str]:
+    """Strip leading/trailing slashes so the value is a clean repo-relative path.
+    Required because os.path.join treats absolute-looking paths as absolute and
+    discards the repo prefix."""
+    if value is None:
+        return None
+    cleaned = value.strip().strip("/")
+    return cleaned or None
+
+
+def _generate_default_collab_dir(db: Session, project_id: int) -> str:
+    # Keep numeric project_id for stable routing, and add a short random suffix
+    # so default collaboration_dir stays unique even if ids are reused in edge cases.
+    for _ in range(10):
+        suffix = secrets.token_hex(3)
+        candidate = f"outputs/proj-{project_id}-{suffix}"
+        exists = db.query(Project).filter(Project.collaboration_dir == candidate).first()
+        if not exists:
+            return candidate
+    return f"outputs/proj-{project_id}-{secrets.token_hex(5)}"
+
+
+def _validate_polling_params(
+    interval_min: Optional[int],
+    interval_max: Optional[int],
+    delay_minutes: Optional[int],
+    delay_seconds: Optional[int],
+) -> None:
+    """Validate polling configuration values. Raises HTTPException on invalid input."""
+    if interval_min is not None:
+        if interval_min < 1 or interval_min > 600:
+            raise HTTPException(status_code=400, detail="polling_interval_min must be 1-600 seconds")
+    if interval_max is not None:
+        if interval_max < 1 or interval_max > 600:
+            raise HTTPException(status_code=400, detail="polling_interval_max must be 1-600 seconds")
+    if interval_min is not None and interval_max is not None:
+        if interval_min > interval_max:
+            raise HTTPException(
+                status_code=400,
+                detail="polling_interval_min must be <= polling_interval_max",
+            )
+    if delay_minutes is not None:
+        if delay_minutes < 0 or delay_minutes > 60:
+            raise HTTPException(status_code=400, detail="polling_start_delay_minutes must be 0-60")
+    if delay_seconds is not None:
+        if delay_seconds < 0 or delay_seconds > 59:
+            raise HTTPException(status_code=400, detail="polling_start_delay_seconds must be 0-59")
+
+
+def _resolve_polling_snapshot(
+    db: Session,
+    interval_min: Optional[int],
+    interval_max: Optional[int],
+    delay_minutes: Optional[int],
+    delay_seconds: Optional[int],
+) -> dict:
+    """Resolve project-level polling values, snapshotting global defaults for any
+    field the user did not explicitly provide. This guarantees that subsequent
+    changes to the global settings do NOT silently shift behavior of existing
+    projects: each project carries its own immutable snapshot at creation time."""
+    global_defaults = get_global_polling_settings(db)
+    return {
+        "polling_interval_min": (
+            interval_min if interval_min is not None else global_defaults["polling_interval_min"]
+        ),
+        "polling_interval_max": (
+            interval_max if interval_max is not None else global_defaults["polling_interval_max"]
+        ),
+        "polling_start_delay_minutes": (
+            delay_minutes if delay_minutes is not None else global_defaults["polling_start_delay_minutes"]
+        ),
+        "polling_start_delay_seconds": (
+            delay_seconds if delay_seconds is not None else global_defaults["polling_start_delay_seconds"]
+        ),
+    }
+
+
 @router.post('', response_model=ProjectResponse, status_code=201)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent_ids = _validate_agent_ids(db, body.agent_ids)
+    _validate_polling_params(
+        body.polling_interval_min,
+        body.polling_interval_max,
+        body.polling_start_delay_minutes,
+        body.polling_start_delay_seconds,
+    )
+    user_collab = _normalize_collab_dir_input(body.collaboration_dir)
+    # Snapshot global defaults into project-level fields. After this, the
+    # project carries its own concrete values and is unaffected by later
+    # changes to the global settings.
+    polling_snapshot = _resolve_polling_snapshot(
+        db,
+        body.polling_interval_min,
+        body.polling_interval_max,
+        body.polling_start_delay_minutes,
+        body.polling_start_delay_seconds,
+    )
     project = Project(
         name=body.name,
         goal=body.goal,
         git_repo_url=body.git_repo_url,
-        collaboration_dir=body.collaboration_dir,
+        collaboration_dir=user_collab,  # may be None, will be defaulted after flush
         created_by=user.id,
         agent_ids_json=json.dumps(agent_ids),
+        polling_interval_min=polling_snapshot["polling_interval_min"],
+        polling_interval_max=polling_snapshot["polling_interval_max"],
+        polling_start_delay_minutes=polling_snapshot["polling_start_delay_minutes"],
+        polling_start_delay_seconds=polling_snapshot["polling_start_delay_seconds"],
     )
     db.add(project)
+    # Flush to get the auto-generated id, then default the collaboration_dir
+    # to outputs/proj-<id>-<random> if user didn't provide one. This guarantees
+    # each project has a collision-resistant output directory.
+    db.flush()
+    if not user_collab:
+        project.collaboration_dir = _generate_default_collab_dir(db, project.id)
     db.commit()
     db.refresh(project)
     return _build_project_response(project)
@@ -179,6 +301,19 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="No fields to update")
     if 'agent_ids' in update_data:
         update_data['agent_ids_json'] = json.dumps(_validate_agent_ids(db, update_data.pop('agent_ids')))
+    if 'collaboration_dir' in update_data:
+        update_data['collaboration_dir'] = _normalize_collab_dir_input(update_data['collaboration_dir'])
+    # Validate polling fields against the merged final state so cross-field
+    # constraints (min <= max) are enforced even when only one is updated.
+    merged_min = update_data.get('polling_interval_min', project.polling_interval_min)
+    merged_max = update_data.get('polling_interval_max', project.polling_interval_max)
+    merged_delay_minutes = update_data.get(
+        'polling_start_delay_minutes', project.polling_start_delay_minutes
+    )
+    merged_delay_seconds = update_data.get(
+        'polling_start_delay_seconds', project.polling_start_delay_seconds
+    )
+    _validate_polling_params(merged_min, merged_max, merged_delay_minutes, merged_delay_seconds)
     for key, value in update_data.items():
         setattr(project, key, value)
     project.updated_at = datetime.now(timezone.utc)

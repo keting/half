@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { Task, Agent, Project } from '../types';
@@ -15,8 +15,6 @@ export default function TasksPage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const intervalRef = useRef<number | null>(null);
-
   const fetchData = useCallback(async () => {
     try {
       const [proj, taskList, agentList] = await Promise.all([
@@ -36,9 +34,38 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchData();
-    intervalRef.current = window.setInterval(fetchData, 30000);
+  }, [fetchData]);
+
+  useEffect(() => {
+    const hasActiveWork = Boolean(
+      project && ['planning', 'executing'].includes(project.status)
+    ) || tasks.some((task) => task.status === 'running');
+    if (!hasActiveWork) {
+      return undefined;
+    }
+
+    const timer = window.setInterval(() => {
+      void fetchData();
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [fetchData, project, tasks]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      void fetchData();
+    };
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void fetchData();
+      }
+    };
+
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnVisible);
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
     };
   }, [fetchData]);
 

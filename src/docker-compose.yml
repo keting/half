@@ -8,9 +8,11 @@ services:
     environment:
       - HALF_ADMIN_PASSWORD=${HALF_ADMIN_PASSWORD:-example-insecure-password-placeholder}
       - HALF_SECRET_KEY=${HALF_SECRET_KEY:-example-insecure-secret-placeholder}
+      - HALF_WORKSPACE_ROOT=/workspace
     volumes:
       - backend-data:/app/data
       - backend-repos:/app/repos
+      - ..:/workspace
       - /home/claude_user/.ssh:/ssh-host:ro
     command: >-
       sh -lc 'rm -rf /root/.ssh &&
