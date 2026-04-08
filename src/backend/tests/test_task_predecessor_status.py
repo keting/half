@@ -1,0 +1,122 @@
+import sys
+import unittest
+from pathlib import Path
+from datetime import datetime, timezone
+from unittest.mock import patch
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from database import Base
+from models import Project, ProjectPlan, Task, TaskEvent
+from routers.tasks import (
+    TaskDispatchRequest,
+    _compute_predecessor_status,
+    dispatch_task,
+    redispatch_task,
+)
+
+
+class TaskPredecessorStatusTests(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=engine)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        self.db = self.SessionLocal()
+        self.addCleanup(self.db.close)
+
+    def _seed_task_chain(self, predecessor_status: str, task_status: str = "pending") -> Task:
+        project = Project(
+            id=1,
+            name="Demo",
+            git_repo_url="git@github.com:example-org/example-repo.git",
+            collaboration_dir="outputs/proj-1",
+            status="executing",
+        )
+        plan = ProjectPlan(id=1, project_id=1, status="final")
+        predecessor = Task(
+            id=1,
+            project_id=1,
+            plan_id=1,
+            task_code="TASK-001",
+            task_name="前序任务",
+            status=predecessor_status,
+            expected_output_path="outputs/proj-1/TASK-001/result.json",
+            completed_at=datetime.now(timezone.utc) if predecessor_status == "completed" else None,
+        )
+        task = Task(
+            id=2,
+            project_id=1,
+            plan_id=1,
+            task_code="TASK-002",
+            task_name="后继任务",
+            status=task_status,
+            depends_on_json='["TASK-001"]',
+            expected_output_path="outputs/proj-1/TASK-002/result.json",
+        )
+        self.db.add_all([project, plan, predecessor, task])
+        self.db.commit()
+        return task
+
+    def test_predecessor_status_ignores_abandoned_predecessor_output(self):
+        task = self._seed_task_chain("abandoned")
+        with patch("routers.tasks.git_service.file_exists", return_value=False):
+            result = _compute_predecessor_status(self.db, task, refresh=False)
+        self.assertTrue(result.ready)
+        self.assertEqual(result.missing, [])
+
+    def test_predecessor_status_ignores_non_completed_predecessor_output(self):
+        task = self._seed_task_chain("running")
+        with patch("routers.tasks.git_service.file_exists", return_value=False):
+            result = _compute_predecessor_status(self.db, task, refresh=False)
+        self.assertTrue(result.ready)
+        self.assertEqual(result.missing, [])
+
+    def test_dispatch_does_not_check_predecessor_files_on_server(self):
+        # Server-side dispatch must NOT trigger git fetch/pull and must NOT
+        # block on remote file existence: that check is the executing Agent's
+        # responsibility on its own machine.
+        task = self._seed_task_chain("completed")
+        with patch("routers.tasks.git_service.ensure_repo") as mock_ensure, patch(
+            "routers.tasks.git_service.file_exists",
+            return_value=False,
+        ):
+            dispatched = dispatch_task(task.id, TaskDispatchRequest(), self.db, None)
+        self.assertEqual(dispatched.status, "running")
+        mock_ensure.assert_not_called()
+
+    def test_redispatch_archives_last_error_into_event_detail(self):
+        task = self._seed_task_chain("completed", task_status="needs_attention")
+        task.last_error = "boom: timeout"
+        self.db.commit()
+        with patch("routers.tasks.git_service.ensure_repo"), patch(
+            "routers.tasks.git_service.file_exists",
+            return_value=True,
+        ):
+            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, None)
+        self.assertEqual(updated.status, "running")
+        self.assertIsNone(updated.last_error)
+        event = (
+            self.db.query(TaskEvent)
+            .filter(TaskEvent.task_id == task.id, TaskEvent.event_type == "redispatched")
+            .one()
+        )
+        self.assertIn("boom: timeout", event.detail)
+
+    def test_redispatch_does_not_check_predecessor_files_on_server(self):
+        task = self._seed_task_chain("completed", task_status="needs_attention")
+        with patch("routers.tasks.git_service.ensure_repo") as mock_ensure, patch(
+            "routers.tasks.git_service.file_exists",
+            return_value=False,
+        ):
+            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, None)
+        self.assertEqual(updated.status, "running")
+        mock_ensure.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
