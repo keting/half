@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { isAdminUser } from '../auth';
 import { Project } from '../types';
 import StatusBadge from '../components/StatusBadge';
 
 export default function ProjectListPage() {
+  const isAdmin = isAdminUser();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -47,9 +49,11 @@ export default function ProjectListPage() {
           <Link to="/projects/new" className="btn btn-primary" title="创建一个新的项目并配置目标与 Agent">
             新建项目
           </Link>
-          <Link to="/settings" className="btn btn-secondary" title="设置轮询间隔、启动延迟等全局参数">
-            设置
-          </Link>
+          {isAdmin && (
+            <Link to="/settings" className="btn btn-secondary" title="设置轮询间隔、启动延迟等全局参数">
+              设置
+            </Link>
+          )}
         </div>
       </div>
 

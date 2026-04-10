@@ -13,6 +13,12 @@ describe('extractApiErrorDetail', () => {
     expect(extractApiErrorDetail('API error 500: Internal Server Error')).toBe('Internal Server Error');
   });
 
+  it('parses api errors wrapped by Error.toString()', () => {
+    expect(
+      extractApiErrorDetail('Error: API error 400: {"detail":"当前密码错误"}')
+    ).toBe('当前密码错误');
+  });
+
   it('returns null for non-api errors', () => {
     expect(extractApiErrorDetail('Network error')).toBeNull();
   });

@@ -4,7 +4,6 @@ import re
 from sqlalchemy.orm import Session
 
 from models import Agent, Project, Task
-from services.path_service import normalize_expected_output_path
 
 
 def generate_plan_prompt(
@@ -136,8 +135,8 @@ def generate_task_prompt(
     include_usage: bool = False,  # kept for API compat, no longer used
 ) -> str:
     collab = (project.collaboration_dir or "").strip("/")
+    task_dir = f"{collab}/{task.task_code}" if collab else task.task_code
 
-    # Gather predecessor output paths
     depends_on = json.loads(task.depends_on_json) if task.depends_on_json else []
     predecessor_lines = ""
     if depends_on:
@@ -149,13 +148,8 @@ def generate_task_prompt(
         for p in predecessors:
             if p.status == "abandoned":
                 continue
-            path = p.result_file_path or normalize_expected_output_path(
-                p.expected_output_path,
-                default_path=f"outputs/{p.task_code}/result.json",
-                collaboration_dir=collab,
-                strict=True,
-            )
-            paths.append(f"- {p.task_code}: {path}")
+            pred_dir = f"{collab}/{p.task_code}" if collab else p.task_code
+            paths.append(f"- {p.task_code}: {pred_dir}/")
         if paths:
             predecessor_lines = "\n".join(paths)
         else:
@@ -163,18 +157,11 @@ def generate_task_prompt(
     else:
         predecessor_lines = "无前序任务输出"
 
-    output_path = normalize_expected_output_path(
-        task.expected_output_path,
-        default_path=f"outputs/{task.task_code}/result.json",
-        collaboration_dir=collab,
-        strict=True,
-    )
-
     prompt = f"""你是项目 [{project.name}] 的执行 Agent。
 
 ## 执行前置步骤（必须先做）
 1. 在开始本任务前，必须先在项目仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。
-2. 确认上述前序任务输出文件已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。
+2. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。
 
 ## 任务信息
 - 任务码：{task.task_code}
@@ -185,8 +172,11 @@ def generate_task_prompt(
 {predecessor_lines}
 
 ## 输出要求
-1. 将输出写入路径：{output_path}
-2. 文件中必须包含字段 "task_code": "{task.task_code}"
-3. 完成后执行 git add、git commit、git push"""
+1. 将所有产出文件写入目录：{task_dir}/
+2. 所有产出文件写完后，最后生成 `result.json`，它是完成哨兵，不是中间过程文件
+3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
+4. `result.json` 至少包含：`task_code`、`summary`、`artifacts`，其中 `task_code` 必须为 `{task.task_code}`
+5. 后续任务默认从前序任务目录及其中的 `result.json` 读取成果，不要依赖旧的单文件输出路径约定
+6. 完成后执行 git add、git commit、git push"""
 
     return prompt

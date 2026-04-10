@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, extractApiErrorDetail } from '../api/client';
+import { setStoredSession } from '../auth';
 
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,}$/;
 
@@ -70,17 +71,22 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
-      const result = await api.post<{ token: string }>(endpoint, {
+      const result = await api.post<{ token: string; username: string; role: string; status: string }>(endpoint, {
         username: username.trim(),
         password,
       });
-      localStorage.setItem('token', result.token);
+      api.clearCache();
+      setStoredSession(result);
       navigate('/projects');
     } catch (err: any) {
       const msg = err?.message || '';
       const detail = extractApiErrorDetail(msg);
       if (msg.includes('403')) {
-        setError(detail || '当前环境未开放注册，请联系管理员。');
+        if (mode === 'register') {
+          setError(detail || '当前环境未开放注册，请联系管理员。');
+        } else {
+          setError(detail || '账号已被冻结，请联系管理员。');
+        }
       } else if (msg.includes('409')) {
         setError('该用户名已被注册');
       } else if (msg.includes('401')) {

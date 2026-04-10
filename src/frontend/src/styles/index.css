@@ -105,6 +105,21 @@ body {
 .sidebar-footer {
   padding: 16px 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-welcome {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-action-button {
+  width: 100%;
 }
 
 .main-content {
@@ -1119,6 +1134,29 @@ body {
 .modal-missing-list code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; }
 .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 
+.change-password-modal {
+  max-width: 460px;
+}
+
+.change-password-title {
+  color: var(--color-text) !important;
+  margin-bottom: 6px !important;
+}
+
+.change-password-subtitle {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  margin-bottom: 18px;
+}
+
+.change-password-form .form-group {
+  margin-bottom: 14px;
+}
+
+.change-password-message {
+  margin-bottom: 0;
+}
+
 .task-detail-panel h3 {
   font-size: 16px;
   font-weight: 600;
@@ -1419,6 +1457,60 @@ body {
   text-align: center;
   padding: 64px 32px;
   color: var(--color-text-secondary);
+}
+
+.success-message {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  color: #15803d;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.user-table {
+  min-width: 1080px;
+}
+
+.user-name-cell {
+  font-weight: 600;
+}
+
+.user-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.user-pill-admin {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.user-pill-active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.user-pill-frozen {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 /* ===== Scrollbar ===== */

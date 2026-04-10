@@ -37,7 +37,7 @@ class PromptServiceTests(unittest.TestCase):
         self.assertEqual(resolved[2], "gpt-5-codex")
         self.assertIn("使用模型：gpt-5-codex", prompt)
 
-    def test_generate_task_prompt_normalizes_output_paths(self):
+    def test_generate_task_prompt_uses_fixed_task_directories(self):
         project = Project(id=4, name="Demo", collaboration_dir="outputs/proj-4-f9a125")
         task = Task(
             project_id=4,
@@ -67,9 +67,11 @@ class PromptServiceTests(unittest.TestCase):
                 return FakeQuery()
 
         prompt = generate_task_prompt(FakeSession(), project, task)
-        self.assertIn("outputs/proj-4-f9a125/TASK-001/result.json", prompt)
-        self.assertIn("outputs/proj-4-f9a125/TASK-002/result.json", prompt)
-        self.assertNotIn("包含 task_code", prompt)
+        self.assertIn("outputs/proj-4-f9a125/TASK-001/", prompt)
+        self.assertIn("outputs/proj-4-f9a125/TASK-002/", prompt)
+        self.assertIn("result.json.tmp", prompt)
+        self.assertIn("原子重命名为 `result.json`", prompt)
+        self.assertIn("task_code`、`summary`、`artifacts`", prompt)
 
 
 if __name__ == "__main__":

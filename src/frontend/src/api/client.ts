@@ -5,7 +5,7 @@ interface RequestOptions extends RequestInit {
 }
 
 export function extractApiErrorDetail(message: string): string | null {
-  const match = message.match(/^API error \d+:\s*(.*)$/s);
+  const match = message.match(/^(?:Error:\s+)?API error \d+:\s*(.*)$/s);
   if (!match) {
     return null;
   }
@@ -126,6 +126,10 @@ function invalidatePrefix(prefix: string) {
   }
 }
 
+function clearCache() {
+  cache.clear();
+}
+
 export const api = {
   get<T>(path: string, options?: RequestOptions) {
     return request<T>(path, options);
@@ -155,4 +159,5 @@ export const api = {
   getCached,
   invalidate,
   invalidatePrefix,
+  clearCache,
 };

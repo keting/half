@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from access import get_owned_project
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, TaskEvent, User
 from auth import get_current_user
@@ -98,12 +99,13 @@ def _build_project_response(project: Project, next_step: Optional[str] = None, t
         return ProjectDetailResponse(next_step=next_step, task_summary=task_summary, **payload)
     return ProjectResponse(**payload)
 
-
-
-def _validate_agent_ids(db: Session, agent_ids: list[int]) -> list[int]:
+def _validate_owned_agent_ids(db: Session, agent_ids: list[int], user: User) -> list[int]:
     if not agent_ids:
         raise HTTPException(status_code=400, detail='At least one agent must be selected')
-    agents = db.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+    agents = db.query(Agent).filter(
+        Agent.id.in_(agent_ids),
+        Agent.created_by == user.id,
+    ).all()
     if len(agents) != len(agent_ids):
         raise HTTPException(status_code=400, detail='Some agent_ids are invalid')
     return agent_ids
@@ -158,8 +160,9 @@ def compute_next_step(db: Session, project: Project) -> tuple[str, dict]:
 
 
 @router.get('', response_model=list[ProjectResponse])
-def list_projects(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    return [_build_project_response(project) for project in db.query(Project).all()]
+def list_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    projects = db.query(Project).filter(Project.created_by == user.id).all()
+    return [_build_project_response(project) for project in projects]
 
 
 def _normalize_collab_dir_input(value: Optional[str]) -> Optional[str]:
@@ -246,7 +249,7 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
             body.git_repo_url = validate_git_url(body.git_repo_url)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-    agent_ids = _validate_agent_ids(db, body.agent_ids)
+    agent_ids = _validate_owned_agent_ids(db, body.agent_ids, user)
     _validate_polling_params(
         body.polling_interval_min,
         body.polling_interval_max,
@@ -276,6 +279,8 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
         polling_start_delay_minutes=polling_snapshot["polling_start_delay_minutes"],
         polling_start_delay_seconds=polling_snapshot["polling_start_delay_seconds"],
     )
+    if project.created_by is None:
+        raise HTTPException(status_code=500, detail="created_by must not be None")
     db.add(project)
     # Flush to get the auto-generated id, then default the collaboration_dir
     # to outputs/proj-<id>-<random> if user didn't provide one. This guarantees
@@ -289,19 +294,15 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
 
 
 @router.get('/{project_id}', response_model=ProjectDetailResponse)
-def get_project(project_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail='Project not found')
+def get_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
     next_step, task_summary = compute_next_step(db, project)
     return _build_project_response(project, next_step=next_step, task_summary=task_summary)
 
 
 @router.put('/{project_id}', response_model=ProjectResponse)
-def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail='Project not found')
+def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -311,7 +312,7 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
     if 'agent_ids' in update_data:
-        update_data['agent_ids_json'] = json.dumps(_validate_agent_ids(db, update_data.pop('agent_ids')))
+        update_data['agent_ids_json'] = json.dumps(_validate_owned_agent_ids(db, update_data.pop('agent_ids'), user))
     if 'collaboration_dir' in update_data:
         update_data['collaboration_dir'] = _normalize_collab_dir_input(update_data['collaboration_dir'])
     # Validate polling fields against the merged final state so cross-field
@@ -334,10 +335,8 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
 
 
 @router.delete('/{project_id}', status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail='Project not found')
+def delete_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
 
     tasks = db.query(Task).filter(Task.project_id == project_id).all()
     task_ids = [task.id for task in tasks]

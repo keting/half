@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent
-from auth import get_current_user, User
+from auth import require_admin, User
 
 router = APIRouter(prefix="/api/agent-settings", tags=["agent-settings"])
 
@@ -110,13 +110,13 @@ def _build_agent_type_response(db: Session, agent_type: AgentTypeConfig) -> Agen
 # --- Agent Type Endpoints ---
 
 @router.get("/types", response_model=list[AgentTypeOut])
-def list_agent_types(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def list_agent_types(db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     types = db.query(AgentTypeConfig).order_by(AgentTypeConfig.display_order, AgentTypeConfig.id).all()
     return [_build_agent_type_response(db, t) for t in types]
 
 
 @router.put("/types/reorder", response_model=list[AgentTypeOut])
-def reorder_agent_types(body: ReorderTypesRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def reorder_agent_types(body: ReorderTypesRequest, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     for index, type_id in enumerate(body.type_ids):
         t = db.query(AgentTypeConfig).filter(AgentTypeConfig.id == type_id).first()
         if t:
@@ -127,7 +127,7 @@ def reorder_agent_types(body: ReorderTypesRequest, db: Session = Depends(get_db)
 
 
 @router.put("/types/{type_id}/models/reorder", response_model=AgentTypeOut)
-def reorder_models_in_type(type_id: int, body: ReorderModelsRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def reorder_models_in_type(type_id: int, body: ReorderModelsRequest, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     agent_type = db.query(AgentTypeConfig).filter(AgentTypeConfig.id == type_id).first()
     if not agent_type:
         raise HTTPException(status_code=404, detail="Agent 类型不存在")
@@ -143,7 +143,7 @@ def reorder_models_in_type(type_id: int, body: ReorderModelsRequest, db: Session
 
 
 @router.post("/types", response_model=AgentTypeOut, status_code=status.HTTP_201_CREATED)
-def create_agent_type(body: AgentTypeCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def create_agent_type(body: AgentTypeCreate, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="名称不能为空")
@@ -158,7 +158,7 @@ def create_agent_type(body: AgentTypeCreate, db: Session = Depends(get_db), _use
 
 
 @router.put("/types/{type_id}", response_model=AgentTypeOut)
-def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     agent_type = db.query(AgentTypeConfig).filter(AgentTypeConfig.id == type_id).first()
     if not agent_type:
         raise HTTPException(status_code=404, detail="Agent 类型不存在")
@@ -186,7 +186,7 @@ def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends
 
 
 @router.delete("/types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_agent_type(type_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def delete_agent_type(type_id: int, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     agent_type = db.query(AgentTypeConfig).filter(AgentTypeConfig.id == type_id).first()
     if not agent_type:
         raise HTTPException(status_code=404, detail="Agent 类型不存在")
@@ -206,7 +206,7 @@ def delete_agent_type(type_id: int, db: Session = Depends(get_db), _user: User =
 # --- Model Management within Agent Type ---
 
 @router.post("/types/{type_id}/models", response_model=AgentTypeOut)
-def add_model_to_type(type_id: int, body: ModelAddToType, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def add_model_to_type(type_id: int, body: ModelAddToType, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     agent_type = db.query(AgentTypeConfig).filter(AgentTypeConfig.id == type_id).first()
     if not agent_type:
         raise HTTPException(status_code=404, detail="Agent 类型不存在")
@@ -249,7 +249,7 @@ def add_model_to_type(type_id: int, body: ModelAddToType, db: Session = Depends(
 
 
 @router.delete("/types/{type_id}/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_model_from_type(type_id: int, model_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def remove_model_from_type(type_id: int, model_id: int, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     mapping = db.query(AgentTypeModelMap).filter(
         AgentTypeModelMap.agent_type_id == type_id,
         AgentTypeModelMap.model_definition_id == model_id,
@@ -264,7 +264,7 @@ def remove_model_from_type(type_id: int, model_id: int, db: Session = Depends(ge
 # --- Global Model Endpoints ---
 
 @router.put("/models/{model_id}", response_model=ModelDefinitionOut)
-def update_model_definition(model_id: int, body: ModelUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_model_definition(model_id: int, body: ModelUpdate, db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     model_def = db.query(ModelDefinition).filter(ModelDefinition.id == model_id).first()
     if not model_def:
         raise HTTPException(status_code=404, detail="模型不存在")
@@ -301,7 +301,7 @@ def update_model_definition(model_id: int, body: ModelUpdate, db: Session = Depe
 
 
 @router.get("/models/search", response_model=list[ModelSearchResult])
-def search_models(q: str = "", db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def search_models(q: str = "", db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     """Search model definitions by name or alias for auto-complete."""
     if not q.strip():
         return db.query(ModelDefinition).order_by(ModelDefinition.name).limit(20).all()
@@ -316,7 +316,7 @@ def search_models(q: str = "", db: Session = Depends(get_db), _user: User = Depe
 
 
 @router.get("/types/search", response_model=list[dict])
-def search_agent_types(q: str = "", db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def search_agent_types(q: str = "", db: Session = Depends(get_db), _user: User = Depends(require_admin)):
     """Search agent type names for auto-complete."""
     query = db.query(AgentTypeConfig)
     if q.strip():

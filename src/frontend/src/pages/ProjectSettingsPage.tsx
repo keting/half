@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { isAdminUser } from '../auth';
 import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
 
@@ -13,6 +14,7 @@ interface PollingSettings {
 
 export default function ProjectSettingsPage() {
   const navigate = useNavigate();
+  const isAdmin = isAdminUser();
   const [settings, setSettings] = useState<PollingSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -20,8 +22,12 @@ export default function ProjectSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!isAdmin) {
+      navigate('/projects', { replace: true });
+      return;
+    }
     fetchSettings();
-  }, []);
+  }, [isAdmin, navigate]);
 
   function fetchSettings() {
     setLoading(true);

@@ -12,11 +12,13 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from database import Base
-from models import Project, ProjectPlan, Task, TaskEvent
+from auth import hash_password
+from models import Project, ProjectPlan, Task, TaskEvent, User
 from routers.tasks import (
     TaskDispatchRequest,
     _compute_predecessor_status,
     dispatch_task,
+    mark_complete,
     redispatch_task,
 )
 
@@ -27,6 +29,9 @@ class TaskPredecessorStatusTests(unittest.TestCase):
         Base.metadata.create_all(bind=engine)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         self.db = self.SessionLocal()
+        self.user = User(id=1, username="owner", password_hash=hash_password("Owner123"))
+        self.db.add(self.user)
+        self.db.commit()
         self.addCleanup(self.db.close)
 
     def _seed_task_chain(self, predecessor_status: str, task_status: str = "pending") -> Task:
@@ -36,6 +41,7 @@ class TaskPredecessorStatusTests(unittest.TestCase):
             git_repo_url="git@github.com:example-org/example-repo.git",
             collaboration_dir="outputs/proj-1",
             status="executing",
+            created_by=self.user.id,
         )
         plan = ProjectPlan(id=1, project_id=1, status="final")
         predecessor = Task(
@@ -85,7 +91,7 @@ class TaskPredecessorStatusTests(unittest.TestCase):
             "routers.tasks.git_service.file_exists",
             return_value=False,
         ):
-            dispatched = dispatch_task(task.id, TaskDispatchRequest(), self.db, None)
+            dispatched = dispatch_task(task.id, TaskDispatchRequest(), self.db, self.user)
         self.assertEqual(dispatched.status, "running")
         mock_ensure.assert_not_called()
 
@@ -97,7 +103,7 @@ class TaskPredecessorStatusTests(unittest.TestCase):
             "routers.tasks.git_service.file_exists",
             return_value=True,
         ):
-            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, None)
+            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, self.user)
         self.assertEqual(updated.status, "running")
         self.assertIsNone(updated.last_error)
         event = (
@@ -113,9 +119,19 @@ class TaskPredecessorStatusTests(unittest.TestCase):
             "routers.tasks.git_service.file_exists",
             return_value=False,
         ):
-            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, None)
+            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, self.user)
         self.assertEqual(updated.status, "running")
         mock_ensure.assert_not_called()
+
+    def test_mark_complete_clears_last_error(self):
+        task = self._seed_task_chain("completed", task_status="needs_attention")
+        task.last_error = "boom: timeout"
+        self.db.commit()
+
+        updated = mark_complete(task.id, self.db, self.user)
+
+        self.assertEqual(updated.status, "completed")
+        self.assertIsNone(updated.last_error)
 
 
 if __name__ == "__main__":

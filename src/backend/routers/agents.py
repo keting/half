@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from access import get_owned_agent, list_owned_agents
 from database import get_db
-from models import Agent, Project, Task, User
+from models import Agent, Project, Task, User, AgentTypeConfig, AgentTypeModelMap, ModelDefinition
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -88,6 +89,20 @@ class AgentResponse(BaseModel):
         from_attributes = True
 
 
+class AgentTypeCatalogModel(BaseModel):
+    id: int
+    name: str
+    alias: Optional[str] = None
+    capability: Optional[str] = None
+
+
+class AgentTypeCatalogResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    models: list[AgentTypeCatalogModel] = Field(default_factory=list)
+
+
 def _slugify(name: str) -> str:
     normalized = "".join(ch.lower() if ch.isalnum() else "-" for ch in name).strip("-")
     normalized = "-".join(part for part in normalized.split("-") if part)
@@ -131,6 +146,33 @@ def _parse_agent_models(agent: Agent) -> list[AgentModelConfig]:
     if agent.model_name:
         return [AgentModelConfig(model_name=agent.model_name, capability=agent.capability)]
     return []
+
+
+def _build_agent_type_catalog(db: Session, agent_type: AgentTypeConfig) -> AgentTypeCatalogResponse:
+    mappings = db.query(AgentTypeModelMap).filter(
+        AgentTypeModelMap.agent_type_id == agent_type.id,
+    ).order_by(AgentTypeModelMap.display_order, AgentTypeModelMap.id).all()
+    model_ids = [item.model_definition_id for item in mappings]
+    models_by_id = {
+        model.id: model
+        for model in db.query(ModelDefinition).filter(ModelDefinition.id.in_(model_ids)).all()
+    } if model_ids else {}
+    models = [
+        AgentTypeCatalogModel(
+            id=model.id,
+            name=model.name,
+            alias=model.alias,
+            capability=model.capability,
+        )
+        for model_id in model_ids
+        if (model := models_by_id.get(model_id)) is not None
+    ]
+    return AgentTypeCatalogResponse(
+        id=agent_type.id,
+        name=agent_type.name,
+        description=agent_type.description,
+        models=models,
+    )
 
 
 def _normalize_models_payload(
@@ -198,6 +240,33 @@ def _normalize_agent_input(payload: dict) -> dict:
     for field in ("short_term_reset_at", "long_term_reset_at"):
         if field in payload:
             payload[field] = _normalize_beijing_datetime(payload[field])
+    return payload
+
+
+def _normalize_agent_update_input(payload: dict) -> dict:
+    """Normalize partial update payload without wiping model fields that were
+    not explicitly edited by the caller."""
+    for field in ("short_term_reset_at", "long_term_reset_at"):
+        if field in payload:
+            payload[field] = _normalize_beijing_datetime(payload[field])
+
+    if "models" in payload:
+        normalized_models = _normalize_models_payload(
+            payload.get("models"),
+            payload.get("model_name"),
+            payload.get("capability"),
+        )
+        payload["models_json"] = json.dumps(normalized_models, ensure_ascii=False)
+        payload["model_name"], payload["capability"] = _derive_primary_fields_from_models(normalized_models)
+        payload.pop("models", None)
+        return payload
+
+    if "model_name" in payload:
+        payload["model_name"] = (payload.get("model_name") or "").strip() or None
+    if "capability" in payload:
+        raw_capability = payload.get("capability")
+        payload["capability"] = raw_capability.strip() if raw_capability else None
+
     return payload
 
 
@@ -274,13 +343,6 @@ def _clear_confirmation_flags_on_manual_update(agent: Agent, update_data: dict):
         agent.long_term_reset_needs_confirmation = False
 
 
-def _get_agent_or_404(db: Session, agent_id: int) -> Agent:
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
-
-
 def _build_agent_response(agent: Agent) -> AgentResponse:
     return AgentResponse(
         id=agent.id,
@@ -309,8 +371,8 @@ def _build_agent_response(agent: Agent) -> AgentResponse:
 
 
 @router.get("", response_model=list[AgentResponse])
-def list_agents(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agents = db.query(Agent).order_by(Agent.display_order, Agent.id).all()
+def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agents = list_owned_agents(db, user)
     changed = False
     for agent in agents:
         changed = _normalize_agent_reset_times(agent, mark_confirmation=True) or changed
@@ -321,14 +383,26 @@ def list_agents(db: Session = Depends(get_db), _user: User = Depends(get_current
     return [_build_agent_response(agent) for agent in agents]
 
 
+@router.get("/config/types", response_model=list[AgentTypeCatalogResponse])
+def list_agent_type_catalog(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    agent_types = db.query(AgentTypeConfig).order_by(AgentTypeConfig.display_order, AgentTypeConfig.id).all()
+    return [_build_agent_type_catalog(db, agent_type) for agent_type in agent_types]
+
+
 @router.put("/reorder", response_model=list[AgentResponse])
-def reorder_agents(body: ReorderRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def reorder_agents(body: ReorderRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    owned_ids = {
+        row[0]
+        for row in db.query(Agent.id).filter(Agent.created_by == user.id).all()
+    }
+    if any(agent_id not in owned_ids for agent_id in body.agent_ids):
+        raise HTTPException(status_code=400, detail="Some agent_ids are invalid")
     for index, agent_id in enumerate(body.agent_ids):
-        agent = db.query(Agent).filter(Agent.id == agent_id).first()
+        agent = db.query(Agent).filter(Agent.id == agent_id, Agent.created_by == user.id).first()
         if agent:
             agent.display_order = index
     db.commit()
-    agents = db.query(Agent).order_by(Agent.display_order, Agent.id).all()
+    agents = list_owned_agents(db, user)
     for agent in agents:
         _normalize_agent_reset_times(agent, mark_confirmation=True)
     db.commit()
@@ -338,15 +412,21 @@ def reorder_agents(body: ReorderRequest, db: Session = Depends(get_db), _user: U
 
 
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
-def create_agent(body: AgentCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def create_agent(body: AgentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not body.name or not body.name.strip():
         raise HTTPException(status_code=400, detail="Agent name is required")
-    existing = db.query(Agent).filter(Agent.name == body.name.strip()).first()
+    existing = db.query(Agent).filter(
+        Agent.name == body.name.strip(),
+        Agent.created_by == user.id,
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Agent with name '{body.name.strip()}' already exists")
     payload = _normalize_agent_input(body.model_dump())
     payload["slug"] = _generate_unique_slug(db, body.name)
+    payload["created_by"] = user.id
     agent = Agent(**payload)
+    if agent.created_by is None:
+        raise HTTPException(status_code=500, detail="created_by must not be None")
     _normalize_agent_reset_times(agent, mark_confirmation=False)
     db.add(agent)
     db.commit()
@@ -355,9 +435,9 @@ def create_agent(body: AgentCreate, db: Session = Depends(get_db), _user: User =
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
-def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agent = _get_agent_or_404(db, agent_id)
-    update_data = _normalize_agent_input(body.model_dump(exclude_unset=True))
+def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agent = get_owned_agent(db, agent_id, user)
+    update_data = _normalize_agent_update_input(body.model_dump(exclude_unset=True))
     for key, value in update_data.items():
         setattr(agent, key, value)
     _clear_confirmation_flags_on_manual_update(agent, update_data)
@@ -374,10 +454,10 @@ def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db)
 
 
 @router.patch("/{agent_id}/status", response_model=AgentResponse)
-def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Only modify availability_status. Must NOT call _normalize_agent_input or touch
     model_name / models_json / capability — status changes are isolated from model config."""
-    agent = _get_agent_or_404(db, agent_id)
+    agent = get_owned_agent(db, agent_id, user)
     # Block status change if subscription expired
     if agent.subscription_expires_at and agent.subscription_expires_at <= _now_beijing_naive():
         raise HTTPException(status_code=400, detail="订阅已过期，无法更改状态")
@@ -392,8 +472,8 @@ def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends
 
 
 @router.post("/{agent_id}/short-term-reset/reset", response_model=AgentResponse)
-def reset_short_term(agent_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agent = _get_agent_or_404(db, agent_id)
+def reset_short_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agent = get_owned_agent(db, agent_id, user)
     if not agent.short_term_reset_at or not agent.short_term_reset_interval_hours:
         raise HTTPException(status_code=400, detail="短期重置时间或间隔未设置")
     agent.short_term_reset_at = _now_beijing_naive() + timedelta(hours=agent.short_term_reset_interval_hours)
@@ -406,8 +486,8 @@ def reset_short_term(agent_id: int, db: Session = Depends(get_db), _user: User =
 
 
 @router.post("/{agent_id}/short-term-reset/confirm", response_model=AgentResponse)
-def confirm_short_term(agent_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agent = _get_agent_or_404(db, agent_id)
+def confirm_short_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agent = get_owned_agent(db, agent_id, user)
     agent.short_term_reset_needs_confirmation = False
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -416,8 +496,8 @@ def confirm_short_term(agent_id: int, db: Session = Depends(get_db), _user: User
 
 
 @router.post("/{agent_id}/long-term-reset/reset", response_model=AgentResponse)
-def reset_long_term(agent_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agent = _get_agent_or_404(db, agent_id)
+def reset_long_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agent = get_owned_agent(db, agent_id, user)
     mode = agent.long_term_reset_mode or "days"
     if not agent.long_term_reset_at:
         raise HTTPException(status_code=400, detail="长期重置时间未设置")
@@ -441,8 +521,8 @@ def reset_long_term(agent_id: int, db: Session = Depends(get_db), _user: User = 
 
 
 @router.post("/{agent_id}/long-term-reset/confirm", response_model=AgentResponse)
-def confirm_long_term(agent_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agent = _get_agent_or_404(db, agent_id)
+def confirm_long_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agent = get_owned_agent(db, agent_id, user)
     agent.long_term_reset_needs_confirmation = False
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
@@ -451,14 +531,20 @@ def confirm_long_term(agent_id: int, db: Session = Depends(get_db), _user: User 
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_agent(agent_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    agent = _get_agent_or_404(db, agent_id)
+def delete_agent(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    agent = get_owned_agent(db, agent_id, user)
 
-    task_ref = db.query(Task).filter(Task.assignee_agent_id == agent_id).first()
+    task_ref = db.query(Task).join(
+        Project,
+        Project.id == Task.project_id,
+    ).filter(
+        Task.assignee_agent_id == agent_id,
+        Project.created_by == user.id,
+    ).first()
     if task_ref:
         raise HTTPException(status_code=400, detail="Agent 已关联任务，无法删除")
 
-    for project in db.query(Project).all():
+    for project in db.query(Project).filter(Project.created_by == user.id).all():
         agent_ids = json.loads(project.agent_ids_json or "[]")
         if agent_id in agent_ids:
             raise HTTPException(status_code=400, detail="Agent 已关联项目，无法删除")

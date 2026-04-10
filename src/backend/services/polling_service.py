@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import random
-from pathlib import PurePosixPath
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
@@ -10,7 +9,6 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Agent, Project, ProjectPlan, Task, TaskEvent
 from services import git_service
-from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
 from services.polling_config_service import (
     get_project_polling_settings,
 )
@@ -31,137 +29,24 @@ def _plan_source_path(project: Project, plan: ProjectPlan) -> str:
     return "plan.json"
 
 
-def _task_result_path(project: Project, task: Task) -> str:
-    """Return the repo-root-relative path where the task result file is expected.
-
-    Honors task.expected_output_path (set by plan finalize, already prefixed
-    with collaboration_dir if applicable). Falls back to default convention
-    relative to collaboration_dir for legacy tasks. Always strips leading
-    slashes so the result can be safely os.path.join'd with repo_dir.
-    """
-    base = _normalize_collab_dir(project)
-    return normalize_expected_output_path(
-        task.expected_output_path,
-        default_path=f"outputs/{task.task_code}/result.json",
-        collaboration_dir=base,
-        strict=True,
-    )
-
-
 def _task_usage_path(project: Project, task: Task) -> str:
-    """Return the usage.json path, derived from the result path's directory."""
-    result_path = _task_result_path(project, task)
-    if "." not in PurePosixPath(result_path).name:
-        return f"{result_path.rstrip('/')}/usage.json"
-    # Replace the filename portion with usage.json
-    if "/" in result_path:
-        return result_path.rsplit("/", 1)[0] + "/usage.json"
-    return "usage.json"
-
-
-def _is_json_result_path(result_path: str) -> bool:
-    return PurePosixPath(result_path).suffix.casefold() == ".json"
-
-
-_RESULT_FALLBACK_SUFFIXES = (".md", ".json", ".txt", ".yaml", ".yml")
+    base = _normalize_collab_dir(project)
+    if base:
+        return f"{base}/{task.task_code}/usage.json"
+    return f"{task.task_code}/usage.json"
 
 
 def _detect_task_result(project: Project, task: Task) -> tuple[bool, str | None]:
-    """Detect a task result via multiple strategies.
-
-    Strategies, in order (T1-ANALYZE F-P1-06):
-      1. Exact result_path (JSON path matches by task_code; other paths by existence)
-      2. Common-suffix completion when expected_output is given without an extension
-      3. Sibling files in the same directory whose stem starts with the expected stem
-      4. Directory existence with at least one non-empty file inside
-    Hits return the actually-matched path so it can be persisted to result_file_path.
-    """
-    expected_result_path = _task_result_path(project, task)
-    result_path = task.result_file_path or expected_result_path
-
-    # Strategy 1: exact path
-    if _is_json_result_path(result_path):
-        result_data = git_service.read_json(
-            project.id,
-            result_path,
-            git_repo_url=project.git_repo_url,
-            prefer_remote=True,
-        )
-        if result_data and result_data.get("task_code") == task.task_code:
-            return True, result_path
-    else:
-        if git_service.file_exists(
-            project.id,
-            result_path,
-            git_repo_url=project.git_repo_url,
-            prefer_remote=True,
-        ):
-            return True, result_path
-
-    # Strategy 2: suffix completion
-    if "." not in PurePosixPath(result_path).name:
-        for suffix in _RESULT_FALLBACK_SUFFIXES:
-            candidate = result_path + suffix
-            if git_service.file_exists(
-                project.id,
-                candidate,
-                git_repo_url=project.git_repo_url,
-                prefer_remote=True,
-            ):
-                return True, candidate
-
-    # Strategy 3: same-directory prefix match (handles "auto-renamed" / truncated outputs)
-    parent = str(PurePosixPath(result_path).parent)
-    stem = PurePosixPath(result_path).stem
-    if stem and parent and parent != ".":
-        try:
-            entries = git_service.list_dir(
-                project.id,
-                parent,
-                git_repo_url=project.git_repo_url,
-                prefer_remote=True,
-            )
-        except Exception:
-            entries = []
-        for entry in entries or []:
-            entry_path = f"{parent}/{entry}"
-            if entry == PurePosixPath(result_path).name:
-                continue
-            entry_stem = PurePosixPath(entry).stem
-            if entry_stem.startswith(stem) or stem.startswith(entry_stem):
-                if git_service.file_exists(
-                    project.id,
-                    entry_path,
-                    git_repo_url=project.git_repo_url,
-                    prefer_remote=True,
-                ):
-                    return True, entry_path
-
-    # Strategy 4: directory-as-output with sentinel completion marker.
-    #
-    # Historically this strategy returned True as soon as the directory contained
-    # any non-empty file (`dir_has_content`). That is unsafe for long-running
-    # tasks (e.g. frontend/backend scaffolds) that create the output directory
-    # and start writing files long before the task is actually done — the task
-    # would be marked completed mid-flight. See log/0409.md for the incident.
-    #
-    # New contract: when expected_output_path points at a directory, the agent
-    # must write a sentinel file `result.json` into that directory as the
-    # *last* step of the task. The poller only declares completion when this
-    # sentinel exists.
-    # Only treat suffixless expected_output values as directory-style outputs.
-    # This prevents JSON/file outputs from accidentally falling through to the
-    # sentinel strategy when their exact-path validation fails.
-    if "." not in PurePosixPath(expected_result_path).name:
-        sentinel_path = f"{expected_result_path.rstrip('/')}/result.json"
-        if git_service.file_exists(
-            project.id,
-            sentinel_path,
-            git_repo_url=project.git_repo_url,
-            prefer_remote=True,
-        ):
-            return True, sentinel_path
-
+    """Detect task completion via a fixed sentinel file."""
+    base = _normalize_collab_dir(project)
+    result_path = f"{base}/{task.task_code}/result.json" if base else f"{task.task_code}/result.json"
+    if git_service.file_exists(
+        project.id,
+        result_path,
+        git_repo_url=project.git_repo_url,
+        prefer_remote=True,
+    ):
+        return True, result_path
     return False, result_path
 
 
@@ -189,7 +74,7 @@ def poll_project(db: Session, project: Project) -> None:
         return
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
-    running_tasks = [task for task in all_tasks if task.status == "running"]
+    running_tasks = [task for task in all_tasks if task.status in ("running", "needs_attention")]
 
     now = datetime.now(timezone.utc)
 
@@ -277,17 +162,7 @@ def poll_project(db: Session, project: Project) -> None:
                 project.id, task.task_code, delay_seconds,
             )
             continue
-        try:
-            result_detected, result_path = _detect_task_result(project, task)
-        except ExpectedOutputPathError as exc:
-            _set_task_runtime_error(
-                db,
-                task,
-                now,
-                f"Invalid expected_output_path for task {task.task_code}: {exc}",
-                needs_attention=True,
-            )
-            continue
+        result_detected, result_path = _detect_task_result(project, task)
 
         if result_detected:
             task.status = "completed"
@@ -304,7 +179,8 @@ def poll_project(db: Session, project: Project) -> None:
             _set_task_runtime_error(db, task, now, sync_warning, needs_attention=False)
         elif task.dispatched_at:
             elapsed_minutes = (now - task.dispatched_at.replace(tzinfo=timezone.utc)).total_seconds() / 60
-            if elapsed_minutes > (task.timeout_minutes or 10):
+            timeout_limit = task.timeout_minutes or 10
+            if elapsed_minutes > timeout_limit and task.status != "needs_attention":
                 task.status = "needs_attention"
                 task.last_error = f"Timeout: result not found at {result_path} after {elapsed_minutes:.1f} minutes"
                 task.updated_at = now
@@ -315,10 +191,7 @@ def poll_project(db: Session, project: Project) -> None:
                 ))
 
         # Check usage.json
-        try:
-            usage_path = _task_usage_path(project, task)
-        except ExpectedOutputPathError:
-            usage_path = None
+        usage_path = _task_usage_path(project, task)
         if usage_path and git_service.file_exists(
             project.id,
             usage_path,

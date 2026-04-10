@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import GlobalSetting
-from auth import get_current_user
+from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -84,7 +84,7 @@ def _validate_global_polling_payload(payload: dict) -> dict:
 async def update_polling_settings(
     settings_data: dict,
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(require_admin),
 ):
     """Update global polling settings."""
     coerced = _validate_global_polling_payload(settings_data)

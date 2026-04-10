@@ -16,6 +16,10 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(Text, unique=True, nullable=False)
     password_hash = Column(Text, nullable=False)
+    role = Column(Text, nullable=False, default="user")
+    status = Column(Text, nullable=False, default="active")
+    last_login_at = Column(DateTime, nullable=True)
+    last_login_ip = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -43,6 +47,7 @@ class Agent(Base):
     long_term_reset_needs_confirmation = Column(Boolean, default=False)
     display_order = Column(Integer, default=0)
     last_usage_update_at = Column(DateTime, nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -165,5 +170,17 @@ class TaskEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
     event_type = Column(Text, nullable=False)  # dispatched/completed/timeout/manual_complete/abandoned/redispatched/updated/error
+    detail = Column(Text)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    operator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    action = Column(Text, nullable=False)
+    target_type = Column(Text, nullable=False)
+    target_id = Column(Integer, nullable=False)
     detail = Column(Text)
     created_at = Column(DateTime, default=utcnow)

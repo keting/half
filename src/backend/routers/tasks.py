@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from access import get_owned_project, get_owned_task
 from database import get_db
 from models import Project, Task, TaskEvent, User
 from auth import get_current_user
@@ -60,19 +61,15 @@ class TaskDispatchRequest(BaseModel):
 
 # Project-scoped task list
 @router.get("/api/projects/{project_id}/tasks", response_model=list[TaskResponse])
-def list_project_tasks(project_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def list_project_tasks(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
     return db.query(Task).filter(Task.project_id == project_id).all()
 
 
 # Single task detail
 @router.get("/api/tasks/{task_id}", response_model=TaskResponse)
-def get_task(task_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+def get_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = get_owned_task(db, task_id, user)
     return task
 
 
@@ -81,11 +78,9 @@ def update_task(
     task_id: int,
     body: TaskUpdateRequest,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = get_owned_task(db, task_id, user)
 
     depends_on: list[str] = []
     try:
@@ -209,18 +204,14 @@ def _compute_predecessor_status(db: Session, task: Task, refresh: bool) -> Prede
 
 
 @router.get("/api/tasks/{task_id}/predecessor-status", response_model=PredecessorStatusResponse)
-def get_predecessor_status(task_id: int, refresh: bool = False, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+def get_predecessor_status(task_id: int, refresh: bool = False, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = get_owned_task(db, task_id, user)
     return _compute_predecessor_status(db, task, refresh=refresh)
 
 
 @router.get("/api/projects/{project_id}/predecessor-status", response_model=list[PredecessorStatusResponse])
-def list_project_predecessor_status(project_id: int, refresh: bool = False, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def list_project_predecessor_status(project_id: int, refresh: bool = False, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
 
     # Server-side git fetch/pull is intentionally NOT triggered here. See the
     # rationale in `_compute_predecessor_status`.
@@ -295,17 +286,10 @@ def list_project_predecessor_status(project_id: int, refresh: bool = False, db: 
 
 # Generate execution prompt
 @router.post("/api/tasks/{task_id}/generate-prompt", response_model=PromptResponse)
-def task_generate_prompt(task_id: int, body: PromptRequest = PromptRequest(), db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    project = db.query(Project).filter(Project.id == task.project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    try:
-        prompt = generate_task_prompt(db, project, task, include_usage=body.include_usage)
-    except ExpectedOutputPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+def task_generate_prompt(task_id: int, body: PromptRequest = PromptRequest(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = get_owned_task(db, task_id, user)
+    project = get_owned_project(db, task.project_id, user)
+    prompt = generate_task_prompt(db, project, task, include_usage=body.include_usage)
     return PromptResponse(prompt=prompt)
 
 
@@ -354,11 +338,9 @@ def dispatch_task(
     task_id: int,
     body: TaskDispatchRequest = TaskDispatchRequest(),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = get_owned_task(db, task_id, user)
     if task.status not in ("pending", "needs_attention"):
         raise HTTPException(status_code=400, detail=f"Cannot dispatch task in status: {task.status}")
 
@@ -384,16 +366,15 @@ def dispatch_task(
 
 # Mark complete
 @router.post("/api/tasks/{task_id}/mark-complete", response_model=TaskResponse)
-def mark_complete(task_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+def mark_complete(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = get_owned_task(db, task_id, user)
     if task.status not in ("running", "needs_attention"):
         raise HTTPException(status_code=400, detail=f"Cannot mark complete a task in status: {task.status}")
 
     now = datetime.now(timezone.utc)
     task.status = "completed"
     task.completed_at = now
+    task.last_error = None
     task.updated_at = now
     db.add(TaskEvent(
         task_id=task.id,
@@ -402,7 +383,7 @@ def mark_complete(task_id: int, db: Session = Depends(get_db), _user: User = Dep
     ))
 
     # Check if all tasks in project are completed
-    project = db.query(Project).filter(Project.id == task.project_id).first()
+    project = get_owned_project(db, task.project_id, user)
     if project and project.status == "executing":
         all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
         if all(t.status in ("completed", "abandoned") or t.id == task.id for t in all_tasks):
@@ -416,10 +397,8 @@ def mark_complete(task_id: int, db: Session = Depends(get_db), _user: User = Dep
 
 # Abandon task
 @router.post("/api/tasks/{task_id}/abandon", response_model=TaskResponse)
-def abandon_task(task_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+def abandon_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    task = get_owned_task(db, task_id, user)
     if task.status in ("completed", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot abandon a task in status: {task.status}")
 
@@ -433,7 +412,7 @@ def abandon_task(task_id: int, db: Session = Depends(get_db), _user: User = Depe
     ))
 
     # Check if all tasks in project are completed or abandoned
-    project = db.query(Project).filter(Project.id == task.project_id).first()
+    project = get_owned_project(db, task.project_id, user)
     if project and project.status == "executing":
         all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
         if all(t.status in ("completed", "abandoned") or t.id == task.id for t in all_tasks):
@@ -451,11 +430,9 @@ def redispatch_task(
     task_id: int,
     body: TaskDispatchRequest = TaskDispatchRequest(),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = get_owned_task(db, task_id, user)
     if task.status not in ("needs_attention", "running", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot redispatch task in status: {task.status}")
 
@@ -484,7 +461,7 @@ def redispatch_task(
     ))
 
     # If project was completed but we're re-dispatching, set it back to executing
-    project = db.query(Project).filter(Project.id == task.project_id).first()
+    project = get_owned_project(db, task.project_id, user)
     if project and project.status == "completed":
         project.status = "executing"
         project.updated_at = now

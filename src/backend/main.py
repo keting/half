@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import inspect, text
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from config import settings, validate_security_config
 from database import engine, SessionLocal, Base
-from models import User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap, ProjectPlan, Task, GlobalSetting
+from models import Agent, User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Project, ProjectPlan, Task, GlobalSetting
 from auth import hash_password
 from routers import auth as auth_router
 from routers import agents as agents_router
@@ -19,6 +20,7 @@ from routers import tasks as tasks_router
 from routers import polling as polling_router
 from routers import agent_settings as agent_settings_router
 from routers import settings as settings_router
+from routers import users as users_router
 from services.polling_service import polling_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -95,6 +97,13 @@ def ensure_schema_updates():
             "long_term_reset_needs_confirmation": "BOOLEAN DEFAULT 0",
             "long_term_reset_mode": "TEXT DEFAULT 'days'",
             "display_order": "INTEGER DEFAULT 0",
+            "created_by": "INTEGER",
+        },
+        "users": {
+            "role": "TEXT DEFAULT 'user'",
+            "status": "TEXT DEFAULT 'active'",
+            "last_login_at": "DATETIME",
+            "last_login_ip": "TEXT",
         },
         "projects": {
             "collaboration_dir": "TEXT",
@@ -130,6 +139,15 @@ def ensure_schema_updates():
                 if column_name not in existing:
                     conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}'))
                     logger.info("Added missing column %s.%s", table_name, column_name)
+
+        conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR TRIM(role) = ''"))
+        conn.execute(text("UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''"))
+        conn.execute(
+            text(
+                "UPDATE users SET role = 'admin' "
+                "WHERE username = 'admin' AND (role IS NULL OR TRIM(role) = '')"
+            )
+        )
 
 
 def ensure_app_meta(conn):
@@ -256,10 +274,17 @@ def repair_unassigned_tasks_from_plan_json():
             plan.id: plan
             for plan in db.query(ProjectPlan).filter(ProjectPlan.id.in_([task.plan_id for task in tasks])).all()
         }
+        projects_by_id = {
+            project.id: project
+            for project in db.query(Project).filter(Project.id.in_([task.project_id for task in tasks])).all()
+        }
 
         for task in tasks:
             plan = plans_by_id.get(task.plan_id)
             if not plan or not plan.plan_json:
+                continue
+            project = projects_by_id.get(task.project_id)
+            if not project:
                 continue
             try:
                 plan_data = json.loads(plan.plan_json)
@@ -280,7 +305,11 @@ def repair_unassigned_tasks_from_plan_json():
             if not matched_task:
                 continue
 
-            assignee_agent_id = plans_router._resolve_assignee_agent_id(db, matched_task.get("assignee"))
+            assignee_agent_id = plans_router._resolve_assignee_agent_id(
+                db,
+                matched_task.get("assignee"),
+                owner_user_id=project.created_by,
+            )
             if not assignee_agent_id:
                 continue
 
@@ -292,6 +321,32 @@ def repair_unassigned_tasks_from_plan_json():
             logger.info("Repaired %s unassigned tasks from plan JSON assignee mappings", repaired)
     finally:
         db.close()
+
+
+def repair_legacy_project_owners(db: Session, admin: User):
+    repaired = db.query(Project).filter(Project.created_by.is_(None)).update(
+        {
+            Project.created_by: admin.id,
+            Project.updated_at: text("CURRENT_TIMESTAMP"),
+        },
+        synchronize_session=False,
+    )
+    if repaired:
+        db.commit()
+        logger.info("Backfilled created_by=admin for %s legacy projects with null owner", repaired)
+
+
+def repair_legacy_agent_owners(db: Session, admin: User):
+    repaired = db.query(Agent).filter(Agent.created_by.is_(None)).update(
+        {
+            Agent.created_by: admin.id,
+            Agent.updated_at: text("CURRENT_TIMESTAMP"),
+        },
+        synchronize_session=False,
+    )
+    if repaired:
+        db.commit()
+        logger.info("Backfilled created_by=admin for %s legacy agents with null owner", repaired)
 
 
 def init_db():
@@ -309,10 +364,15 @@ def init_db():
             admin = User(
                 username="admin",
                 password_hash=hash_password(settings.ADMIN_PASSWORD),
+                role="admin",
+                status="active",
             )
             db.add(admin)
             db.commit()
             logger.info("Default admin user created")
+            db.refresh(admin)
+        repair_legacy_agent_owners(db, admin)
+        repair_legacy_project_owners(db, admin)
     finally:
         db.close()
 
@@ -364,6 +424,8 @@ app.include_router(tasks_router.router)
 app.include_router(polling_router.router)
 app.include_router(agent_settings_router.router)
 app.include_router(settings_router.router)
+app.include_router(users_router.router)
+app.include_router(users_router.audit_router)
 
 
 @app.get("/")

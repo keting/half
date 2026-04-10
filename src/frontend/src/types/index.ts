@@ -3,6 +3,23 @@ export interface AgentModelConfig {
   capability: string | null;
 }
 
+export interface CurrentUser {
+  id: number;
+  username: string;
+  role: string;
+  status: string;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  role: string;
+  status: string;
+  created_at: string;
+  last_login_at: string | null;
+  last_login_ip: string | null;
+}
+
 export interface Agent {
   id: number;
   name: string;

@@ -1,12 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { isAdminUser } from '../auth';
 import { AgentTypeConfig, ModelDefinition } from '../types';
 import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
 
 export default function AgentSettingsPage() {
   const navigate = useNavigate();
+  const isAdmin = isAdminUser();
   const [types, setTypes] = useState<AgentTypeConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,7 +52,13 @@ export default function AgentSettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { fetchTypes(); }, [fetchTypes]);
+  useEffect(() => {
+    if (!isAdmin) {
+      navigate('/agents', { replace: true });
+      return;
+    }
+    fetchTypes();
+  }, [fetchTypes, isAdmin, navigate]);
 
   // Click-outside for suggestions
   useEffect(() => {

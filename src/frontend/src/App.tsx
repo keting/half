@@ -13,6 +13,7 @@ const TasksPage = lazy(() => import('./pages/TasksPage'));
 const SummaryPage = lazy(() => import('./pages/SummaryPage'));
 const AgentsPage = lazy(() => import('./pages/AgentsPage'));
 const AgentSettingsPage = lazy(() => import('./pages/AgentSettingsPage'));
+const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const token = localStorage.getItem('token');
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="settings" element={<Suspense fallback={<PageFallback />}><ProjectSettingsPage /></Suspense>} />
           <Route path="agents" element={<Suspense fallback={<PageFallback />}><AgentsPage /></Suspense>} />
           <Route path="agents/settings" element={<Suspense fallback={<PageFallback />}><AgentSettingsPage /></Suspense>} />
+          <Route path="admin/users" element={<Suspense fallback={<PageFallback />}><UserManagementPage /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -14,7 +14,7 @@ services:
       - backend-data:/app/data
       - backend-repos:/app/repos
       - ..:/workspace
-      - /home/claude_user/.ssh:/ssh-host:ro
+      - ${HOME}/.ssh:/ssh-host:ro
     command: >-
       sh -lc 'rm -rf /root/.ssh &&
       mkdir -p /root/.ssh &&

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from access import get_owned_project
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, User
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
@@ -156,12 +157,12 @@ def _normalize_assignee_token(value: Optional[str]) -> str:
     return str(value).strip().casefold()
 
 
-def _resolve_assignee_agent_id(db: Session, assignee: Optional[str]) -> Optional[int]:
+def _resolve_assignee_agent_id(db: Session, assignee: Optional[str], owner_user_id: int) -> Optional[int]:
     normalized = _normalize_assignee_token(assignee)
     if not normalized:
         return None
 
-    agents = db.query(Agent).all()
+    agents = db.query(Agent).filter(Agent.created_by == owner_user_id).all()
     exact_slug = next((agent for agent in agents if _normalize_assignee_token(agent.slug) == normalized), None)
     if exact_slug:
         return exact_slug.id
@@ -213,12 +214,13 @@ def plan_generate_prompt(
     project_id: int,
     body: PlanPromptRequest = PlanPromptRequest(),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    selected_agents = db.query(Agent).filter(Agent.id.in_(body.selected_agent_ids)).all() if body.selected_agent_ids else []
+    project = get_owned_project(db, project_id, user)
+    selected_agents = db.query(Agent).filter(
+        Agent.id.in_(body.selected_agent_ids),
+        Agent.created_by == user.id,
+    ).all() if body.selected_agent_ids else []
     if len(selected_agents) != len(body.selected_agent_ids):
         raise HTTPException(status_code=400, detail="Some selected agents do not exist")
     if not selected_agents:
@@ -266,11 +268,9 @@ def dispatch_plan(
     project_id: int,
     plan_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = get_owned_project(db, project_id, user)
 
     plan = db.query(ProjectPlan).filter(
         ProjectPlan.id == plan_id,
@@ -302,7 +302,10 @@ def dispatch_plan(
         )
         db.add(plan)
         db.flush()
-        selected_agents = db.query(Agent).filter(Agent.id.in_(_parse_selected_agent_ids(plan.selected_agent_ids_json))).all()
+        selected_agents = db.query(Agent).filter(
+            Agent.id.in_(_parse_selected_agent_ids(plan.selected_agent_ids_json)),
+            Agent.created_by == user.id,
+        ).all()
         plan.source_path = _plan_file_path(project, plan.id)
         plan.prompt_text, resolved_models = generate_plan_prompt(
             project,
@@ -328,19 +331,15 @@ def dispatch_plan(
 
 
 @router.get("/{project_id}/plans", response_model=list[PlanResponse])
-def list_plans(project_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def list_plans(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
     plans = db.query(ProjectPlan).filter(ProjectPlan.project_id == project_id).order_by(ProjectPlan.created_at.asc()).all()
     return [_build_plan_response(plan) for plan in plans]
 
 
 @router.post("/{project_id}/plans/import", response_model=PlanResponse, status_code=201)
-def import_plan(project_id: int, body: PlanImport, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def import_plan(project_id: int, body: PlanImport, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
     # Accept both JSON string and dict object
     if isinstance(body.plan_json, dict):
         plan_json_str = json.dumps(body.plan_json, ensure_ascii=False)
@@ -374,10 +373,8 @@ def import_plan(project_id: int, body: PlanImport, db: Session = Depends(get_db)
 
 
 @router.post("/{project_id}/plans/finalize")
-def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
 
     plan = db.query(ProjectPlan).filter(
         ProjectPlan.id == body.plan_id,
@@ -436,7 +433,7 @@ def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(
             raise HTTPException(status_code=400, detail="Each task must have a task_code")
 
         # Resolve assignee
-        assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"))
+        assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"), owner_user_id=user.id)
 
         depends_on = t.get("depends_on", [])
         collab = _normalize_collab_dir(project)

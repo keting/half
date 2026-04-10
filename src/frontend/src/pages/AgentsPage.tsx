@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { isAdminUser } from '../auth';
 import { Agent, AgentModelConfig, AgentTypeConfig, ModelDefinition } from '../types';
 import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
@@ -173,6 +174,7 @@ function formatBeijingDisplay(value: string | null | undefined) {
 
 export default function AgentsPage() {
   const navigate = useNavigate();
+  const isAdmin = isAdminUser();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -232,7 +234,7 @@ export default function AgentsPage() {
   }, []);
 
   const fetchTypeConfigs = useCallback(() => {
-    api.get<AgentTypeConfig[]>('/api/agent-settings/types').then(setAgentTypeConfigs).catch(() => {});
+    api.get<AgentTypeConfig[]>('/api/agents/config/types').then(setAgentTypeConfigs).catch(() => {});
   }, []);
 
   useEffect(() => { fetchAgents(); fetchTypeConfigs(); }, [fetchAgents, fetchTypeConfigs]);
@@ -624,7 +626,7 @@ export default function AgentsPage() {
           </button>
         )}
         <button className="btn btn-primary" onClick={handleAdd}>新增智能体</button>
-        <button className="btn btn-secondary" onClick={() => navigate('/agents/settings')}>设置</button>
+        {isAdmin && <button className="btn btn-secondary" onClick={() => navigate('/agents/settings')}>设置</button>}
       </PageHeader>
 
       {error && !showForm && <div className="error-message">{error}</div>}
