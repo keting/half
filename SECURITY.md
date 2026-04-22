@@ -2,8 +2,8 @@
 
 ## Reporting A Vulnerability
 
-Please report security issues privately to the maintainer address listed on the
-`keting/half` GitHub profile. Do not open public issues for security problems.
+Please report security issues privately to `ketingyin@gmail.com`. Do not open
+public issues for security problems.
 
 We will acknowledge reports within 5 business days.
 
