@@ -7,12 +7,7 @@
 
 ## 一、系统定位
 
-HALF（Human-AI Loop Framework）是一个人机协同多智能体任务管理平台。它面向同时使用多个 AI coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的研究者和团队，通过纯人工触发的方式协调任务编排、prompt 分发、状态跟踪和结果归档，不调用 agent 平台的非公开接口，不做接口逆向。
-
-HALF **不做**：
-- 不自动调用 LLM / 不代替用户发送 prompt
-- 不直接执行任务，只在 git 仓库上观察任务产出
-- 不是通用项目管理工具的替代品
+HALF（Human-AI Loop Framework）是一个人机协同多智能体任务管理平台。它面向同时使用多个 AI coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的研究者和团队，通过纯人工触发的方式协调任务编排、prompt 分发、状态跟踪和结果归档：系统生成 prompt，负责人手工粘贴到 agent 执行，agent 把产物写回项目 git 仓库，HALF 后台轮询 git 仓库识别完成。整个闭环不调用 agent 平台的非公开接口，不做接口逆向。
 
 ---
 
@@ -126,9 +121,8 @@ MVP 所有任务分发均由项目负责人手工完成——系统生成 prompt
 
 系统本身作为基础设施，负责任务编排、状态轮询、页面展示，不作为参与者介入执行。具体角色：
 
-- **项目负责人（Owner）**：项目的创建者和驱动者。创建项目、选择 agent、生成/调整计划、派发任务。
-- **Agent 成员**：参与执行的 AI 工具。MVP 仅支持命令行类 agent（本地 CLI 运行）。
-- **人类协作者**：MVP 暂不支持。所有人工操作由当前项目负责人承担；当前不提供协作者、多角色共享、多人编辑同一项目的流程。
+- **项目负责人（Owner）**：项目的创建者和驱动者。创建项目、选择 agent、生成/调整计划、派发任务，并承担所有人工操作（复制 prompt、粘贴给 agent、异常处理等）。
+- **Agent 成员**：参与执行的 AI 工具，以本地 CLI 形式运行。
 
 ### 5.2 用户权限
 
@@ -137,7 +131,9 @@ MVP 所有任务分发均由项目负责人手工完成——系统生成 prompt
 - **管理员（`admin`）**：可访问系统级设置、智能体类型配置、项目参数设置、用户管理页面
 - **普通用户（`user`）**：可管理自己创建的智能体、项目、计划、任务、模版
 
-**Owner 级业务隔离**：所有业务资源（Agent / Project / Plan / Task / 轮询记录）按当前登录用户的 `created_by` 字段隔离——用户只能看到并操作自己创建的资源；跨用户访问返回资源不存在或参数非法。**管理员不接管其他用户的项目和智能体**，管理员权限仅作用于用户管理和系统级设置。
+**Owner 级业务隔离（应用层）**：所有业务资源（Agent / Project / Plan / Task / 轮询记录）在 `access.py` 中强制按当前登录用户的 `created_by` 字段过滤——**应用层面管理员不会看到其他用户创建的项目和智能体**，跨用户访问返回资源不存在或参数非法。这是当前代码实际的权限边界。
+
+**部署层信任模型（参见根目录 `SECURITY.md`）**：HALF 默认面向单租户自托管场景。部署层面假设管理员被完全信任（可以访问 HALF 数据库、git 仓库副本、宿主机文件系统等）。换句话说：应用层不依赖管理员的额外权限（比如接管别人的项目），但**部署者必须默认管理员有能力绕过应用层访问所有数据**。
 
 **流程模版（process_templates）例外**：所有登录用户可列出、查看、使用模版；只有创建者和管理员可更新或删除。
 
@@ -189,12 +185,14 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 
 ### 6.3 关键行为约束（代码级细节分散在 service/validator/test 中，这里列出最重要的几条）
 
-- **Agent 的可用状态是派生的**：`availability_status` 存储 `available / short_reset_pending / long_reset_pending` 三值；`unavailable` **不存储**，由 `subscription_expires_at` 实时推导
+- **Agent 的可用状态是派生的**：持久字段 `availability_status` 接受 `available / short_reset_pending / long_reset_pending`；同时因为 `models.py` 定义默认值为 `unknown`，旧数据和默认插入值里仍可能出现 `unknown`——运行时 `services/agents.py::derive_agent_status` 把 `unknown` 当作 `available` 处理。`unavailable` 是派生状态（**不存储**），由 `subscription_expires_at` 实时推导
 - **项目轮询配置是快照**：创建项目时把当前的全局默认（`polling_interval_min/max`、`polling_start_delay_*`、`task_timeout_minutes`）快照写入项目；此后全局配置变更**不追溯**影响既有项目
 - **Task 超时时间是快照**：最终计划生成 Task 时把项目级 `task_timeout_minutes` 写入 `tasks.timeout_minutes`；`pending` 状态可编辑，进入 `running` 后不可编辑
 - **Owner 隔离在后端强制**：业务接口在 Session 层按 `created_by = current_user.id` 过滤，历史 `NULL` 值启动时自动回填到默认管理员
-- **路径统一仓库根相对**：`collaboration_dir`、`source_path`、`expected_output_path` 创建/更新时 strip 前后斜杠；`services.path_service._safe_join` 保证 `..` 越界等非法路径被拒绝
-- **时间统一 UTC**：项目/计划/任务/事件/用户/审计日志的时间按 UTC 存储传输，API 响应带 UTC 标记；前端按浏览器本地时区展示。**例外**：Agent 的短期/长期重置时间以"北京时间无时区"存储
+- **路径统一仓库根相对**：`collaboration_dir`、`source_path`、`expected_output_path` 创建/更新时 strip 前后斜杠；`services.git_service._safe_join` 保证 `..` 越界等非法路径被拒绝
+- **时间语义分两组**：
+  - *业务运行事件时间*（项目/计划/任务/事件/用户/审计日志）按 UTC 存储传输，API 响应带 UTC 标记；前端按浏览器本地时区展示
+  - *Agent 相关时间*（`subscription_expires_at`、`short_term_reset_at`、`long_term_reset_at`）以"北京时间无时区" datetime 直接存储；`services/agents.py::derive_agent_status` 和前端 `utils/agents.ts::deriveAgentStatus` 都以北京时间为基准做比较，不经 UTC 换算
 
 ---
 
