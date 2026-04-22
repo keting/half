@@ -38,7 +38,6 @@ Application code lives under [`src/`](./src). Design and product docs live under
 - [`docs/prd.md`](./docs/prd.md) — product requirements
 - [`docs/tech_spec.md`](./docs/tech_spec.md) — technical specification
 - [`docs/ui-style.md`](./docs/ui-style.md) — UI / interaction principles
-- [`docs/story.md`](./docs/story.md) — user stories
 
 ## Quick Start
 
