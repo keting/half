@@ -21,7 +21,6 @@ A task management console for teams orchestrating multiple AI coding agents
 ## What HALF is not
 
 - A replacement for Jira / Linear / a generic project management tool.
-- A multi-tenant SaaS. HALF is designed for single-tenant self-hosting.
 - An agent runner. It coordinates prompts and outputs; it does not invoke LLMs.
 
 ## Architecture
