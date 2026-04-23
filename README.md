@@ -145,9 +145,9 @@ Backend:
 ```bash
 cd src/backend
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 export HALF_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
-export HALF_ADMIN_PASSWORD='LocalDevA1'
+export HALF_ADMIN_PASSWORD='<your-strong-password>'
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 

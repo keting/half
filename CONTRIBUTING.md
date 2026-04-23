@@ -15,6 +15,7 @@ developer. Keep changes small and discuss larger ideas in an issue first.
 ## Development Setup
 
 See the local development section of [`README.md`](./README.md).
+For backend tests, install [`src/backend/requirements-dev.txt`](./src/backend/requirements-dev.txt).
 
 ## Running Tests
 
