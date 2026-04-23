@@ -1,0 +1,191 @@
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
+# HALF - Human-AI Loop Framework
+
+一个面向团队的任务管理控制台，用于在基于 Git 的工作流中编排多个 AI
+coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的协作。
+
+> 提示：**v0.x / 早期开源版本。** 接口和数据模型可能会在次版本间发生变化，
+> 暂不建议用于生产级多租户场景。
+
+## HALF 是什么
+
+- **面向项目的 agent 协调。** 将一组 agent 绑定到项目，生成 DAG 形式的工
+  作计划，分发任务 prompt，并通过轮询项目 Git 仓库跟踪状态。
+- **天然的人在回路中。** HALF 不会执行 agent 命令，而是生成人工可直接粘
+  贴到 agent UI 的 prompt，并通过仓库结果回写来观察执行产物。
+- **agent 可用性模型。** 跟踪每个 agent 的订阅到期时间、短周期重置窗口和
+  长周期重置窗口，避免规划器把任务派发给当前不可用的 agent。
+
+## HALF 不是什么
+
+- 不是 Jira、Linear 或通用项目管理工具的替代品。
+- 不是 agent runner。它协调 prompt 和结果，但不会直接调用 LLM。
+
+## FAQ
+
+**问：为什么要使用多个 AI coding agent？**
+
+答：常见原因包括：
+
+- **能力互补。** 不同 agent 在架构设计、代码实现、测试检查、文档整理等任
+  务上的表现并不完全相同。
+- **提供不同视角。** 不同模型或工具面对同一份需求、代码或方案时，往往会
+  给出不同判断，有助于更早发现问题。
+- **保持工具选择的灵活性。** agent 和底层模型迭代很快，同时使用多种
+  agent，通常比长期只依赖单一工具更稳妥。
+
+**问：为什么 HALF 采用 human-in-the-loop，而不是全自动调用 agent？**
+
+答：最主要的原因是合规。
+
+HALF 当前的设计目标，是在合规前提下支持多 agent 协作。很多常见的 coding
+agent 产品，尤其是订阅式产品，主要面向个人或团队直接交互使用，而不是作
+为一个可被外部系统统一托管和自动调用的服务来设计。对于程序化集成和自动
+化编排场景，通常需要使用单独的 API 产品、API key、计费方式和相应条款。
+
+因此，HALF 有意把系统边界放在：
+
+- 生成人工可直接使用的 prompt
+- 由负责人手工分发给 agent
+- 通过 Git 回写和仓库轮询跟踪执行结果
+
+也就是说，HALF 解决的是合规前提下的人机协同多 agent 编排问题，而不是把
+订阅式 agent 当作可由平台统一托管和自动调用的 runner。
+
+**问：订阅制下使用多个 agent 协同会遇到什么问题？**
+
+答：当任务需要多个 agent 参与，而这些 agent 又不能直接互相调用时，负责
+人通常就要反复执行相同的协调动作。对很多订阅式 coding agent 而言，实际
+可用的方式往往仍然是通过交互界面手工触发，而不是由另一个系统或 agent 直
+接自动调用。
+
+这通常意味着负责人需要反复：
+
+- 复制 prompt 并手工发送给不同 agent
+- 跟踪每个任务是否已经完成
+- 根据前一步结果决定下一步该发给谁
+- 关注每个 agent 的可用状态和重置时间
+
+当步骤和参与者增多时，这种人工协调很容易带来遗漏、乱序和上下文切换成
+本。
+
+**问：HALF 解决了什么问题？**
+
+答：HALF 主要解决多 agent 协作中的流程组织、状态跟踪和执行衔接问题：
+
+- **任务流程组织。** 把项目拆成带依赖关系的任务，便于分阶段执行。
+- **任务看板与衔接提示。** 在一个界面里查看计划、任务和执行状态，并在多
+  步骤、串行依赖流程中明确提示下一步要做什么、该把 prompt 发给谁。
+- **流程模版复用。** 把常用协作流程沉淀成模版，减少重复组织成本。
+- **agent 可用性管理。** 集中查看 agent 的可用状态和重置时间，避免在执
+  行过程中临时卡住。
+- **结果归档与可追溯性。** 把任务产物统一沉淀到 Git 协作仓库中，便于回
+  看过程和结果。
+
+## Architecture
+
+| 层级 | 技术 |
+|---|---|
+| Backend | Python 3.12 + FastAPI + SQLAlchemy + SQLite |
+| Frontend | React 18 + TypeScript + Vite + React Flow |
+| Deployment | Docker Compose |
+| Auth | JWT, bcrypt 哈希密码 |
+
+应用代码位于 [`src/`](./src)，文档位于 [`docs/`](./docs)：
+
+- [`docs/architecture.md`](./docs/architecture.md) - 系统架构、数据模型概
+  览、API 面概览
+- [`docs/task-lifecycle.md`](./docs/task-lifecycle.md) - 运行机制：状态流
+  转、`result.json` 协议、轮询机制
+- [`docs/project-structure.md`](./docs/project-structure.md) - 面向贡献者
+  的代码组织说明
+- [`docs/ui-style.md`](./docs/ui-style.md) - UI 与交互原则
+
+**API 参考文档** 由 FastAPI 自动生成。后端启动后，可访问
+`http://localhost:8000/docs`（Swagger UI）或
+`http://localhost:8000/redoc`。
+
+## Quick Start
+
+HALF 不会在弱默认配置下启动。第一次执行 `docker compose up` 之前，请先
+复制示例环境变量文件并完成配置。
+
+```bash
+cd src
+cp .env.example .env
+# 编辑 .env 并设置：
+# HALF_SECRET_KEY=<generated-secret>
+# HALF_ADMIN_PASSWORD=<your-strong-password>
+docker compose up -d
+```
+
+打开 `http://localhost:3000`，使用用户名 `admin` 和你设置的密码登录。
+
+## Local Development
+
+后端：
+
+```bash
+cd src/backend
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+export HALF_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
+export HALF_ADMIN_PASSWORD='LocalDevA1'
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+前端：
+
+```bash
+cd src/frontend
+npm install
+npm run dev
+```
+
+前端使用相对路径 `/api` 发请求。在本地开发环境下，Vite 会把 `/api` 代理
+到后端；在生产 Docker 镜像中，nginx 会代理 `/api`。
+
+## Testing
+
+```bash
+cd src/backend && python -m pytest tests/ -v
+cd src/frontend && npm test && npm run build
+```
+
+## Git Access From The Container
+
+默认情况下，后端容器无法访问私有 Git 仓库。HALF 不会默认挂载宿主机 SSH
+key。如果你需要访问私有仓库，请将 `src/docker-compose.override.yml.example`
+复制为 `src/docker-compose.override.yml`，并挂载专用 deploy key。
+
+## Production Deployment Notes
+
+HALF 通常以自托管方式部署。用于生产环境时，请保持
+`HALF_STRICT_SECURITY=true`，并在暴露服务前先阅读
+[`SECURITY.md`](./SECURITY.md)。
+
+## Configuration
+
+完整环境变量及默认值请参考 [`src/.env.example`](./src/.env.example)。
+
+## Language
+
+当前 UI 主要为简体中文。欢迎补充英文 i18n 贡献。
+
+## Security
+
+关于信任模型、威胁模型以及漏洞报告方式，请参阅
+[`SECURITY.md`](./SECURITY.md)。
+
+## Contributing
+
+贡献说明请参阅 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+
+## Screenshots
+
+截图将在 v0.2 版本补充。
+
+## License
+
+Apache License 2.0。详见 [`LICENSE`](./LICENSE)。
