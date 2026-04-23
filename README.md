@@ -23,6 +23,33 @@ A task management console for teams orchestrating multiple AI coding agents
 - A replacement for Jira / Linear / a generic project management tool.
 - An agent runner. It coordinates prompts and outputs; it does not invoke LLMs.
 
+## FAQ
+
+**Q：为什么 AI coding 需要多个 agent？**
+
+A：三个原因：
+- **能力互补**：不同 agent 擅长的方向不同——有的偏架构设计、有的偏编码细节，按任务匹配能显著提升效果。
+- **多视角发现问题**：底座模型不同的 agent 看同一份需求或代码会得出不同结论，类似让不同的人分别负责开发与测试。
+- **跟上快速迭代**：agent 能力排名每隔几周就在变。只绑定一种 agent 容易错过新兴模型，多用几个能保持对前沿的触觉。
+
+**Q：高校实验室和中小团队怎么使用 agent？**
+
+A：受经费约束，多数采用**订阅制**而不是 API 按量计费。订阅制在高频、稳定使用的场景下成本可控，但代价是订阅协议通常禁止通过 API 调用 agent，只能由人手工输入 prompt 触发执行。
+
+**Q：订阅制下用多 agent 协同会遇到什么问题？**
+
+A：两类负担：
+- **流程协调负担**：即便是常见场景（比如 Claude Code + Codex 做一次需求评审）也常涉及七八步穿插——每一步都要手工复制 prompt 发给对应 agent、反复查看是否完成、再决定下一步。步骤一多就容易遗漏或乱序，agent 越多负担越重。
+- **配额跟踪负担**：每个 agent 都有短期和长期用量上限，需要持续关注剩余额度和重置时间，否则容易在关键步骤被卡住。
+
+**Q：HALF 解决了什么问题？**
+
+A：四件事：
+- **任务分解 + agent 匹配**：按目标把项目分解为带依赖的任务，并为每个任务推荐最合适的 agent。
+- **统一状态视图**：一个页面看所有任务的完成状态，无需在各个 agent 界面之间切换，避免遗漏和乱序。
+- **流程模版**：把常用流程固化成可复用的模版，并在使用中持续优化。
+- **agent 配额面板**：一个页面看所有 agent 的可用状态和短期/长期重置倒计时，避免在关键时刻被卡住。
+
 ## Architecture
 
 | Layer | Tech |
