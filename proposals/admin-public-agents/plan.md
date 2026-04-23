@@ -1,5 +1,110 @@
 # Admin Public Agents Plan
 
+## 评审意见（2026-04-23）
+
+以下是对 plan 的评审结论。和作者 Q&A 对齐后形成的决策、plan 原稿遗漏的代码点、以及实施前必须补充的语义定义，均记录在本节。plan 正文后续应按这些决策修订；在 plan 正文完成同步前，本节内容优先于正文。
+
+### 一、整体判断
+
+方案方向合理，"最小改动 + 按创建者角色推导可见性"的思路可以采纳。但 plan 正文把不少关键点留成了"需要检查"的模糊表述，其中若干是真正的语义决策点和正确性缺口（非实现细节），直接照 plan 原稿实现会留坑。以下决策需固化进 plan 正文后再进入开发。
+
+### 二、已对齐的决策
+
+1. **可见性不对称**：管理员对"普通用户创建的私有 agent"**不可见**；管理员只对"公共 agent 池"有特权。普通用户 `GET /agents` 返回"自己创建 + 管理员创建（即公共）"的并集，管理员 `GET /agents` 返回"自己创建 + 其他管理员创建（即公共）"的并集——均不包含其他普通用户的私有 agent。
+
+2. **公共 agent 状态变更权限只归管理员**：`PUT /{agent_id}`、`PATCH /{agent_id}/status`、`POST /{agent_id}/short-term-reset/reset|confirm`、`POST /{agent_id}/long-term-reset/reset|confirm`、`PUT /reorder`——对公共 agent 一律要求"当前用户即为该 agent 的 `created_by`"，普通用户对公共 agent 纯只读。
+
+3. **`GET /agents` 不跨 owner 触发副作用**：`_normalize_agent_reset_times(..., mark_confirmation=True)` 仅对"当前用户名下的 agent"执行，不对别人创建的公共 agent 跑自动推进 / 翻转 `needs_confirmation`，避免任意登录用户的一次 GET 隐式修改管理员的 agent 行。公共 agent 的 reset 推进由其所有者（管理员）自身访问或独立定时任务负责。
+
+4. **删除/禁用策略**：
+   - 无引用（既无其他用户的 project `agent_ids_json`、也无 task `assignee_agent_id`）时，允许管理员硬删除公共 agent；
+   - 有任意用户在引用时，禁止硬删除，只允许管理员"禁用"（复用现有 `is_active` 字段，置为 `False`）；
+   - 删除前必须跨用户扫描引用（当前 `agents.py::delete_agent` 只扫 `Project.created_by == user.id`，这是一个 plan 完全遗漏的正确性缺口）。
+
+5. **"禁用"（`is_active=False`）语义——软禁用**：
+   - 普通用户 `GET /agents` 不返回已禁用的公共 agent；
+   - 项目创建/编辑页的 agent 选择面板过滤掉已禁用的公共 agent；
+   - 候选池 `agent_ids_json` 已存在的引用保留，前端标记"已停用"灰显；
+   - 已在运行的 task 继续跑完；
+   - 已存在项目的新 task 解析（`plans.py::_resolve_assignee_agent_id`）**仍可用**，避免突然打断跨用户存量业务；
+   - 管理员仍可见已禁用的公共 agent，可重新启用；所有引用自然消化完之后允许硬删。
+
+6. **角色变动 · 降级**：
+   - `username = "admin"` 的超级管理员不可降级（`main.py:154` 和 `main.py:371-376` 保证其存在且 role 为 admin）；
+   - 其他 admin 被降级时，名下所有 agent 的 `created_by` 迁移至超级管理员，使其继续作为公共 agent 存在；
+   - 迁移前必须扫描 `(name, created_by)` 唯一约束冲突（当前 agent name 按创建者隔离；迁移至超级管理员名下时可能与其已有 agent 重名）。一旦有冲突，`PUT /users/{id}/role` 返回 `409` + 冲突列表（`[{agent_id, name, conflicts_with_agent_id}]`），拒绝降级，要求操作者先改名（或改超级管理员那边的）再重试。
+
+7. **角色变动 · 升级**：
+   - 普通用户升级为 admin 时，其名下所有私有 agent 会**立即**对全员可见可用，涉及隐式数据暴露（包括 agent 携带的 `subscription_expires_at` 等个人配置）；
+   - `PUT /users/{id}/role` 要求显式传 `confirm_publicize_agents=true`，不带则返回 `409` + 即将被公共化的 agent 列表。API 层强制确认，不依赖前端 dialog（避免 CLI / 第三方集成绕过）。
+
+8. **冻结 admin 不影响 agent 语义**：`status=frozen` 只锁账户登录，其名下公共 agent 继续对全员可见可用。如果确实要撤销公共资源，路径是"先降级（走第 6 条的迁移逻辑）再冻结"，两个动作语义分离。
+
+### 三、plan 正文遗漏的代码影响面
+
+plan 正文列的代码点只覆盖了"可见 agent 查询"层面，以下同样必须改，但原稿未列出：
+
+- **`src/backend/routers/agents.py::delete_agent`（第 534-555 行）**：当前跨用户引用扫描缺失。按决策 4，删除前需扫描所有用户的 `Project.agent_ids_json` 和所有 `Task.assignee_agent_id`，有任意引用则改走"只允许禁用"分支。
+
+- **`src/backend/routers/projects.py::_load_owned_agents`（第 181-193 行）**：当前按 `Agent.created_by == user.id` 过滤候选 agent。需改为"可见 agent 集合"过滤（自己 + 管理员创建 + `is_active=True`）。
+
+- **`src/backend/routers/plans.py`**：除 plan 已点到的 `_resolve_assignee_agent_id`（第 163-168 行）外，第 225、340 行同样按 `Agent.created_by == user.id` 过滤，均需改。
+
+- **`src/backend/routers/users.py::update_user_role`（第 70-103 行）**：需要新增：
+  - 拦截 `username == "admin"` 的降级；
+  - 降级时的 name 冲突预检和 agent 迁移（原子事务）；
+  - 升级时的 `confirm_publicize_agents` 强制参数；
+  - 相关 `AuditLog` 写入（迁移了哪些 agent / 公共化了哪些 agent）。
+
+- **`src/backend/routers/agents.py::reorder_agents`（第 393-412 行）**：当前按 `Agent.created_by == user.id` 限定，管理员改到的正好是公共 agent 的顺序、普通用户改到的正好是自己私有的顺序——**这个过滤本身不用改**，天然符合"公共 agent 顺序只允许管理员维护、私有 agent 顺序只允许创建者维护"的诉求。但前端组合展示时应按 `(is_public_desc, display_order, id)` 排序，两组各自维护一套顺序，不要互相干扰。
+
+- **`src/backend/routers/agents.py::create_agent`（第 415-435 行）**：同名检查仍按 `(name, created_by)` 做即可，普通用户创建同名 `MyAgent` 和管理员公共 `MyAgent` 在不同创建者下**允许并存**；前端列表分组展示（"公共" / "我的"）就能避免歧义。
+
+- **`src/backend/access.py`**：按 plan 建议新增 `get_visible_agent` / `get_editable_agent` / `list_visible_agents`，以及一个内部辅助 `is_public_agent(agent)`（`agent.created_by.role == "admin"`）；原 `get_owned_agent` / `list_owned_agents` 不要直接删除，改造期保留一段时间以便灰度。
+
+### 四、状态共享语义（plan 未明说，但属于系统约束）
+
+公共 agent 的 `subscription_expires_at`、`availability_status`、`short_term_reset_at`、`long_term_reset_at` 等字段是**全局单值，全员共享**：
+
+- 管理员的订阅额度被所有使用者共同消耗；
+- 任一时刻 `availability_status` 只有一个值（如 `quota_exhausted`），所有用户看到同一状态；
+- 没有"per-user view"或"per-user quota"概念。
+
+这是"最小改动方案"的一个固有代价，不是缺陷。但 plan 正文应当**显式记录**这一语义，避免未来出现"为什么 Alice 和 Bob 都在用管理员的 agent，只用了半小时就 quota 耗尽"之类的困惑期待。`SECURITY.md` / `docs/architecture.md` 需要新增一段"公共 agent 的额度与状态为全员共享资源"的说明。
+
+### 五、测试覆盖（plan 正文 6 条基础用例 + 以下补充）
+
+- `admin X（非超级管理员）降级时若 agent name 与超级管理员冲突，`PUT /role` 返回 409，不修改任何数据
+- 降级无冲突时，agent 成功迁移至超级管理员名下，其他用户仍能看到这些 agent
+- `username == "admin"` 降级被拒绝
+- 升级为 admin 时若未传 `confirm_publicize_agents`，返回 409 + 待公共化 agent 列表
+- 升级带确认参数后，该用户的私有 agent 立即对其他用户可见
+- 管理员尝试硬删除被其他用户项目引用的公共 agent，被拒绝
+- 管理员"禁用"公共 agent 后：其他用户的 `GET /agents` 不返回；新建项目选择面板看不到；已在运行的 task 不中断；已有项目新 task 解析仍能用
+- 普通用户调 `GET /agents` 时，非当前用户所有的公共 agent 不会触发 `_normalize_agent_reset_times` 的 DB 写入副作用（用 mock / 前后对比 `updated_at` 验证）
+- 冻结 admin 的公共 agent 仍对全员可见可用
+
+### 六、文档同步
+
+plan 已列 `README.md`、`docs/architecture.md`、`SECURITY.md`。补充要求：
+
+- `SECURITY.md` 中与 "HALF-scoped resources ... authored by admin" 相关表述需同步为"管理员创建 = 公共、普通用户创建 = 私有 + 管理员不可见"；
+- 新增章节"Role transitions and resource visibility"说明降级迁移、升级确认、冻结不迁移三条规则；
+- 新增章节"Shared state of public agents"说明第四节的状态共享语义。
+
+### 七、实施顺序（对 plan 正文"推荐实施顺序"的修订）
+
+1. 后端 `access.py`：新增 `get_visible_agent / list_visible_agents / get_editable_agent / is_public_agent`
+2. 后端 `agents.py`：路由改造（list / detail / update / delete / status / reset 端点的鉴权分叉；`GET /agents` 自动推进只对自己 own 的 agent 执行；`delete_agent` 跨用户引用扫描 + 禁用分支）
+3. 后端 `projects.py` / `plans.py`：可见 agent 集合替换原 owner 过滤
+4. 后端 `users.py`：降级迁移、升级确认、超级管理员保护、审计日志
+5. 前端：分组展示、标记、禁用态 UI、升级 / 降级二次确认
+6. 测试：第五节列出的补充覆盖
+7. 文档：第六节的同步
+8. 上线前的人工审查（plan 正文"数据兼容性"一节的建议保留）
+
+---
+
 ## 背景
 
 当前系统中，`Agent` 资源按 `created_by == current_user.id` 做 owner 级隔离：
