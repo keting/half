@@ -35,7 +35,7 @@ half/
 backend/
 ├── Dockerfile
 ├── requirements.txt               # fastapi, uvicorn, sqlalchemy, pyjwt, passlib[bcrypt], bcrypt, python-multipart, json-repair
-├── main.py                        # FastAPI app 入口；lifespan 启动期校验 / schema 迁移 / 默认 admin 初始化 / 启动 polling worker
+├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
 ├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
@@ -88,33 +88,16 @@ backend/
 
 ### 2.1 入口与启动流程
 
-`main.py` 的 `lifespan` 异步上下文负责：
+后端入口在 `src/backend/main.py`。启动时主要做四类事情：
 
-1. `validate_security_config()` —— 启动期校验 `HALF_SECRET_KEY` 与 `HALF_ADMIN_PASSWORD` 的强度
-2. `init_db()` —— 建表 + 一次性 schema 迁移（`task_code` 复合唯一约束迁移、`planning_mode` 回填、`prompt_source_text` 列补、重置时间 +8 时区修复等）
-3. `ensure_default_admin()` —— 不存在时按 `HALF_ADMIN_PASSWORD` 创建默认 `admin` 用户；存在时把 `username=admin` 的 role 强制回设为 `admin`
-4. `ensure_default_global_settings()` —— 写入全局参数默认值
-5. `asyncio.create_task(polling_loop(...))` —— 启动后台轮询 worker
+1. 校验安全相关配置是否满足最低要求
+2. 初始化数据库和默认全局设置
+3. 确保管理员账号可用
+4. 启动后台 polling worker
 
-FastAPI app 实例：`app = FastAPI(title="HALF Backend", version="1.0.0", lifespan=lifespan)`（见 `main.py:407`）。
+FastAPI 应用也在这里实例化，并挂载 auth、agents、projects、plans、tasks、polling、settings、users、process templates 等路由。
 
-### 2.2 路由挂载（`main.py:421-431`）
-
-```python
-app.include_router(auth_router.router)
-app.include_router(agents_router.router)
-app.include_router(projects_router.router)
-app.include_router(plans_router.router)
-app.include_router(tasks_router.router)
-app.include_router(polling_router.router)
-app.include_router(agent_settings_router.router)
-app.include_router(settings_router.router)
-app.include_router(users_router.router)
-app.include_router(users_router.audit_router)
-app.include_router(process_templates_router.router)
-```
-
-### 2.3 核心模块职责速查
+### 2.2 核心模块职责速查
 
 | 想改什么 | 去哪 |
 |---|---|
@@ -187,7 +170,7 @@ frontend/
 │   └── types/                     # TypeScript 类型声明
 ```
 
-### 3.1 路由总表（`App.tsx`）
+### 3.1 路由总表
 
 除 `LoginPage` 和 `ProjectListPage` 外，其他页面统一用 `React.lazy + <Suspense>` 懒加载，避免主包被 React Flow 等重依赖拖大。
 

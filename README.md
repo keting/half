@@ -100,12 +100,9 @@ copy `src/docker-compose.override.yml.example` to
 
 ## Production Deployment Notes
 
-HALF is typically self-hosted on modest hardware. Practical guidance:
-
-- Rebuild serially instead of in parallel.
-- Check free memory and disk before rebuilding.
-- If you only changed one service, restart just that service.
-- Keep `HALF_STRICT_SECURITY=true` in production.
+HALF is typically self-hosted. For production deployments, keep
+`HALF_STRICT_SECURITY=true` and review [`SECURITY.md`](./SECURITY.md) before
+exposing the service.
 
 ## Configuration
 
