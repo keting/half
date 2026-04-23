@@ -5,9 +5,9 @@
 A task management console for teams orchestrating multiple AI coding agents
 (Claude Code, Codex, Copilot, GLM, Kimi, etc.) across Git-based workflows.
 
-> Warning: **v0.x / early open source.** Interfaces and the data model may
-> change between minor versions. Not recommended for production multi-tenant
-> use.
+> [!WARNING]
+> **v0.x / early open source.** Interfaces and the data model may change
+> between minor versions. Not recommended for production multi-tenant use.
 
 ## What HALF does
 
