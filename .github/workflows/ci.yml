@@ -71,6 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      # Compose interpolation requires these variables to exist during CI.
+      # They are placeholders for validation and image build only.
       HALF_ADMIN_PASSWORD: ValidPass123
       HALF_SECRET_KEY: ci-placeholder-secret-key-with-minimum-length
     defaults:

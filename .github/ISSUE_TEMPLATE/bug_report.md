@@ -5,8 +5,9 @@ title: ""
 assignees: []
 ---
 
-Do not report security issues here. See [`SECURITY.md`](../SECURITY.md) and
-report vulnerabilities privately to `osscontact@163.com`.
+Do not report security issues here. See
+[`SECURITY.md`](https://github.com/keting/half/blob/main/SECURITY.md) for the
+private reporting process.
 
 ## Summary
 
