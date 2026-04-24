@@ -4,19 +4,21 @@ on:
   push:
     branches:
       - main
-      - master
-      - chore/**
-      - feat/**
-      - fix/**
-      - docs/**
-      - refactor/**
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
     name: Backend Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: src/backend
@@ -28,6 +30,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: src/backend/requirements-dev.txt
 
       - name: Install backend dependencies
         run: pip install -r requirements-dev.txt
@@ -38,6 +42,7 @@ jobs:
   frontend:
     name: Frontend Tests And Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: src/frontend
@@ -60,3 +65,23 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  docker:
+    name: Docker Compose Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HALF_ADMIN_PASSWORD: ValidPass123
+      HALF_SECRET_KEY: ci-placeholder-secret-key-with-minimum-length
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate docker compose file
+        run: docker compose -f docker-compose.yml config
+
+      - name: Build Docker images
+        run: docker compose -f docker-compose.yml build

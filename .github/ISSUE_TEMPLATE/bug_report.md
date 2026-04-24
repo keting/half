@@ -1,10 +1,12 @@
 ---
 name: Bug report
 about: Report a reproducible defect in HALF
-title: "[Bug] "
-labels: ["type:bug"]
+title: ""
 assignees: []
 ---
+
+Do not report security issues here. See [`SECURITY.md`](../SECURITY.md) and
+report vulnerabilities privately to `osscontact@163.com`.
 
 ## Summary
 
@@ -13,6 +15,8 @@ Describe the problem in one or two sentences.
 ## Environment
 
 - Deployment: <!-- local dev / docker compose / other -->
+- OS:
+- Docker / Docker Compose version:
 - Browser or client:
 - Commit or version:
 

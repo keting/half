@@ -2,6 +2,8 @@
 
 Describe the change and why it is needed.
 
+Closes #
+
 ## Testing
 
 - [ ] `cd src/backend && python -m pytest tests/ -v`
@@ -11,5 +13,6 @@ Describe the change and why it is needed.
 ## Checklist
 
 - [ ] The change stays scoped and focused.
+- [ ] Related issues are linked when applicable.
 - [ ] Docs were updated where behavior, API shape, or setup changed.
 - [ ] No secrets, private URLs, or local machine paths were introduced.

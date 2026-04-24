@@ -1,8 +1,7 @@
 ---
 name: Question
 about: Ask a usage or design question about HALF
-title: "[Question] "
-labels: ["type:question"]
+title: ""
 assignees: []
 ---
 
