@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/keting/half/discussions
+    about: Use Discussions for open-ended usage questions, design discussion, or broader ideas.

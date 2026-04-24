@@ -1,5 +1,7 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+[![CI](https://github.com/keting/half/actions/workflows/ci.yml/badge.svg)](https://github.com/keting/half/actions/workflows/ci.yml)
+
 # HALF - Human-AI Loop Framework
 
 A task management console for teams orchestrating multiple AI coding agents

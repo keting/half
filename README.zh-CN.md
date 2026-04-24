@@ -1,5 +1,7 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+[![CI](https://github.com/keting/half/actions/workflows/ci.yml/badge.svg)](https://github.com/keting/half/actions/workflows/ci.yml)
+
 # HALF - Human-AI Loop Framework
 
 一个面向团队的任务管理控制台，用于在基于 Git 的工作流中编排多个 AI
