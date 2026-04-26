@@ -94,6 +94,44 @@ class DemoSeedTests(unittest.TestCase):
         self.assertEqual(type_models("chatgpt-pro"), ["gpt-5.5", "gpt-5.4"])
         self.assertEqual(type_models("copilot-pro"), ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"])
 
+    def test_seed_prunes_unused_legacy_default_agent_types_from_demo_catalog(self):
+        self.db.add_all([
+            AgentTypeConfig(name="claude"),
+            AgentTypeConfig(name="codex"),
+            AgentTypeConfig(name="cursor"),
+            AgentTypeConfig(name="windsurf"),
+            AgentTypeConfig(name="custom-reviewer"),
+        ])
+        self.db.commit()
+
+        seed_demo_project(self.db, self.admin)
+
+        type_names = {agent_type.name for agent_type in self.db.query(AgentTypeConfig).all()}
+        self.assertNotIn("claude", type_names)
+        self.assertNotIn("codex", type_names)
+        self.assertNotIn("cursor", type_names)
+        self.assertNotIn("windsurf", type_names)
+        self.assertIn("custom-reviewer", type_names)
+        self.assertIn("claude-max", type_names)
+        self.assertIn("chatgpt-pro", type_names)
+        self.assertIn("copilot-pro", type_names)
+
+    def test_seed_keeps_legacy_default_agent_type_if_existing_agent_uses_it(self):
+        self.db.add(AgentTypeConfig(name="claude"))
+        self.db.add(Agent(
+            name="Existing Claude",
+            slug="existing-claude",
+            agent_type="claude",
+            created_by=self.admin.id,
+        ))
+        self.db.commit()
+
+        seed_demo_project(self.db, self.admin)
+
+        type_names = {agent_type.name for agent_type in self.db.query(AgentTypeConfig).all()}
+        self.assertIn("claude", type_names)
+        self.assertIn("claude-max", type_names)
+
     def test_seed_is_idempotent(self):
         self.assertTrue(seed_demo_project(self.db, self.admin))
         self.assertFalse(seed_demo_project(self.db, self.admin))

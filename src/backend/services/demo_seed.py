@@ -98,6 +98,8 @@ DEMO_AGENT_TYPE_CATALOG = [
     },
 ]
 
+LEGACY_DEFAULT_AGENT_TYPES = {"claude", "codex", "cursor", "windsurf"}
+
 DEMO_AGENT_ROLES = {
     "agent-1": "承担代码开发、本地部署自测、修改报告编写、测试与审查意见评估迭代、文档同步及最终代码和报告推送，适合具备开发、测试协调与工程交付能力的 Agent",
     "agent-2": "依据修改报告对测试环境系统进行在线功能与回归测试，验证问题修复效果，输出测试结论，无需访问源代码，适合专业系统测试与业务验证类 Agent",
@@ -262,6 +264,34 @@ def _ensure_agent_type_catalog(db: Session) -> None:
                 ))
 
 
+def _prune_unused_legacy_default_agent_types(db: Session) -> None:
+    """Keep the demo settings catalog focused without deleting user data.
+
+    The app seeds a generic catalog before the demo project is loaded. In demo
+    databases that leaves unused defaults such as cursor/windsurf alongside the
+    three demo agent types. Prune only known legacy defaults, and only when no
+    Agent references them.
+    """
+    used_type_names = {
+        row[0]
+        for row in db.query(Agent.agent_type).filter(Agent.agent_type.isnot(None)).distinct().all()
+    }
+    removable_names = LEGACY_DEFAULT_AGENT_TYPES - used_type_names
+    if not removable_names:
+        return
+
+    removable_types = db.query(AgentTypeConfig).filter(AgentTypeConfig.name.in_(removable_names)).all()
+    removable_type_ids = [agent_type.id for agent_type in removable_types]
+    if not removable_type_ids:
+        return
+
+    db.query(AgentTypeModelMap).filter(
+        AgentTypeModelMap.agent_type_id.in_(removable_type_ids)
+    ).delete(synchronize_session=False)
+    for agent_type in removable_types:
+        db.delete(agent_type)
+
+
 def _template_json() -> dict:
     return {
         "plan_name": "中等改动功能开发与 Bug 修复全流程执行模版",
@@ -365,6 +395,7 @@ def seed_demo_project(db: Session, admin: User) -> bool:
         for spec in DEMO_AGENTS
     }
     _ensure_agent_type_catalog(db)
+    _prune_unused_legacy_default_agent_types(db)
     template = _ensure_template(db, admin)
     db.flush()
 
