@@ -76,12 +76,13 @@ class TaskPredecessorStatusTests(unittest.TestCase):
         self.assertTrue(result.ready)
         self.assertEqual(result.missing, [])
 
-    def test_predecessor_status_ignores_non_completed_predecessor_output(self):
+    def test_predecessor_status_blocks_on_non_completed_predecessor(self):
         task = self._seed_task_chain("running")
-        with patch("routers.tasks.git_service.file_exists", return_value=False):
+        with patch("routers.tasks.git_service.file_exists") as mock_file_exists:
             result = _compute_predecessor_status(self.db, task, refresh=False)
-        self.assertTrue(result.ready)
-        self.assertEqual(result.missing, [])
+        mock_file_exists.assert_not_called()
+        self.assertFalse(result.ready)
+        self.assertEqual([item.task_code for item in result.missing], ["TASK-001"])
 
     def test_project_predecessor_status_marks_dependency_chain_ready_and_blocked(self):
         project = Project(

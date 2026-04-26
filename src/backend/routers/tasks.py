@@ -188,6 +188,13 @@ def _compute_predecessor_status(db: Session, task: Task, refresh: bool) -> Prede
             if p.status == "abandoned":
                 continue
             if p.status != "completed":
+                missing.append(
+                    MissingPredecessor(
+                        task_code=p.task_code,
+                        task_name=p.task_name,
+                        expected_path=p.result_file_path or p.expected_output_path or "",
+                    )
+                )
                 continue
             try:
                 path = p.result_file_path or normalize_expected_output_path(
