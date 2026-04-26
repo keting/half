@@ -24,7 +24,7 @@ from routers import users as users_router
 from routers import process_templates as process_templates_router
 from services.polling_service import polling_loop
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_LOCATION_GUIDANCE_KEY
-from services.demo_seed import seed_demo_project
+from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("half")
@@ -197,36 +197,41 @@ def repair_legacy_agent_reset_times():
 
 
 def seed_agent_type_configs():
-    """Seed agent type configs and model definitions from hardcoded defaults if tables are empty."""
+    """Seed the default agent type catalog if tables are empty."""
     db = SessionLocal()
     try:
         if db.query(AgentTypeConfig).first() is not None:
             return  # Already seeded
 
-        SEED_TYPES = {
-            "claude": ["claude-sonnet-4-5", "claude-opus-4-1", "claude-3-7-sonnet-latest"],
-            "codex": ["codex-mini-latest", "codex-1", "gpt-5-codex"],
-            "cursor": ["cursor-default", "gpt-5", "claude-sonnet-4-5"],
-            "windsurf": ["windsurf-default", "claude-sonnet-4-5", "gpt-5"],
-        }
-
         model_cache: dict[str, ModelDefinition] = {}
-        for type_name, model_names in SEED_TYPES.items():
-            agent_type = AgentTypeConfig(name=type_name)
+        for type_order, type_spec in enumerate(DEMO_AGENT_TYPE_CATALOG):
+            agent_type = AgentTypeConfig(
+                name=type_spec["name"],
+                description=type_spec["description"],
+                display_order=type_order,
+            )
             db.add(agent_type)
             db.flush()
-            for model_name in model_names:
+            for model_order, model_name in enumerate(type_spec["models"]):
                 if model_name not in model_cache:
-                    model_def = ModelDefinition(name=model_name)
+                    model_def = ModelDefinition(
+                        name=model_name,
+                        capability=DEMO_MODEL_CAPABILITIES.get(model_name),
+                    )
                     db.add(model_def)
                     db.flush()
                     model_cache[model_name] = model_def
                 db.add(AgentTypeModelMap(
                     agent_type_id=agent_type.id,
                     model_definition_id=model_cache[model_name].id,
+                    display_order=model_order,
                 ))
         db.commit()
-        logger.info("Seeded agent type configs with %d types and %d models", len(SEED_TYPES), len(model_cache))
+        logger.info(
+            "Seeded agent type configs with %d types and %d models",
+            len(DEMO_AGENT_TYPE_CATALOG),
+            len(model_cache),
+        )
     finally:
         db.close()
 
