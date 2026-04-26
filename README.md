@@ -28,13 +28,13 @@ A task management console for teams orchestrating multiple AI coding agents
 The built-in demo project gives first-time users a non-empty workspace for
 understanding the project board, task dependencies, and agent availability.
 
-![Demo project board](./docs/images/readme-project-board.jpeg)
+![Demo project board](./docs/images/readme-project-board.png)
 
-![Demo plan DAG](./docs/images/readme-plan-dag.jpeg)
+![Demo plan DAG](./docs/images/readme-plan-dag.png)
 
 ![Available demo agents](./docs/images/readme-available-agents.png)
 
-![Demo agent settings](./docs/images/readme-agent-settings.jpeg)
+![Demo agent settings](./docs/images/readme-agent-settings.png)
 
 ## What HALF is not
 

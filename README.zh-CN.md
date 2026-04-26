@@ -25,13 +25,13 @@ coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的协作。
 内置 Demo 项目会为首次使用者提供一个非空工作区，用于理解项目看板、任务
 依赖关系和 agent 可用性。
 
-![Demo 项目看板](./docs/images/readme-project-board.jpeg)
+![Demo 项目看板](./docs/images/readme-project-board.png)
 
-![Demo Plan DAG](./docs/images/readme-plan-dag.jpeg)
+![Demo Plan DAG](./docs/images/readme-plan-dag.png)
 
 ![可用 Demo agents](./docs/images/readme-available-agents.png)
 
-![Demo agent 设置](./docs/images/readme-agent-settings.jpeg)
+![Demo agent 设置](./docs/images/readme-agent-settings.png)
 
 ## HALF 不是什么
 
