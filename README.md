@@ -23,6 +23,22 @@ A task management console for teams orchestrating multiple AI coding agents
   short-term reset windows, and long-term reset windows so planners do not
   dispatch work to an unavailable agent.
 
+## Product Preview
+
+The built-in demo project gives first-time users a non-empty workspace for
+understanding the project board, task dependencies, and agent availability.
+
+| Plan DAG | Available agents | Agent settings |
+|---|---|---|
+| <img src="./docs/images/readme-plan-dag.png" alt="Demo plan DAG" width="300"> | <img src="./docs/images/readme-available-agents.png" alt="Available demo agents" width="300"> | <img src="./docs/images/readme-agent-settings.png" alt="Demo agent settings" width="220"> |
+
+<details>
+<summary>Project board screenshot</summary>
+
+<img src="./docs/images/readme-project-board.png" alt="Demo project board" width="520">
+
+</details>
+
 ## What HALF is not
 
 - A replacement for Jira, Linear, or a general-purpose project management
