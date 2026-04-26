@@ -20,6 +20,19 @@ coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的协作。
 - **agent 可用性模型。** 跟踪每个 agent 的订阅到期时间、短周期重置窗口和
   长周期重置窗口，避免规划器把任务派发给当前不可用的 agent。
 
+## 产品预览
+
+内置 Demo 项目会为首次使用者提供一个非空工作区，用于理解项目看板、任务
+依赖关系和 agent 可用性。
+
+![Demo 项目看板](./docs/images/readme-project-board.jpeg)
+
+![Demo Plan DAG](./docs/images/readme-plan-dag.jpeg)
+
+![可用 Demo agents](./docs/images/readme-available-agents.png)
+
+![Demo agent 设置](./docs/images/readme-agent-settings.jpeg)
+
 ## HALF 不是什么
 
 - 不是 Jira、Linear 或通用项目管理工具的替代品。
