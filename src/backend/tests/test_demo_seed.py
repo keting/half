@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from auth import hash_password
-from models import Agent, Base, ProcessTemplate, Project, ProjectPlan, Task, TaskEvent, User
+from models import Agent, AgentTypeConfig, AgentTypeModelMap, Base, ModelDefinition, ProcessTemplate, Project, ProjectPlan, Task, TaskEvent, User
 from services.demo_seed import DEMO_PROJECT_NAME, DEMO_TEMPLATE_NAME, seed_demo_project
 
 
@@ -74,6 +74,25 @@ class DemoSeedTests(unittest.TestCase):
         agents = {agent.slug: agent for agent in self.db.query(Agent).all()}
         self.assertEqual(set(agents), {"claude-max", "codex-pro", "copilot-pro"})
         self.assertEqual(agents["codex-pro"].model_name, "gpt-5.5")
+
+        agent_types = {
+            agent_type.name: agent_type
+            for agent_type in self.db.query(AgentTypeConfig)
+            .filter(AgentTypeConfig.name.in_(["claude-max", "chatgpt-pro", "copilot-pro"]))
+            .all()
+        }
+        self.assertEqual(set(agent_types), {"claude-max", "chatgpt-pro", "copilot-pro"})
+        models_by_id = {model.id: model.name for model in self.db.query(ModelDefinition).all()}
+
+        def type_models(type_name: str) -> list[str]:
+            maps = self.db.query(AgentTypeModelMap).filter(
+                AgentTypeModelMap.agent_type_id == agent_types[type_name].id,
+            ).order_by(AgentTypeModelMap.display_order, AgentTypeModelMap.id).all()
+            return [models_by_id[mapping.model_definition_id] for mapping in maps]
+
+        self.assertEqual(type_models("claude-max"), ["Opus 4.7", "Sonnet 4.6"])
+        self.assertEqual(type_models("chatgpt-pro"), ["gpt-5.5", "gpt-5.4"])
+        self.assertEqual(type_models("copilot-pro"), ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"])
 
     def test_seed_is_idempotent(self):
         self.assertTrue(seed_demo_project(self.db, self.admin))

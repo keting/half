@@ -4,7 +4,20 @@ from datetime import timedelta
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from models import Agent, GlobalSetting, ProcessTemplate, Project, ProjectPlan, Task, TaskEvent, User, utcnow
+from models import (
+    Agent,
+    AgentTypeConfig,
+    AgentTypeModelMap,
+    GlobalSetting,
+    ModelDefinition,
+    ProcessTemplate,
+    Project,
+    ProjectPlan,
+    Task,
+    TaskEvent,
+    User,
+    utcnow,
+)
 from services.project_agents import serialize_agent_assignments
 
 DEMO_META_KEY = "demo_project_seed_v1"
@@ -64,6 +77,24 @@ DEMO_AGENTS = [
         "models": ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"],
         "co_located": False,
         "display_order": 3,
+    },
+]
+
+DEMO_AGENT_TYPE_CATALOG = [
+    {
+        "name": "claude-max",
+        "description": "Claude Max subscription agent for deep review, architecture, and complex reasoning tasks.",
+        "models": ["Opus 4.7", "Sonnet 4.6"],
+    },
+    {
+        "name": "chatgpt-pro",
+        "description": "ChatGPT Pro agent for high-complexity implementation, planning, and end-to-end delivery.",
+        "models": ["gpt-5.5", "gpt-5.4"],
+    },
+    {
+        "name": "copilot-pro",
+        "description": "Copilot Pro agent for implementation support, testing, and code review workflows.",
+        "models": ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"],
     },
 ]
 
@@ -186,6 +217,51 @@ def _ensure_agent(db: Session, admin: User, spec: dict) -> Agent:
     return agent
 
 
+def _ensure_agent_type_catalog(db: Session) -> None:
+    max_order = db.query(AgentTypeConfig.display_order).order_by(
+        AgentTypeConfig.display_order.desc(),
+        AgentTypeConfig.id.desc(),
+    ).first()
+    next_type_order = (max_order[0] + 1) if max_order and max_order[0] is not None else 0
+
+    for type_spec in DEMO_AGENT_TYPE_CATALOG:
+        agent_type = db.query(AgentTypeConfig).filter(AgentTypeConfig.name == type_spec["name"]).first()
+        if agent_type is None:
+            agent_type = AgentTypeConfig(
+                name=type_spec["name"],
+                description=type_spec["description"],
+                display_order=next_type_order,
+            )
+            next_type_order += 1
+            db.add(agent_type)
+            db.flush()
+        elif not agent_type.description:
+            agent_type.description = type_spec["description"]
+
+        for model_order, model_name in enumerate(type_spec["models"]):
+            model_def = db.query(ModelDefinition).filter(ModelDefinition.name == model_name).first()
+            if model_def is None:
+                model_def = ModelDefinition(
+                    name=model_name,
+                    capability=_MODEL_CAPABILITIES.get(model_name),
+                )
+                db.add(model_def)
+                db.flush()
+            elif not model_def.capability:
+                model_def.capability = _MODEL_CAPABILITIES.get(model_name)
+
+            existing_map = db.query(AgentTypeModelMap).filter(
+                AgentTypeModelMap.agent_type_id == agent_type.id,
+                AgentTypeModelMap.model_definition_id == model_def.id,
+            ).first()
+            if existing_map is None:
+                db.add(AgentTypeModelMap(
+                    agent_type_id=agent_type.id,
+                    model_definition_id=model_def.id,
+                    display_order=model_order,
+                ))
+
+
 def _template_json() -> dict:
     return {
         "plan_name": "中等改动功能开发与 Bug 修复全流程执行模版",
@@ -288,6 +364,7 @@ def seed_demo_project(db: Session, admin: User) -> bool:
         spec["slug"]: _ensure_agent(db, admin, spec)
         for spec in DEMO_AGENTS
     }
+    _ensure_agent_type_catalog(db)
     template = _ensure_template(db, admin)
     db.flush()
 
