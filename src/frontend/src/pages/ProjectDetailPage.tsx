@@ -23,6 +23,13 @@ interface TaskWithReadiness extends Task {
   readiness?: PredecessorStatus;
 }
 
+export function formatBlockedPredecessor(item: PredecessorStatus['missing'][number]) {
+  if (item.task_name && item.task_name !== '(未知)') {
+    return `等待 ${item.task_code}（${item.task_name}）完成`;
+  }
+  return `等待 ${item.task_code} 完成`;
+}
+
 function getTaskTiming(task: Task) {
   if (task.status === 'completed' && task.completed_at) {
     return `完成于 ${formatDateTime(task.completed_at)}`;
@@ -266,14 +273,14 @@ export default function ProjectDetailPage() {
                   <div className="task-queue-warning-list">
                     {task.readiness?.missing.map((item) => (
                       <div key={`${task.id}-${item.task_code}`} className="task-queue-warning-item">
-                        缺少 {item.task_code} 输出
+                        {formatBlockedPredecessor(item)}
                       </div>
                     ))}
                   </div>
                 </div>
               ))
             ) : (
-              <div className="project-console-empty">没有发现缺失上游产物的阻塞项。</div>
+              <div className="project-console-empty">当前没有被前置任务阻塞的待处理任务。</div>
             )}
           </div>
 
