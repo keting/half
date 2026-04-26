@@ -143,7 +143,7 @@ docker compose up -d
 3. **生成 Plan** - 选择流程模板并填写必填参数，生成任务 DAG。
 4. **派发任务** - 从任务看板启动任务；HALF 生成 prompt 供你粘贴到 agent UI。
 
-详细图文指南和故障排除请参阅 [docs/quickstart.md](./docs/quickstart.md)。
+详细步骤和故障排除请参阅 [docs/quickstart.md](./docs/quickstart.md)。
 
 ## Demo 项目
 

@@ -168,15 +168,11 @@ HALF_DEMO_SEED_ENABLED=true docker compose up -d
 
 ### Git repository access fails
 
-For private repositories, create `docker-compose.override.yml`:
-```yaml
-services:
-  backend:
-    volumes:
-      - ~/.ssh/id_rsa:/root/.ssh/id_rsa:ro
-```
+For private repositories, copy `src/docker-compose.override.yml.example` to
+`src/docker-compose.override.yml` and mount a dedicated deploy key. Do not mount
+your whole `~/.ssh` directory into the container.
 
-Or use HTTPS with a deploy token in the URL.
+Alternatively, use HTTPS with a deploy token in the repository URL.
 
 ## Next Steps
 

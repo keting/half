@@ -161,8 +161,8 @@ After logging in:
 4. **Dispatch Tasks** - Start tasks from the task board; HALF generates prompts
    for you to paste into your agent's UI.
 
-See [docs/quickstart.md](./docs/quickstart.md) for detailed walkthrough with
-screenshots and troubleshooting.
+See [docs/quickstart.md](./docs/quickstart.md) for a detailed walkthrough and
+troubleshooting.
 
 ## Demo Project
 
