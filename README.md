@@ -278,6 +278,11 @@ https://doi.org/10.5281/zenodo.19809712
 
 The citation metadata is also available in [`CITATION.cff`](./CITATION.cff).
 
+DOI maintenance note: HALF uses the Zenodo Concept DOI for repository-level
+citation and metadata. Version-specific DOIs are managed by Zenodo and are not
+written back into the repository for every release. For exact reproducibility,
+use the version-specific DOI shown on the corresponding Zenodo record.
+
 ## Screenshots
 
 Screenshots will be added in v0.2.
