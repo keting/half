@@ -1,5 +1,6 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19809714.svg)](https://doi.org/10.5281/zenodo.19809714)
 [![CI](https://github.com/keting/half/actions/workflows/ci.yml/badge.svg)](https://github.com/keting/half/actions/workflows/ci.yml)
 
 # HALF - Human-AI Loop Framework
@@ -243,6 +244,15 @@ HALF 通常以自托管方式部署。用于生产环境时，请保持
 ## 贡献
 
 贡献说明请参阅 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+
+## 引用
+
+如果你在研究、教学或软件工程实验中使用 HALF，请引用 Zenodo 归档版本：
+
+Keting. (2026). HALF: Human-AI Loop Framework (v0.2.1). Zenodo.
+https://doi.org/10.5281/zenodo.19809714
+
+引用元数据也可以在 [`CITATION.cff`](./CITATION.cff) 中查看。
 
 ## 截图
 
