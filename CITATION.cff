@@ -11,8 +11,8 @@ authors:
     # email: "you@example.com"
 repository-code: "https://github.com/keting/half"
 license: Apache-2.0
-version: "0.1.0"
-date-released: "2026-04-22"
+version: "0.2.0"
+date-released: "2026-04-27"
 keywords:
   - ai-agents
   - coding-agents
