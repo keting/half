@@ -1,6 +1,6 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19809714.svg)](https://doi.org/10.5281/zenodo.19809714)
+[![DOI](https://zenodo.org/badge/1196783873.svg)](https://doi.org/10.5281/zenodo.19809712)
 [![CI](https://github.com/keting/half/actions/workflows/ci.yml/badge.svg)](https://github.com/keting/half/actions/workflows/ci.yml)
 
 # HALF - Human-AI Loop Framework
@@ -271,10 +271,10 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 ## Citation
 
 If you use HALF in your research, teaching, or software engineering
-experiments, please cite the archived Zenodo release:
+experiments, please cite the archived Zenodo project record:
 
 Keting. (2026). HALF: Human-AI Loop Framework (v0.2.1). Zenodo.
-https://doi.org/10.5281/zenodo.19809714
+https://doi.org/10.5281/zenodo.19809712
 
 The citation metadata is also available in [`CITATION.cff`](./CITATION.cff).
 
