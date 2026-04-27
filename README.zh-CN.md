@@ -248,7 +248,7 @@ HALF 通常以自托管方式部署。用于生产环境时，请保持
 
 如果你在研究、教学或软件工程实验中使用 HALF，请引用 Zenodo 项目归档记录：
 
-Keting. (2026). HALF: Human-AI Loop Framework (v0.2.1). Zenodo.
+Keting. (2026). HALF: Human-AI Loop Framework. Zenodo.
 https://doi.org/10.5281/zenodo.19809712
 
 引用元数据也可以在 [`CITATION.cff`](./CITATION.cff) 中查看。

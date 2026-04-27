@@ -273,7 +273,7 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 If you use HALF in your research, teaching, or software engineering
 experiments, please cite the archived Zenodo project record:
 
-Keting. (2026). HALF: Human-AI Loop Framework (v0.2.1). Zenodo.
+Keting. (2026). HALF: Human-AI Loop Framework. Zenodo.
 https://doi.org/10.5281/zenodo.19809712
 
 The citation metadata is also available in [`CITATION.cff`](./CITATION.cff).
