@@ -58,11 +58,11 @@ feedback, enterprise pilot findings, and open-source maintenance capacity.
 - **Pilot-informed enterprise records.** Use enterprise pilot reports to decide
   whether reusable enterprise case records should become documentation,
   experiment records, or product features.
-- **Compliant agent integration.** Explore whether and how future versions
-  could support automated agent invocation through explicit, user-configured,
-  officially supported API-based integrations. HALF will not rely on private
-  APIs, UI automation, reverse engineering, or credential sharing to automate
-  subscription-based coding agents.
+- **Compliant agent integration research.** Explore whether and how future
+  versions could support automated agent invocation through explicit,
+  user-configured, officially supported API-based integrations. HALF will not
+  rely on private APIs, UI automation, reverse engineering, or credential
+  sharing to automate subscription-based coding agents.
 
 Requirement-to-test workflows are treated as an important workflow-template
 example, not as a separate platform track.
