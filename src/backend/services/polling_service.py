@@ -282,7 +282,9 @@ async def polling_loop(interval_seconds: int) -> None:
                     if scheduled is not None and scheduled > now:
                         continue  # Not yet time for this project
                     try:
-                        poll_project(db, project)
+                        await asyncio.get_running_loop().run_in_executor(
+                            None, poll_project, db, project
+                        )
                     except Exception as e:
                         logger.error(f"Error polling project {project.id}: {e}")
                     # Re-fetch settings each time so live config changes take effect
