@@ -24,7 +24,7 @@ cp .env.example .env
 # python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 HALF_SECRET_KEY=your-generated-secret-key
 
-# 至少 8 个字符
+# 至少 8 个字符，包含大写字母、小写字母和数字
 HALF_ADMIN_PASSWORD=YourSecurePass123
 ```
 
@@ -100,18 +100,27 @@ docker compose ps
 ## 步骤 6：生成计划
 
 1. 打开你的项目。
-2. 点击"生成 Plan"。
-3. 选择流程模板。
-4. 填写必填输入：
-   - `docPath`：PRD 或规格文档路径
-   - `test_url`：测试 URL（如适用）
-   - 其他模板特定输入
-5. 选择用于生成计划的 Agent。
-6. 点击"生成 Plan"。
+2. 打开 Plan 页面并选择流程来源。
+3. 如果使用模板路径：
+   - 选择流程模板
+   - 将每个模板角色槽位映射到项目 Agent
+   - 填写必填输入
+   - 点击"下一步"创建可执行任务并进入任务页面
+4. 如果使用 Prompt 路径：
+   - 按需选择规划 Agent 和模型
+   - 点击"生成 Prompt"
+   - 点击"拷贝 Prompt"，并将 prompt 粘贴到规划 Agent UI
+   - 等待规划结果写回 Git；HALF 检测到合法计划后会自动定稿并进入任务页面
+
+常见必填输入可能包括：
+
+- `docPath`：PRD 或规格文档路径
+- `test_url`：测试 URL（如适用）
+- 其他模板特定输入
 
 HALF 将：
 
-- 基于模板生成任务 DAG
+- 基于所选模板或检测到的规划结果创建任务 DAG
 - 分配任务给选定的 Agent
 - 为每个任务创建 handoff 提示
 
@@ -119,8 +128,8 @@ HALF 将：
 
 1. 进入任务列表标签页。
 2. 找到状态为"待处理"的任务。
-3. 点击"派发"生成提示。
-4. 复制提示并粘贴到你的 Agent UI。
+3. 点击"复制 Prompt 并派发"，复制提示并将任务标记为已派发。
+4. 将已复制的提示粘贴到你的 Agent UI。
 5. Agent 在 Git 仓库中工作。
 6. HALF 轮询 `result.json` 以检测完成。
 
@@ -154,7 +163,7 @@ backend:
 HALF 拒绝以弱默认值启动。确保：
 
 - `HALF_SECRET_KEY` 已设置且足够随机
-- `HALF_ADMIN_PASSWORD` 至少 8 个字符
+- `HALF_ADMIN_PASSWORD` 至少 8 个字符，且包含大写字母、小写字母和数字
 
 ### 登录失败
 

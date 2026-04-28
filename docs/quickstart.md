@@ -24,7 +24,7 @@ Edit `.env` and set the required values:
 # python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 HALF_SECRET_KEY=your-generated-secret-key
 
-# At least 8 characters
+# At least 8 characters, containing uppercase, lowercase, and digits
 HALF_ADMIN_PASSWORD=YourSecurePass123
 ```
 
@@ -104,18 +104,28 @@ automatically.
 ## Step 6: Generate A Plan
 
 1. Open your project.
-2. Click "生成 Plan".
-3. Select a process template.
-4. Fill in required inputs:
-   - `docPath`: PRD or specification document path
-   - `test_url`: test URL, when applicable
-   - other template-specific inputs
-5. Select the agent used to generate the plan.
-6. Click "生成 Plan".
+2. Open the Plan page and choose a flow source.
+3. For the template path:
+   - select a process template
+   - map each template role slot to a project agent
+   - fill in required inputs
+   - click "下一步" to create executable tasks and open the task page
+4. For the prompt path:
+   - select planning agents and models where needed
+   - click "生成 Prompt"
+   - click "拷贝 Prompt" and paste the prompt into the planning agent UI
+   - wait for the planning result to be written back to Git; when HALF detects
+     a valid plan, it finalizes the plan and opens the task page automatically
+
+Common required inputs may include:
+
+- `docPath`: PRD or specification document path
+- `test_url`: test URL, when applicable
+- other template-specific inputs
 
 HALF will:
 
-- generate a task DAG from the selected template
+- create a task DAG from the selected template or detected planning result
 - assign tasks to selected agents
 - create handoff prompts for each task
 
@@ -123,8 +133,8 @@ HALF will:
 
 1. Open the task list tab.
 2. Find a task with status "待处理" (pending).
-3. Click "派发" to generate the prompt.
-4. Copy the prompt and paste it into your agent UI.
+3. Click "复制 Prompt 并派发" to copy the prompt and mark the task as dispatched.
+4. Paste the copied prompt into your agent UI.
 5. The agent works in the Git repository.
 6. HALF polls for `result.json` to detect completion.
 
@@ -158,7 +168,8 @@ Weak password error:
 HALF refuses to start with weak defaults. Make sure:
 
 - `HALF_SECRET_KEY` is set and sufficiently random
-- `HALF_ADMIN_PASSWORD` is at least 8 characters long
+- `HALF_ADMIN_PASSWORD` is at least 8 characters long and contains uppercase,
+  lowercase, and digits
 
 ### Login Fails
 
