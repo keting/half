@@ -14,11 +14,17 @@ half/
 ├── LICENSE                        # Apache License 2.0
 ├── README.md                      # 项目总览、快速启动
 ├── SECURITY.md                    # 信任模型、威胁模型、漏洞报告渠道
+├── ROADMAP.md                     # 对外路线图与方向性规划
 ├── docs/                          # 公开文档
 │   ├── architecture.md            # 系统架构说明
 │   ├── task-lifecycle.md          # 运行时机制（状态流转、轮询、契约）
 │   ├── project-structure.md       # 本文档
-│   └── ui-style.md                # 前端设计系统
+│   ├── quickstart.md              # 快速启动与排错
+│   ├── ui-style.md                # 前端设计系统
+│   ├── releases/                  # 版本发布说明
+│   ├── roadmap/                   # 版本级执行计划
+│   ├── research/                  # 探索性调研记录
+│   └── adr/                       # 架构决策记录（按 0001-* 编号）
 └── src/                           # 应用代码
     ├── docker-compose.yml
     ├── docker-compose.override.yml.example

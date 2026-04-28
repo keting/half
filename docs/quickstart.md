@@ -1,191 +1,191 @@
-# HALF Quick Start Guide
+# HALF 快速入门指南
 
-This guide walks through running HALF for the first time in a clean environment.
+本指南介绍在干净环境中首次运行 HALF 的完整流程。
 
-## Prerequisites
+## 前置要求
 
-- Docker 20.10+ and Docker Compose v2+
-- 2GB available RAM
-- Ports 3000 (frontend) and 8000 (backend) available, or configure custom ports
+- Docker 20.10+ 和 Docker Compose v2+
+- 2GB 可用内存
+- 端口 3000（前端）和 8000（后端）可用，或配置自定义端口
 
-## Step 1: Configure Environment
+## 步骤 1：配置环境
 
 ```bash
 cd src
 cp .env.example .env
 ```
 
-Edit `.env` and set the **required** values:
+编辑 `.env` 并设置**必需**值：
 
 ```bash
-# Generate a secure random key:
+# 生成安全随机密钥：
 # python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 HALF_SECRET_KEY=your-generated-secret-key
 
-# Must be at least 8 characters
+# 至少 8 个字符
 HALF_ADMIN_PASSWORD=YourSecurePass123
 ```
 
-Optional settings:
+可选设置：
 
 ```bash
-# Set to 'false' to start without the demo project
+# 设为 'false' 以不带演示项目启动
 HALF_DEMO_SEED_ENABLED=true
 
-# Allow self-registration (default: false, only enable for internal demos)
+# 允许自助注册（默认：false，仅供内部演示启用）
 HALF_ALLOW_REGISTER=false
 ```
 
-## Step 2: Start Services
+## 步骤 2：启动服务
 
 ```bash
 docker compose up -d --build
 ```
 
-Wait for services to be healthy (usually 10-30 seconds):
+等待服务健康（通常 10-30 秒）：
 
 ```bash
 docker compose ps
 ```
 
-You should see:
-- `src-backend-1` status: `healthy`
-- `src-frontend-1` status: `running`
+应看到：
+- `src-backend-1` 状态：`healthy`
+- `src-frontend-1` 状态：`running`
 
-## Step 3: First Login
+## 步骤 3：首次登录
 
-Open `http://localhost:3000` in your browser.
+在浏览器中打开 `http://localhost:3000`。
 
-Login credentials:
-- Username: `admin`
-- Password: The `HALF_ADMIN_PASSWORD` value you set in `.env`
+登录凭证：
+- 用户名：`admin`
+- 密码：你在 `.env` 中设置的 `HALF_ADMIN_PASSWORD` 值
 
-## Step 4: Explore the Demo Project
+## 步骤 4：浏览演示项目
 
-On first startup, HALF seeds a demo project:
+首次启动时，HALF 会初始化演示项目：
 
-- **Name**: `(Demo) 修复一个bug`
-- **Repository**: `https://github.com/keting/half.git`
-- **Status**: Contains 5 tasks in various states (completed, ready, blocked)
+- **名称**：`(Demo) 修复一个bug`
+- **仓库**：`https://github.com/keting/half.git`
+- **状态**：包含 5 个不同状态的任务（已完成、就绪、阻塞）
 
-Navigate to the project to see:
-1. **Task Board** - Kanban view of tasks by status
-2. **DAG View** - Visual dependency graph
-3. **Task Queue** - Tasks ready for execution
-4. **Handoff Prompts** - Generated prompts for agents
+导航到项目可查看：
+1. **任务看板** - 按状态分栏的任务视图
+2. **DAG 视图** - 可视化依赖图
+3. **任务队列** - 可执行的任务
+4. **Handoff 提示** - 为 Agent 生成的提示
 
-The demo is read-only exploration. HALF does not execute agents automatically.
+演示仅用于只读浏览。HALF 不会自动执行 Agent。
 
-## Step 5: Create Your First Project
+## 步骤 5：创建你的第一个项目
 
-1. Click "新建项目" (New Project)
-2. Fill in the form:
-   - **项目名称**: Your project name
-   - **项目目标**: Description of what you want to achieve
-   - **Git 仓库地址**: Repository URL (e.g., `https://github.com/your/repo.git`)
-   - **协作目录**: Relative path for outputs (e.g., `projects/my-project`)
-   - **轮询间隔**: How often to check for task completion (seconds)
-   - **任务超时**: Task timeout in minutes
+1. 点击"新建项目"
+2. 填写表单：
+   - **项目名称**：你的项目名称
+   - **项目目标**：你想完成的描述
+   - **Git 仓库地址**：仓库 URL（如 `https://github.com/your/repo.git`）
+   - **协作目录**：输出的相对路径（如 `projects/my-project`）
+   - **轮询间隔**：检查任务完成的频率（秒）
+   - **任务超时**：任务超时时间（分钟）
 
-3. **Select Agents** (Required)
-   - At least one agent must be selected
-   - Pre-seeded demo agents: Claude Max, Codex Pro, Copilot Pro
-   - Configure co-location settings per agent
+3. **选择 Agent**（必需）
+   - 必须从列表中选择至少一个 Agent
+   - 预置演示 Agent：Claude Max、Codex Pro、Copilot Pro
+   - 为每个 Agent 配置同机部署设置
 
-4. Click "创建项目"
+4. 点击"创建项目"
 
-## Step 6: Generate a Plan
+## 步骤 6：生成计划
 
-1. Open your project
-2. Click "生成 Plan" (Generate Plan)
-3. Select a **流程模板** (Process Template)
-4. Fill in required inputs:
-   - `docPath`: Path to your PRD or spec document
-   - `test_url`: URL for testing (if applicable)
-   - Other template-specific inputs
-5. Select which agents to use for plan generation
-6. Click "生成 Plan"
+1. 打开你的项目
+2. 点击"生成 Plan"
+3. 选择**流程模板**
+4. 填写必填输入：
+   - `docPath`：PRD 或规格文档路径
+   - `test_url`：测试 URL（如适用）
+   - 其他模板特定输入
+5. 选择用于生成计划的 Agent
+6. 点击"生成 Plan"
 
-HALF will:
-- Generate a task DAG based on the template
-- Assign tasks to selected agents
-- Create handoff prompts for each task
+HALF 将：
+- 基于模板生成任务 DAG
+- 分配任务给选定的 Agent
+- 为每个任务创建 handoff 提示
 
-## Step 7: Dispatch and Execute Tasks
+## 步骤 7：派发和执行任务
 
-1. Go to the **任务列表** (Task List) tab
-2. Find tasks with status "待处理" (Pending)
-3. Click "派发" (Dispatch) to generate the prompt
-4. Copy the prompt and paste it into your agent's UI
-5. The agent works in the Git repository
-6. HALF polls for `result.json` to detect completion
+1. 进入**任务列表**标签页
+2. 找到状态为"待处理"的任务
+3. 点击"派发"生成提示
+4. 复制提示并粘贴到你的 Agent UI
+5. Agent 在 Git 仓库中工作
+6. HALF 轮询 `result.json` 以检测完成
 
-## Troubleshooting
+## 故障排除
 
-### Services fail to start
+### 服务启动失败
 
-**Check logs:**
+**检查日志：**
 ```bash
 docker compose logs backend
 docker compose logs frontend
 ```
 
-**Port conflicts:**
-If ports 3000 or 8000 are in use, edit `docker-compose.yml`:
+**端口冲突：**
+如果端口 3000 或 8000 被占用，编辑 `docker-compose.yml`：
 ```yaml
 frontend:
   ports:
-    - "3001:80"  # Change host port
+    - "3001:80"  # 更改主机端口
 
 backend:
   ports:
-    - "8001:8000"  # Change host port
+    - "8001:8000"  # 更改主机端口
 ```
 
-**Weak password error:**
-HALF refuses to start with weak defaults. Ensure:
-- `HALF_SECRET_KEY` is set and sufficiently random
-- `HALF_ADMIN_PASSWORD` is at least 8 characters
+**弱密码错误：**
+HALF 拒绝以弱默认值启动。确保：
+- `HALF_SECRET_KEY` 已设置且足够随机
+- `HALF_ADMIN_PASSWORD` 至少 8 个字符
 
-### Login fails
+### 登录失败
 
-- Verify `HALF_ADMIN_PASSWORD` in `.env`
-- Check browser console for CORS errors
-- Ensure you're using `http://localhost:3000`, not `https`
+- 验证 `.env` 中的 `HALF_ADMIN_PASSWORD`
+- 检查浏览器控制台是否有 CORS 错误
+- 确保使用 `http://localhost:3000`，而非 `https`
 
-### "At least one agent must be selected" error
+### "必须选择至少一个 Agent"错误
 
-When creating a project, you must:
-1. Select at least one agent from the list
-2. Configure agent assignments with co-location settings
+创建项目时，必须：
+1. 从列表中选择至少一个 Agent
+2. 配置带同机设置的 Agent 分配
 
-### Demo project not showing
+### 演示项目未显示
 
-Check if seeding is enabled:
+检查是否启用了初始化：
 ```bash
 HALF_DEMO_SEED_ENABLED=true docker compose up -d
 ```
 
-### Git repository access fails
+### Git 仓库访问失败
 
-For private repositories, copy `src/docker-compose.override.yml.example` to
-`src/docker-compose.override.yml` and mount a dedicated deploy key. Do not mount
-your whole `~/.ssh` directory into the container.
+对于私有仓库，将 `src/docker-compose.override.yml.example` 复制为
+`src/docker-compose.override.yml` 并挂载专用 deploy key。不要将整个
+`~/.ssh` 目录挂载到容器中。
 
-Alternatively, use HTTPS with a deploy token in the repository URL.
+或者，在仓库 URL 中使用 HTTPS 和部署令牌。
 
-## Next Steps
+## 下一步
 
-- Read [architecture.md](./architecture.md) for system design
-- Read [task-lifecycle.md](./task-lifecycle.md) for task state transitions
-- Review the API docs at `http://localhost:8000/docs`
+- 阅读 [architecture.md](./architecture.md) 了解系统设计
+- 阅读 [task-lifecycle.md](./task-lifecycle.md) 了解任务状态流转
+- 在 `http://localhost:8000/docs` 查看 API 文档
 
-## Clean Up
+## 清理
 
-To remove all data and start fresh:
+移除所有数据并重新开始：
 
 ```bash
 docker compose down -v
 ```
 
-This removes containers and volumes (SQLite database, cloned repos).
+这会移除容器和卷（SQLite 数据库、克隆的仓库）。
