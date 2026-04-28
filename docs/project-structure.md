@@ -25,7 +25,10 @@ half/
 │   ├── quickstart.md              # 快速启动与排错（英文）
 │   ├── quickstart.zh-CN.md        # 快速启动与排错（中文）
 │   ├── ui-style.md                # 前端设计系统
-│   └── releases/                  # 版本发布说明
+│   ├── releases/                  # 版本发布说明
+│   ├── roadmap/                   # 版本级执行计划
+│   ├── research/                  # 探索性调研记录
+│   └── adr/                       # 架构决策记录（按 0001-* 编号）
 └── src/                           # 应用代码
     ├── docker-compose.yml
     ├── docker-compose.override.yml.example
@@ -242,4 +245,7 @@ src/
 - `task-lifecycle.md`：运行时机制、状态流转、轮询
 - `quickstart.md` / `quickstart.zh-CN.md`：首次启动与排错
 - `ui-style.md`：前端设计系统
+- `roadmap/`：版本级执行计划
+- `research/`：探索性调研记录
+- `adr/`：架构决策记录
 - FastAPI `/docs`：完整 API 参考（启动后端后访问）

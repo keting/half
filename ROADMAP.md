@@ -29,9 +29,9 @@ Planned focus areas:
 - improve first-run trialability through documentation and demo assets
 
 Detailed v0.3 execution scope, non-goals, dependencies, and acceptance notes live
-in `docs/roadmap/v0.3.md` (coming). Research-only work is tracked
-under `docs/research/` (coming), and durable architecture decisions are
-tracked under `docs/adr/` (coming).
+in [`docs/roadmap/v0.3.md`](docs/roadmap/v0.3.md). Research-only work is tracked
+under [`docs/research/`](docs/research/), and durable architecture decisions are
+tracked under [`docs/adr/`](docs/adr/).
 
 What v0.3 is not expected to be:
 
