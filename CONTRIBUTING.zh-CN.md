@@ -2,8 +2,7 @@
 
 [English](./CONTRIBUTING.md) | [简体中文](./CONTRIBUTING.zh-CN.md)
 
-HALF 仍处于早期开源阶段（v0.x），当前主要维护者人数有限。请尽量保持变更小
-而清晰；较大的想法请先通过 issue 或 discussion 对齐范围。
+HALF 仍处于早期开源阶段（v0.x），当前主要维护者人数有限。请尽量保持变更小而清晰；较大的想法请先通过 issue 或 discussion 对齐范围。
 
 ## 开始之前
 
@@ -47,9 +46,7 @@ discussion：
 - 还没有明确验收标准、需要先比较多个方案的问题
 - 研究性想法、论文 / 实验方向、长期演进主题
 
-Discussion 的目标是先对齐问题、目标、非目标、方案和风险。方向明确后，维
-护者可以创建 tracking issue 或拆分为具体 implementation issues，并视情况
-加入 milestone。
+Discussion 的目标是先对齐问题、目标、非目标、方案和风险。方向明确后，维护者可以创建 tracking issue 或拆分为具体 implementation issues，并视情况加入 milestone。
 
 简单原则：明确可执行的开 issue；需要先讨论边界和方案的开 discussion。
 
@@ -80,8 +77,7 @@ cd src/frontend && npm test && npm run build
 
 ## UI 文案与 i18n
 
-当前 UI 主要为简体中文。欢迎补充英文 i18n，但请优先提交独立的 i18n PR，
-不要把翻译工作混入无关功能改动。
+当前 UI 主要为简体中文。欢迎补充英文 i18n，但请优先提交独立的 i18n PR，不要把翻译工作混入无关功能改动。
 
 ## 代码风格
 
