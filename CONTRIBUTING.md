@@ -65,6 +65,15 @@ appropriate.
 Simple rule: use an issue for clear executable work; use a discussion when the
 scope or approach needs alignment first.
 
+## GitHub Collaboration Workflow
+
+For the detailed GitHub collaboration workflow, follow
+[`github-collaboration-workflow.md`](https://github.com/keting/aicoding/blob/main/docs/github-collaboration-workflow.md).
+
+For HALF-specific contribution details, use this file together with the
+shared workflow. If the shared workflow and this file differ, the local
+repository conventions in this file take precedence for HALF.
+
 ## Development Setup
 
 See the local development section of [`README.md`](./README.md).

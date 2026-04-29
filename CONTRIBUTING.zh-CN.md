@@ -55,6 +55,14 @@ Discussion 的目标是先对齐问题、目标、非目标、方案和风险。
 
 简单原则：明确可执行的开 issue；需要先讨论边界和方案的开 discussion。
 
+## GitHub 协作流程
+
+详细 GitHub 协作流程请参考
+[`github-collaboration-workflow.md`](https://github.com/keting/aicoding/blob/main/docs/github-collaboration-workflow.md)。
+
+HALF 特定的贡献说明请结合本文档阅读。如果通用协作规范与本文档存在差异，
+HALF 仓库以内本文档中的本地约定为准。
+
 ## 开发环境
 
 请参考 [`README.zh-CN.md`](./README.zh-CN.md) 中的本地开发说明。
