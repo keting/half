@@ -55,7 +55,7 @@ Discussion 的目标是先对齐问题、目标、非目标、方案和风险。
 
 ## 开发环境
 
-请参考 [`README.md`](./README.md) 中的本地开发说明。
+请参考 [`README.zh-CN.md`](./README.zh-CN.md) 中的本地开发说明。
 后端测试依赖位于
 [`src/backend/requirements-dev.txt`](./src/backend/requirements-dev.txt)。
 
