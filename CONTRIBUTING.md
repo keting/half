@@ -1,5 +1,7 @@
 # Contributing To HALF
 
+[English](./CONTRIBUTING.md) | [简体中文](./CONTRIBUTING.zh-CN.md)
+
 HALF is in early open source (v0.x), and the current maintainer is a single
 developer. Keep changes small and discuss larger ideas in an issue first.
 
@@ -11,6 +13,51 @@ developer. Keep changes small and discuss larger ideas in an issue first.
    [`docs/task-lifecycle.md`](./docs/task-lifecycle.md) before larger refactors;
    consult [`docs/project-structure.md`](./docs/project-structure.md) to locate
    the right module.
+
+## Issues vs. Discussions
+
+Please choose the right entry point based on how well-scoped the topic is:
+
+- Create an issue: <https://github.com/keting/half/issues/new/choose>
+- Start a discussion: <https://github.com/keting/half/discussions/new/choose>
+
+### Create An Issue
+
+Create an issue when the work is clear enough to be fixed, implemented, or
+verified:
+
+- Reproducible bugs, regressions, or confusing error messages
+- Security, permission, data consistency, or deployment risks
+- Small, concrete feature, UI, or documentation improvements
+- Missing docs, examples, screenshots, or demo materials
+- Tasks already confirmed in the roadmap or a tracking issue
+- Work that can be described with clear acceptance criteria
+
+Issues should include the background, reproduction steps or target behavior,
+expected result, actual result, acceptance criteria, and relevant screenshots,
+logs, or links where applicable.
+
+### Start A Discussion
+
+Start with a discussion when the topic is still exploratory, broad, or likely
+to affect product direction:
+
+- Large features or cross-module capabilities
+- Changes that affect the data model, API, permission model, or task lifecycle
+- Epics that will need multiple implementation issues
+- Proposals for future roadmap commitments
+- Designs that may change HALF's product positioning or boundaries
+- Questions where multiple approaches need to be compared before acceptance
+  criteria can be written
+- Research ideas, paper / experiment directions, or long-term evolution topics
+
+The goal of a discussion is to align on the problem, goals, non-goals, options,
+and risks first. Once the direction is clear, maintainers can create a tracking
+issue or split the work into implementation issues, then add a milestone if
+appropriate.
+
+Simple rule: use an issue for clear executable work; use a discussion when the
+scope or approach needs alignment first.
 
 ## Development Setup
 
