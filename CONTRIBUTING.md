@@ -37,6 +37,12 @@ Issues should include the background, reproduction steps or target behavior,
 expected result, actual result, acceptance criteria, and relevant screenshots,
 logs, or links where applicable.
 
+If the work is clear but not currently planned, it is still appropriate to
+create an issue. Leave it out of milestones and make the scheduling status
+explicit, for example by using a backlog, deferred, or blocked label when
+available. The issue should explain why it is not scheduled yet and what would
+make it worth revisiting.
+
 ### Start A Discussion
 
 Start with a discussion when the topic is still exploratory, broad, or likely
