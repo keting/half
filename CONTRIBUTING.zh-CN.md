@@ -2,8 +2,8 @@
 
 [English](./CONTRIBUTING.md) | [简体中文](./CONTRIBUTING.zh-CN.md)
 
-HALF 仍处于早期开源阶段（v0.x），当前主要维护者人数有限。请尽量保持变更
-小而清晰；较大的想法请先通过 issue 或 discussion 对齐范围。
+HALF 仍处于早期开源阶段（v0.x），当前主要维护者人数有限。请尽量保持变更小
+而清晰；较大的想法请先通过 issue 或 discussion 对齐范围。
 
 ## 开始之前
 
