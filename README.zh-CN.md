@@ -243,11 +243,11 @@ HALF 通常以自托管方式部署。用于生产环境时，请保持
 ## 安全
 
 关于信任模型、威胁模型以及漏洞报告方式，请参阅
-[`SECURITY.md`](./SECURITY.md)。
+[`SECURITY.zh-CN.md`](./SECURITY.zh-CN.md)。
 
 ## 贡献
 
-贡献说明请参阅 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+贡献说明请参阅 [`CONTRIBUTING.zh-CN.md`](./CONTRIBUTING.zh-CN.md)。
 
 ## 引用
 

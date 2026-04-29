@@ -14,7 +14,7 @@ developer. Keep changes small and discuss larger ideas in an issue first.
    consult [`docs/project-structure.md`](./docs/project-structure.md) to locate
    the right module.
 
-## Issue Vs Discussion
+## Issues vs. Discussions
 
 Please choose the right entry point based on how well-scoped the topic is:
 
@@ -45,10 +45,10 @@ to affect product direction:
 - Large features or cross-module capabilities
 - Changes that affect the data model, API, permission model, or task lifecycle
 - Epics that will need multiple implementation issues
-- Future roadmap commitments
+- Proposals for future roadmap commitments
 - Designs that may change HALF's product positioning or boundaries
-- Questions that still need option comparison before acceptance criteria can be
-  written
+- Questions where multiple approaches need to be compared before acceptance
+  criteria can be written
 - Research ideas, paper / experiment directions, or long-term evolution topics
 
 The goal of a discussion is to align on the problem, goals, non-goals, options,
