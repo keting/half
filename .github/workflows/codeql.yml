@@ -1,0 +1,170 @@
+name: CodeQL
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: write
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect CodeQL Targets
+    runs-on: ubuntu-latest
+    outputs:
+      javascript_typescript: ${{ steps.filter.outputs.javascript_typescript }}
+      python: ${{ steps.filter.outputs.python }}
+      actions: ${{ steps.filter.outputs.actions }}
+    steps:
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            javascript_typescript:
+              - 'src/frontend/**'
+            python:
+              - 'src/backend/**'
+            actions:
+              - '.github/workflows/**'
+
+  analyze-javascript-typescript:
+    name: Analyze (javascript-typescript)
+    needs: changes
+    if: needs.changes.outputs.javascript_typescript == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  analyze-python:
+    name: Analyze (python)
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            src/backend/requirements.txt
+            src/backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
+
+  analyze-actions:
+    name: Analyze (actions)
+    needs: changes
+    if: needs.changes.outputs.actions == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: actions
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:actions"
+
+  required:
+    name: CodeQL Required
+    if: always()
+    needs:
+      - changes
+      - analyze-javascript-typescript
+      - analyze-python
+      - analyze-actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify relevant analyses passed
+        env:
+          JS_CHANGED: ${{ needs.changes.outputs.javascript_typescript }}
+          PY_CHANGED: ${{ needs.changes.outputs.python }}
+          ACTIONS_CHANGED: ${{ needs.changes.outputs.actions }}
+          JS_RESULT: ${{ needs.analyze-javascript-typescript.result }}
+          PY_RESULT: ${{ needs.analyze-python.result }}
+          ACTIONS_RESULT: ${{ needs.analyze-actions.result }}
+        run: |
+          failures=0
+
+          echo "javascript-typescript changed: $JS_CHANGED ($JS_RESULT)"
+          if [ "$JS_CHANGED" = "true" ] && [ "$JS_RESULT" != "success" ]; then
+            echo "Expected JavaScript/TypeScript analysis to succeed."
+            failures=1
+          fi
+
+          echo "python changed: $PY_CHANGED ($PY_RESULT)"
+          if [ "$PY_CHANGED" = "true" ] && [ "$PY_RESULT" != "success" ]; then
+            echo "Expected Python analysis to succeed."
+            failures=1
+          fi
+
+          echo "actions changed: $ACTIONS_CHANGED ($ACTIONS_RESULT)"
+          if [ "$ACTIONS_CHANGED" = "true" ] && [ "$ACTIONS_RESULT" != "success" ]; then
+            echo "Expected Actions analysis to succeed."
+            failures=1
+          fi
+
+          if [ "$failures" -ne 0 ]; then
+            exit 1
+          fi
