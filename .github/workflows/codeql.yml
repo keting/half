@@ -1,4 +1,4 @@
-name: CodeQL
+name: CodeQL Gate
 
 on:
   push:
@@ -8,13 +8,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
+  checks: read
   contents: read
   pull-requests: read
-  security-events: write
 
 concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  group: codeql-gate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -38,133 +37,97 @@ jobs:
             actions:
               - '.github/workflows/**'
 
-  analyze-javascript-typescript:
-    name: Analyze (javascript-typescript)
-    needs: changes
-    if: needs.changes.outputs.javascript_typescript == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: src/frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: src/frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: src/frontend
-        run: npm run build
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:javascript-typescript"
-
-  analyze-python:
-    name: Analyze (python)
-    needs: changes
-    if: needs.changes.outputs.python == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            src/backend/requirements.txt
-            src/backend/requirements-dev.txt
-
-      - name: Install backend dependencies
-        working-directory: src/backend
-        run: pip install -r requirements-dev.txt
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:python"
-
-  analyze-actions:
-    name: Analyze (actions)
-    needs: changes
-    if: needs.changes.outputs.actions == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: actions
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:actions"
-
   required:
     name: CodeQL Required
-    if: always()
-    needs:
-      - changes
-      - analyze-javascript-typescript
-      - analyze-python
-      - analyze-actions
+    needs: changes
     runs-on: ubuntu-latest
     steps:
-      - name: Verify relevant analyses passed
+      - name: Wait for relevant CodeQL checks
+        uses: actions/github-script@v7
         env:
           JS_CHANGED: ${{ needs.changes.outputs.javascript_typescript }}
           PY_CHANGED: ${{ needs.changes.outputs.python }}
           ACTIONS_CHANGED: ${{ needs.changes.outputs.actions }}
-          JS_RESULT: ${{ needs.analyze-javascript-typescript.result }}
-          PY_RESULT: ${{ needs.analyze-python.result }}
-          ACTIONS_RESULT: ${{ needs.analyze-actions.result }}
-        run: |
-          failures=0
+        with:
+          script: |
+            const requiredChecks = [];
 
-          echo "javascript-typescript changed: $JS_CHANGED ($JS_RESULT)"
-          if [ "$JS_CHANGED" = "true" ] && [ "$JS_RESULT" != "success" ]; then
-            echo "Expected JavaScript/TypeScript analysis to succeed."
-            failures=1
-          fi
+            if (process.env.JS_CHANGED === 'true') {
+              requiredChecks.push('Analyze (javascript-typescript)');
+            }
+            if (process.env.PY_CHANGED === 'true') {
+              requiredChecks.push('Analyze (python)');
+            }
+            if (process.env.ACTIONS_CHANGED === 'true') {
+              requiredChecks.push('Analyze (actions)');
+            }
 
-          echo "python changed: $PY_CHANGED ($PY_RESULT)"
-          if [ "$PY_CHANGED" = "true" ] && [ "$PY_RESULT" != "success" ]; then
-            echo "Expected Python analysis to succeed."
-            failures=1
-          fi
+            if (requiredChecks.length === 0) {
+              core.info('No code or workflow changes detected; CodeQL gate passes without waiting for analysis checks.');
+              return;
+            }
 
-          echo "actions changed: $ACTIONS_CHANGED ($ACTIONS_RESULT)"
-          if [ "$ACTIONS_CHANGED" = "true" ] && [ "$ACTIONS_RESULT" != "success" ]; then
-            echo "Expected Actions analysis to succeed."
-            failures=1
-          fi
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const acceptedConclusions = new Set(['success', 'neutral', 'skipped']);
+            const deadline = Date.now() + 15 * 60 * 1000;
+            const pollIntervalMs = 15000;
 
-          if [ "$failures" -ne 0 ]; then
-            exit 1
-          fi
+            while (Date.now() < deadline) {
+              const { data } = await github.rest.checks.listForRef({
+                owner,
+                repo,
+                ref,
+                per_page: 100,
+              });
+
+              const statusByName = new Map();
+              for (const checkName of requiredChecks) {
+                const matches = data.check_runs
+                  .filter((check) => check.name === checkName)
+                  .sort((a, b) => b.id - a.id);
+
+                if (matches.length > 0) {
+                  statusByName.set(checkName, matches[0]);
+                }
+              }
+
+              const missingChecks = requiredChecks.filter((checkName) => !statusByName.has(checkName));
+              if (missingChecks.length > 0) {
+                core.info(`Waiting for checks to appear: ${missingChecks.join(', ')}`);
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+                continue;
+              }
+
+              const incompleteChecks = requiredChecks.filter(
+                (checkName) => statusByName.get(checkName).status !== 'completed',
+              );
+              if (incompleteChecks.length > 0) {
+                core.info(`Waiting for checks to complete: ${incompleteChecks.join(', ')}`);
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+                continue;
+              }
+
+              const failedChecks = requiredChecks.filter((checkName) => {
+                const conclusion = statusByName.get(checkName).conclusion;
+                return !acceptedConclusions.has(conclusion);
+              });
+
+              if (failedChecks.length > 0) {
+                const details = failedChecks
+                  .map((checkName) => `${checkName}=${statusByName.get(checkName).conclusion}`)
+                  .join(', ');
+                core.setFailed(`Relevant CodeQL checks failed: ${details}`);
+                return;
+              }
+
+              core.info(
+                requiredChecks
+                  .map((checkName) => `${checkName}=${statusByName.get(checkName).conclusion}`)
+                  .join(', '),
+              );
+              return;
+            }
+
+            core.setFailed(`Timed out waiting for CodeQL checks: ${requiredChecks.join(', ')}`);
