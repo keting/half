@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -492,6 +493,129 @@ class PollingServiceTests(unittest.TestCase):
         refreshed = verify_db.query(ProjectPlan).filter(ProjectPlan.id == plan.id).first()
         self.assertEqual(refreshed.status, "running")
         self.assertIsNone(refreshed.last_error)
+
+
+class PollingLoopExecutorTests(unittest.IsolatedAsyncioTestCase):
+    """Regression tests for the fix that prevents event-loop blocking in polling_loop.
+
+    Root cause: poll_project performs blocking git I/O (subprocess.run + time.sleep).
+    Calling it directly inside an async function pins the event loop thread for the
+    entire duration.  Threads that are running synchronous FastAPI dependencies via
+    anyio.to_thread.run_sync need to hand their results back through the event loop;
+    while the loop is blocked those threads stay alive.  New requests keep spawning
+    more threads until the OS limit is reached and uvicorn raises
+        RuntimeError: can't start new thread
+    on the next GET /api/projects/<id>/plans dependency call.
+
+    The fix: submit poll_project to a thread-pool executor so the event loop remains
+    free to process callbacks while git I/O runs in a worker thread.
+    """
+
+    def setUp(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from database import Base
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=engine)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    async def test_polling_loop_dispatches_poll_project_via_run_in_executor(self):
+        """polling_loop must use run_in_executor, not a direct blocking call."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from services.polling_service import poll_project, polling_loop
+
+        project = MagicMock()
+        project.id = 42
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [project]
+
+        loop = asyncio.get_running_loop()
+        executor_mock = AsyncMock(return_value=None)
+
+        with (
+            patch("services.polling_service.SessionLocal", return_value=mock_db),
+            patch(
+                "services.polling_service._compute_next_poll_time",
+                return_value=datetime.now(timezone.utc),
+            ),
+            patch.object(loop, "run_in_executor", executor_mock),
+            # Raise CancelledError at the end of the first tick to exit the loop.
+            # CancelledError inherits from BaseException so it is not caught by
+            # the inner `except Exception` guard and propagates cleanly.
+            patch("asyncio.sleep", side_effect=asyncio.CancelledError),
+        ):
+            try:
+                await polling_loop(30)
+            except asyncio.CancelledError:
+                pass
+
+        self.assertTrue(
+            executor_mock.called,
+            "run_in_executor was never invoked; poll_project may be blocking the event loop",
+        )
+        submitted_fns = [c.args[1] for c in executor_mock.call_args_list]
+        self.assertIn(
+            poll_project,
+            submitted_fns,
+            "poll_project was not submitted via run_in_executor; a direct call blocks "
+            "the event loop and causes thread exhaustion (RuntimeError: can't start new thread)",
+        )
+
+    async def test_polling_loop_remains_responsive_while_poll_project_runs(self):
+        """The event loop must be able to schedule coroutines while poll_project runs.
+
+        If poll_project were called directly, the event loop would be frozen for the
+        duration of the git I/O and the side-channel coroutine below would never run.
+        """
+        from unittest.mock import MagicMock, patch
+        from services.polling_service import polling_loop
+
+        project = MagicMock()
+        project.id = 43
+
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.all.return_value = [project]
+
+        event_loop_ran_concurrently = asyncio.Event()
+        main_loop = asyncio.get_running_loop()
+
+        async def side_channel():
+            """Scheduled during poll_project; only runs if the event loop is free."""
+            event_loop_ran_concurrently.set()
+
+        def fake_poll_project(db, proj):
+            # While running in the executor thread, schedule a coroutine on the loop.
+            # If the event loop is free (correct behaviour), it will be executed.
+            # main_loop is captured from the outer async scope; executor threads have
+            # no running event loop themselves, so asyncio.get_running_loop() would fail.
+            main_loop.call_soon_threadsafe(
+                asyncio.ensure_future, side_channel()
+            )
+
+        with (
+            patch("services.polling_service.SessionLocal", return_value=mock_db),
+            patch(
+                "services.polling_service._compute_next_poll_time",
+                return_value=datetime.now(timezone.utc),
+            ),
+            patch("services.polling_service.poll_project", side_effect=fake_poll_project),
+            patch("asyncio.sleep", side_effect=asyncio.CancelledError),
+        ):
+            try:
+                await polling_loop(30)
+            except asyncio.CancelledError:
+                pass
+
+        # Allow the scheduled coroutine to complete.
+        await asyncio.sleep(0)
+
+        self.assertTrue(
+            event_loop_ran_concurrently.is_set(),
+            "The event loop did not process callbacks while poll_project was running; "
+            "poll_project is likely blocking the event loop thread directly",
+        )
 
 
 if __name__ == "__main__":
