@@ -39,6 +39,13 @@ understanding the project board, task dependencies, and agent availability.
 <img src="./docs/images/readme-project-board.png" alt="Demo project board" width="520">
 
 </details>
+<details>
+<summary>Minimum closed-loop demonstration</summary>
+
+<img src="./docs/images/readme-minimal-loop.gif" alt="Demo project board" width="520">
+
+</details>
+
 
 ## What HALF is not
 

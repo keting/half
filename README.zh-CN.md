@@ -36,6 +36,14 @@ coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的协作。
 
 </details>
 
+<details>
+<summary>最小闭环演示</summary>
+
+<img src="./docs/images/readme-minimal-loop.gif" alt="Demo 项目看板" width="520">
+
+</details>
+
+
 ## HALF 不是什么
 
 - 不是 Jira、Linear 或通用项目管理工具的替代品。

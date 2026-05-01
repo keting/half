@@ -1,0 +1,133 @@
+name: CodeQL Gate
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  checks: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: codeql-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect CodeQL Targets
+    runs-on: ubuntu-latest
+    outputs:
+      javascript_typescript: ${{ steps.filter.outputs.javascript_typescript }}
+      python: ${{ steps.filter.outputs.python }}
+      actions: ${{ steps.filter.outputs.actions }}
+    steps:
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            javascript_typescript:
+              - 'src/frontend/**'
+            python:
+              - 'src/backend/**'
+            actions:
+              - '.github/workflows/**'
+
+  required:
+    name: CodeQL Required
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for relevant CodeQL checks
+        uses: actions/github-script@v7
+        env:
+          JS_CHANGED: ${{ needs.changes.outputs.javascript_typescript }}
+          PY_CHANGED: ${{ needs.changes.outputs.python }}
+          ACTIONS_CHANGED: ${{ needs.changes.outputs.actions }}
+        with:
+          script: |
+            const requiredChecks = [];
+
+            if (process.env.JS_CHANGED === 'true') {
+              requiredChecks.push('Analyze (javascript-typescript)');
+            }
+            if (process.env.PY_CHANGED === 'true') {
+              requiredChecks.push('Analyze (python)');
+            }
+            if (process.env.ACTIONS_CHANGED === 'true') {
+              requiredChecks.push('Analyze (actions)');
+            }
+
+            if (requiredChecks.length === 0) {
+              core.info('No code or workflow changes detected; CodeQL gate passes without waiting for analysis checks.');
+              return;
+            }
+
+            const ref = context.payload.pull_request?.head?.sha || context.sha;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const acceptedConclusions = new Set(['success', 'neutral', 'skipped']);
+            const deadline = Date.now() + 15 * 60 * 1000;
+            const pollIntervalMs = 15000;
+
+            while (Date.now() < deadline) {
+              const { data } = await github.rest.checks.listForRef({
+                owner,
+                repo,
+                ref,
+                per_page: 100,
+              });
+
+              const statusByName = new Map();
+              for (const checkName of requiredChecks) {
+                const matches = data.check_runs
+                  .filter((check) => check.name === checkName)
+                  .sort((a, b) => b.id - a.id);
+
+                if (matches.length > 0) {
+                  statusByName.set(checkName, matches[0]);
+                }
+              }
+
+              const missingChecks = requiredChecks.filter((checkName) => !statusByName.has(checkName));
+              if (missingChecks.length > 0) {
+                core.info(`Waiting for checks to appear: ${missingChecks.join(', ')}`);
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+                continue;
+              }
+
+              const incompleteChecks = requiredChecks.filter(
+                (checkName) => statusByName.get(checkName).status !== 'completed',
+              );
+              if (incompleteChecks.length > 0) {
+                core.info(`Waiting for checks to complete: ${incompleteChecks.join(', ')}`);
+                await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+                continue;
+              }
+
+              const failedChecks = requiredChecks.filter((checkName) => {
+                const conclusion = statusByName.get(checkName).conclusion;
+                return !acceptedConclusions.has(conclusion);
+              });
+
+              if (failedChecks.length > 0) {
+                const details = failedChecks
+                  .map((checkName) => `${checkName}=${statusByName.get(checkName).conclusion}`)
+                  .join(', ');
+                core.setFailed(`Relevant CodeQL checks failed: ${details}`);
+                return;
+              }
+
+              core.info(
+                requiredChecks
+                  .map((checkName) => `${checkName}=${statusByName.get(checkName).conclusion}`)
+                  .join(', '),
+              );
+              return;
+            }
+
+            core.setFailed(`Timed out waiting for CodeQL checks: ${requiredChecks.join(', ')}`);
