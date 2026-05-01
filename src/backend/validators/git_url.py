@@ -5,13 +5,16 @@ import re
 from urllib.parse import unquote, urlparse
 
 
-_KNOWN_GIT_WEB_HOSTS = {
+_TWO_SEGMENT_GIT_WEB_HOSTS = {
     "github.com",
-    "gitlab.com",
     "bitbucket.org",
     "codeberg.org",
     "gitee.com",
 }
+_SUBGROUP_GIT_WEB_HOSTS = {
+    "gitlab.com",
+}
+_KNOWN_GIT_WEB_HOSTS = _TWO_SEGMENT_GIT_WEB_HOSTS | _SUBGROUP_GIT_WEB_HOSTS
 _PAGE_PATH_SEGMENTS = {
     "actions",
     "blob",
@@ -19,6 +22,7 @@ _PAGE_PATH_SEGMENTS = {
     "commit",
     "commits",
     "compare",
+    "graphs",
     "issues",
     "merge_requests",
     "network",
@@ -43,7 +47,7 @@ _GIT_REPO_URL_ERROR = (
     "Git 仓库地址必须是仓库根地址或 clone URL，例如 "
     "https://github.com/org/repo、https://github.com/org/repo.git、"
     "ssh://git@github.com/org/repo.git 或 git@github.com:org/repo.git；"
-    "不要填写 issues/pull/tree/blob 页面、query/fragment、内网地址或带凭据的 URL。"
+    "不要填写 issues/pull/tree/blob/graphs 等仓库内页面、query/fragment、内网地址或带凭据的 URL。"
 )
 _GIT_REPO_URL_REQUIRED_ERROR = "Git 仓库地址不能为空。"
 _GIT_REPO_PRIVATE_NETWORK_ERROR = "Git 仓库地址不能指向本机、内网、link-local 或 metadata 地址。"
@@ -191,14 +195,21 @@ def _validate_ssh_username(username: str | None) -> None:
 
 def _validate_repo_path(hostname: str, path: str) -> None:
     segments = _repo_path_segments(path)
-    if _looks_like_web_page_path(segments):
-        _raise_invalid()
-
     repo_name = segments[-1]
     if repo_name in {".git", "..git"}:
         _raise_invalid()
 
-    if not repo_name.endswith(".git") and hostname not in _KNOWN_GIT_WEB_HOSTS:
+    if hostname in _TWO_SEGMENT_GIT_WEB_HOSTS:
+        if len(segments) != 2:
+            _raise_invalid()
+        return
+
+    if hostname in _SUBGROUP_GIT_WEB_HOSTS:
+        if _looks_like_web_page_path(segments):
+            _raise_invalid()
+        return
+
+    if not repo_name.endswith(".git"):
         _raise_invalid()
 
 

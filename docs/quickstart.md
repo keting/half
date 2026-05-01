@@ -205,10 +205,13 @@ in the repository URL.
 HALF accepts repository roots and clone URLs such as
 `https://github.com/org/repo`, `https://github.com/org/repo.git`,
 `ssh://git@github.com/org/repo.git`, and `git@github.com:org/repo.git`.
-Do not enter issues, pull request, tree, or blob page URLs. URLs with unsafe
-protocols, query strings, fragments, embedded credentials, access tokens or
-deploy tokens in userinfo/query/fragment, and local/private network hosts are
-rejected.
+On GitHub, Gitee, Bitbucket, and Codeberg, root URLs must be exactly
+`owner/repo`; GitLab subgroup root URLs such as
+`https://gitlab.com/group/subgroup/repo` are also accepted. Do not enter issues,
+pull request, tree, blob, graphs, or other repository-internal page URLs. URLs
+with unsafe protocols, query strings, fragments, embedded credentials, access
+tokens or deploy tokens in userinfo/query/fragment, and local/private network
+hosts are rejected.
 
 Save-time validation checks URL shape and safety only. It does not prove that
 the repository exists or that the backend container has access. If the

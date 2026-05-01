@@ -238,10 +238,12 @@ key。如果你需要访问私有仓库，请将 `src/docker-compose.override.ym
 
 创建和编辑项目时必须填写 Git 仓库地址。HALF 接受仓库根地址和 clone URL，
 例如 `https://github.com/org/repo`、`https://github.com/org/repo.git`、
-`ssh://git@github.com/org/repo.git`、`git@github.com:org/repo.git`。保存时只
-做 URL 格式和安全校验，不证明仓库真实存在，也不证明容器已有访问权限。不要填
-issues、pull、tree、blob 等页面 URL，也不要把凭据、access token 或 deploy
-token 内嵌在 URL 的 userinfo、query 或 fragment 中。
+`ssh://git@github.com/org/repo.git`、`git@github.com:org/repo.git`。GitHub、
+Gitee、Bitbucket、Codeberg 的仓库根地址必须是 `owner/repo` 两段；GitLab
+也接受 `https://gitlab.com/group/subgroup/repo` 这类 subgroup 仓库根地址。
+保存时只做 URL 格式和安全校验，不证明仓库真实存在，也不证明容器已有访问权限。
+不要填 issues、pull、tree、blob、graphs 等仓库内页面 URL，也不要把凭据、
+access token 或 deploy token 内嵌在 URL 的 userinfo、query 或 fragment 中。
 
 ## 生产部署说明
 

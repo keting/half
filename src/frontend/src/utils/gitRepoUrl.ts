@@ -1,14 +1,14 @@
 export const GIT_REPO_URL_ERROR =
-  'Git 仓库地址必须是仓库根地址或 clone URL，例如 https://github.com/org/repo、https://github.com/org/repo.git、ssh://git@github.com/org/repo.git 或 git@github.com:org/repo.git；不要填写 issues/pull/tree/blob 页面或内网地址。';
+  'Git 仓库地址必须是仓库根地址或 clone URL，例如 https://github.com/org/repo、https://github.com/org/repo.git、ssh://git@github.com/org/repo.git 或 git@github.com:org/repo.git；不要填写 issues/pull/tree/blob/graphs 等仓库内页面或内网地址。';
 export const GIT_REPO_URL_REQUIRED_ERROR = 'Git 仓库地址不能为空。';
 
-const KNOWN_GIT_WEB_HOSTS = new Set([
+const TWO_SEGMENT_GIT_WEB_HOSTS = new Set([
   'github.com',
-  'gitlab.com',
   'bitbucket.org',
   'codeberg.org',
   'gitee.com',
 ]);
+const SUBGROUP_GIT_WEB_HOSTS = new Set(['gitlab.com']);
 
 const PAGE_PATH_SEGMENTS = new Set([
   'actions',
@@ -17,6 +17,7 @@ const PAGE_PATH_SEGMENTS = new Set([
   'commit',
   'commits',
   'compare',
+  'graphs',
   'issues',
   'merge_requests',
   'network',
@@ -161,12 +162,19 @@ function looksLikeWebPagePath(segments: string[]) {
 
 function isValidRepoPath(hostname: string, pathname: string) {
   const segments = pathSegments(pathname);
-  if (!segments || looksLikeWebPagePath(segments)) {
+  if (!segments) {
     return false;
   }
 
   const repoName = segments[segments.length - 1];
-  return repoName.endsWith('.git') || KNOWN_GIT_WEB_HOSTS.has(hostname.toLowerCase());
+  const host = hostname.toLowerCase();
+  if (TWO_SEGMENT_GIT_WEB_HOSTS.has(host)) {
+    return segments.length === 2;
+  }
+  if (SUBGROUP_GIT_WEB_HOSTS.has(host)) {
+    return !looksLikeWebPagePath(segments);
+  }
+  return repoName.endsWith('.git');
 }
 
 export function validateGitRepoUrl(value: string | null | undefined, options: { required?: boolean } = {}) {

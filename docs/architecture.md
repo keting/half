@@ -192,9 +192,9 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 - **路径统一仓库根相对**：`collaboration_dir`、`source_path`、`expected_output_path` 创建/更新时 strip 前后斜杠；`services.git_service._safe_join` 保证 `..` 越界等非法路径被拒绝
 - **项目 Git 仓库地址必填并校验**：创建项目必须提供 `git_repo_url`，编辑项目时不允许清空；前端即时校验，后端是最终防线。
   - 接受形态：`https://host/org/repo(.git)`、`ssh://user@host/org/repo.git`、`git@host:org/repo.git`。
-  - 已知 Web Git host：GitHub/GitLab/Bitbucket/Codeberg/Gitee 允许不带 `.git` 的仓库根地址。
+  - 已知 Web Git host：GitHub/Gitee/Bitbucket/Codeberg 不带 `.git` 时只接受 `owner/repo` 两段仓库根地址；GitLab 允许 subgroup 形式的仓库根地址。
   - 未知 host：要求仓库路径以 `.git` 结尾。
-  - 拒绝清单：issues/pull/tree/blob 等页面 URL、query/fragment、内嵌凭据、私有/本地/metadata IP、非规范内网 IP 写法、危险协议和 leading dash。
+  - 拒绝清单：issues/pull/tree/blob/graphs 等仓库内页面 URL、query/fragment、内嵌凭据、私有/本地/metadata IP、非规范内网 IP 写法、危险协议和 leading dash。
   - 校验边界：这是格式与安全校验，不是仓库存在性或可访问性校验。
 - **时间语义分两组**：
   - *业务运行事件时间*（项目/计划/任务/事件/用户/审计日志）按 UTC 存储传输，API 响应带 UTC 标记；前端按浏览器本地时区展示
