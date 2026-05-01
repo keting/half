@@ -32,6 +32,11 @@ _PAGE_PATH_SEGMENTS = {
     "wiki",
 }
 _SCP_GIT_PATTERN = re.compile(r"^git@(?P<host>[^:/\s]+):(?P<path>[^\s]+)$", re.IGNORECASE)
+_HOSTNAME_PATTERN = re.compile(
+    r"^(?=.{1,253}$)"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+)
 _PATH_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9._~+-]+$")
 _SSH_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._-]*$")
 _GIT_REPO_URL_ERROR = (
@@ -53,16 +58,31 @@ def _normalize_host(hostname: str | None) -> str:
     return host
 
 
+def _ip_address_literal(hostname: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    ip_literal = hostname.strip("[]")
+    try:
+        return ipaddress.ip_address(ip_literal)
+    except ValueError:
+        return None
+
+
+def _is_valid_dns_hostname(hostname: str) -> bool:
+    if ":" in hostname:
+        return False
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    return bool(_HOSTNAME_PATTERN.fullmatch(ascii_hostname))
+
+
 def _is_private_or_local_host(hostname: str) -> bool:
     if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".localhost"):
         return True
 
-    ip_literal = hostname.strip("[]")
-    try:
-        ip = ipaddress.ip_address(ip_literal)
-    except ValueError:
+    ip = _ip_address_literal(hostname)
+    if ip is None:
         return False
-
     return any(
         (
             ip.is_private,
@@ -79,6 +99,8 @@ def _validate_host(hostname: str | None) -> str:
     host = _normalize_host(hostname)
     if _is_private_or_local_host(host):
         raise ValueError("Git repository URLs pointing to private or local networks are not allowed")
+    if _ip_address_literal(host) is None and not _is_valid_dns_hostname(host):
+        _raise_invalid()
     return host
 
 

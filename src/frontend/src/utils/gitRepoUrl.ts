@@ -31,6 +31,7 @@ const PAGE_PATH_SEGMENTS = new Set([
 
 const PATH_SEGMENT_PATTERN = /^[A-Za-z0-9._~+-]+$/;
 const SSH_USERNAME_PATTERN = /^[A-Za-z0-9._][A-Za-z0-9._-]*$/;
+const HOSTNAME_PATTERN = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 
 function isPrivateOrLocalHost(hostname: string) {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
@@ -54,6 +55,14 @@ function isPrivateOrLocalHost(hostname: string) {
   }
 
   return host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd');
+}
+
+function isValidHostname(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host.includes(':')) {
+    return true;
+  }
+  return HOSTNAME_PATTERN.test(host);
 }
 
 function pathSegments(pathname: string) {
@@ -106,7 +115,7 @@ export function validateGitRepoUrl(value: string | null | undefined, options: { 
   const scpMatch = /^git@([^:/\s]+):([^\s]+)$/i.exec(trimmed);
   if (scpMatch) {
     const host = scpMatch[1].toLowerCase();
-    return !isPrivateOrLocalHost(host) && isValidRepoPath(host, scpMatch[2])
+    return !isPrivateOrLocalHost(host) && isValidHostname(host) && isValidRepoPath(host, scpMatch[2])
       ? null
       : GIT_REPO_URL_ERROR;
   }
@@ -123,7 +132,7 @@ export function validateGitRepoUrl(value: string | null | undefined, options: { 
   }
 
   const host = parsed.hostname.toLowerCase();
-  if (isPrivateOrLocalHost(host) || parsed.search || parsed.hash || parsed.password) {
+  if (!isValidHostname(host) || isPrivateOrLocalHost(host) || parsed.search || parsed.hash || parsed.password) {
     return GIT_REPO_URL_ERROR;
   }
 
