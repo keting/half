@@ -81,6 +81,7 @@ class ProjectAgentAvailabilityTests(unittest.TestCase):
             project = Project(
                 name="existing-project",
                 goal="demo",
+                git_repo_url="https://github.com/keting/half",
                 created_by=owner.id,
                 agent_ids_json=json.dumps([{"id": self.kept_unavailable_agent_id, "co_located": False}]),
             )
@@ -278,6 +279,30 @@ class ProjectAgentAvailabilityTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "git_repo_url is required")
+
+    def test_update_project_rejects_legacy_empty_repo_url_final_state(self):
+        with self.SessionLocal() as db:
+            project = db.query(Project).filter(Project.id == self.project_id).one()
+            project.git_repo_url = None
+            db.commit()
+
+        response = self.client.put(
+            f"/api/projects/{self.project_id}",
+            json={"name": "renamed-project"},
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "git_repo_url is required")
+
+        response = self.client.put(
+            f"/api/projects/{self.project_id}",
+            json={"git_repo_url": "https://github.com/keting/half"},
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["git_repo_url"], "https://github.com/keting/half")
 
     def test_derive_agent_status_treats_expiry_equal_now_as_unavailable(self):
         boundary = datetime(2026, 4, 20, 12, 0, 0)

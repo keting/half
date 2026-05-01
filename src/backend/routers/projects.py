@@ -473,6 +473,8 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="No fields to update")
     if 'git_repo_url' in update_data:
         update_data['git_repo_url'] = _validate_required_git_repo_url(update_data['git_repo_url'])
+    elif not project.git_repo_url or not project.git_repo_url.strip():
+        raise HTTPException(status_code=400, detail=GIT_REPO_URL_REQUIRED_DETAIL)
     if 'agent_assignments' in update_data:
         update_data.pop('agent_ids', None)
         update_data['agent_ids_json'] = serialize_agent_assignments(

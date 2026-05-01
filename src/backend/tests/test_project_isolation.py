@@ -83,8 +83,18 @@ class ProjectIsolationTests(unittest.TestCase):
             bob_agent.long_term_reset_at = datetime.utcnow() + timedelta(days=1)
             bob_agent.long_term_reset_interval_days = 30
             db.add_all([
-                Project(name="alice-project", created_by=alice.id, agent_ids_json=f"[{alice_agent.id}]"),
-                Project(name="bob-project", created_by=bob.id, agent_ids_json=f"[{bob_agent.id}]"),
+                Project(
+                    name="alice-project",
+                    git_repo_url="https://github.com/keting/half",
+                    created_by=alice.id,
+                    agent_ids_json=f"[{alice_agent.id}]",
+                ),
+                Project(
+                    name="bob-project",
+                    git_repo_url="https://github.com/keting/half",
+                    created_by=bob.id,
+                    agent_ids_json=f"[{bob_agent.id}]",
+                ),
             ])
             db.add(GlobalSetting(key="task_timeout_minutes", value="37"))
             db.flush()

@@ -51,6 +51,7 @@ class ProcessTemplateTests(unittest.TestCase):
             id=20,
             name="Demo",
             goal="Ship feature",
+            git_repo_url="https://github.com/keting/half",
             collaboration_dir="outputs/proj-20",
             status="planning",
             created_by=1,
