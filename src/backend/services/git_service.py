@@ -21,15 +21,13 @@ import logging
 from json_repair import repair_json
 
 from config import settings
+from validators.git_url import validate_git_url as _validate_git_repo_url
 
 logger = logging.getLogger("half.git")
 
+GIT_REPO_URL_REQUIRED_ERROR = "Git 仓库地址不能为空。"
 
-_FORBIDDEN_GIT_PREFIXES = ("file://", "ext::", "-")
-_FORBIDDEN_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"}
-_PRIVATE_HOST_PREFIXES = ("10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.",
-                          "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
-                          "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")
+
 _RETRYABLE_GIT_ERROR_MARKERS = (
     "could not resolve host",
     "connection timed out",
@@ -56,33 +54,12 @@ class RepoSyncStatus:
 
 
 def validate_git_url(url: str) -> str:
-    """Validate a git remote URL against SSRF / dangerous-protocol abuse.
-
-    Allows: ``git@host:path``, ``ssh://git@host/path``, ``https://host/path``.
-    Rejects: ``file://``, ``ext::``, leading-dash injection, private/loopback
-    hosts, and link-local metadata services.
-    """
-    if not url or not isinstance(url, str):
-        raise ValueError("git_repo_url is required")
-    value = url.strip()
-    lowered = value.lower()
-    for bad in _FORBIDDEN_GIT_PREFIXES:
-        if lowered.startswith(bad):
-            raise ValueError(f"git_repo_url uses forbidden protocol/prefix: {bad}")
-
-    host: str | None = None
-    if value.startswith("git@") and ":" in value:
-        host = value.split("@", 1)[1].split(":", 1)[0].lower()
-    else:
-        parsed = urlparse(value)
-        if parsed.scheme not in ("https", "ssh"):
-            raise ValueError("git_repo_url must use https, ssh, or git@host:path form")
-        host = (parsed.hostname or "").lower()
-
-    if not host:
-        raise ValueError("git_repo_url is missing a host")
-    if host in _FORBIDDEN_HOSTS or host.startswith(_PRIVATE_HOST_PREFIXES):
-        raise ValueError(f"git_repo_url host is not allowed: {host}")
+    """Validate a Git repository clone URL for project remotes."""
+    if not isinstance(url, str):
+        raise ValueError(GIT_REPO_URL_REQUIRED_ERROR)
+    value = _validate_git_repo_url(url)
+    if not value:
+        raise ValueError(GIT_REPO_URL_REQUIRED_ERROR)
     return value
 
 

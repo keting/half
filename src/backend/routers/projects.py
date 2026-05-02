@@ -26,12 +26,25 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 DEFAULT_PLANNING_MODE = "balanced"
 VALID_PLANNING_MODES = {"balanced", "quality", "cost_effective", "speed"}
 UNAVAILABLE_AGENT_DETAIL = "Some selected agents are unavailable"
+GIT_REPO_URL_REQUIRED_DETAIL = "Git 仓库地址不能为空。"
 
 
 def _normalize_planning_mode(value: Optional[str]) -> str:
     normalized = (value or DEFAULT_PLANNING_MODE).strip()
     if normalized not in VALID_PLANNING_MODES:
         raise HTTPException(status_code=400, detail="Invalid planning_mode")
+    return normalized
+
+
+def _validate_required_git_repo_url(value: Optional[str]) -> str:
+    if not value or not value.strip():
+        raise HTTPException(status_code=400, detail=GIT_REPO_URL_REQUIRED_DETAIL)
+    try:
+        normalized = validate_git_url(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not normalized:
+        raise HTTPException(status_code=400, detail=GIT_REPO_URL_REQUIRED_DETAIL)
     return normalized
 
 
@@ -394,11 +407,7 @@ def _resolve_polling_snapshot(
 
 @router.post('', response_model=ProjectResponse, status_code=201)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if body.git_repo_url:
-        try:
-            body.git_repo_url = validate_git_url(body.git_repo_url)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+    body.git_repo_url = _validate_required_git_repo_url(body.git_repo_url)
     agent_assignments = _project_assignments_from_body(db, body, user, allow_keep_ids=set())
     _validate_polling_params(
         body.polling_interval_min,
@@ -462,11 +471,10 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
     allow_keep_ids = set(_project_agent_ids(project))
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    if 'git_repo_url' in update_data and update_data['git_repo_url']:
-        try:
-            update_data['git_repo_url'] = validate_git_url(update_data['git_repo_url'])
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+    if 'git_repo_url' in update_data:
+        update_data['git_repo_url'] = _validate_required_git_repo_url(update_data['git_repo_url'])
+    elif not project.git_repo_url or not project.git_repo_url.strip():
+        raise HTTPException(status_code=400, detail=GIT_REPO_URL_REQUIRED_DETAIL)
     if 'agent_assignments' in update_data:
         update_data.pop('agent_ids', None)
         update_data['agent_ids_json'] = serialize_agent_assignments(

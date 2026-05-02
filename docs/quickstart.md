@@ -89,7 +89,8 @@ automatically.
 2. Fill in the form:
    - **Project name**: your project name
    - **Project goal**: what you want to accomplish
-   - **Git repository URL**: repository URL, for example
+   - **Git repository URL**: required repository root or clone URL, for
+     example `https://github.com/your/repo` or
      `https://github.com/your/repo.git`
    - **Collaboration directory**: relative output path, for example
      `projects/my-project`
@@ -197,8 +198,26 @@ HALF_DEMO_SEED_ENABLED=true docker compose up -d
 For private repositories, copy `src/docker-compose.override.yml.example` to
 `src/docker-compose.override.yml` and mount a dedicated deploy key. Do not mount
 your whole `~/.ssh` directory into the container.
+Use a dedicated SSH deploy key, credential helper, or backend-managed
+credentials for private repository access. Do not put access tokens or passwords
+in the repository URL.
 
-Alternatively, use HTTPS with a deploy token in the repository URL.
+HALF accepts repository roots and clone URLs such as
+`https://github.com/org/repo`, `https://github.com/org/repo.git`,
+`ssh://git@github.com/org/repo.git`, and `git@github.com:org/repo.git`.
+On GitHub, Gitee, Bitbucket, and Codeberg, root URLs must be exactly
+`owner/repo`; GitLab subgroup root URLs such as
+`https://gitlab.com/group/subgroup/repo` are also accepted. Do not enter issues,
+pull request, tree, blob, graphs, or other repository-internal page URLs. URLs
+with unsafe protocols, query strings, fragments, embedded credentials, access
+tokens or deploy tokens in userinfo/query/fragment, and local/private network
+hosts are rejected.
+
+Save-time validation checks URL shape and safety only. It does not prove that
+the repository exists or that the backend container has access. If the
+repository does not exist or the container lacks credentials, Git sync and
+polling will fail later and the project page will show a repository access
+error while HALF retries automatically.
 
 ## Next Steps
 

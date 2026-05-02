@@ -8,6 +8,7 @@ import ModelBadge from '../components/ModelBadge';
 import { Agent, Project, Task } from '../types';
 import { getNextStepAction, getNextStepText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
+import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 
 interface PredecessorStatus {
   task_id: number;
@@ -106,6 +107,7 @@ export default function ProjectDetailPage() {
   }
 
   const summary = project.task_summary;
+  const repoUrlError = validateGitRepoUrl(project.git_repo_url);
   const nextStepText = getNextStepText(project.next_step);
   const nextStepAction = getNextStepAction(project.next_step);
   const readinessMap = new Map(predecessorStatuses.map((status) => [status.task_id, status]));
@@ -164,7 +166,10 @@ export default function ProjectDetailPage() {
             </div>
             <div className="project-console-meta-row">
               <span className="project-console-label">仓库地址</span>
-              <p className="project-console-code">{project.git_repo_url || '-'}</p>
+              <div>
+                <p className="project-console-code">{project.git_repo_url || '-'}</p>
+                {repoUrlError && <div className="helper-text helper-text-error">{repoUrlError}</div>}
+              </div>
             </div>
             <div className="project-console-meta-row">
               <span className="project-console-label">协作目录</span>

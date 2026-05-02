@@ -15,6 +15,11 @@ from services.polling_config_service import (
 
 logger = logging.getLogger("half.poller")
 
+GIT_REPO_ACCESS_ERROR_MESSAGE = (
+    "无法访问 Git 仓库。请检查仓库是否存在、仓库地址是否正确，"
+    "是否有访问该仓库的权限。HALF 会自动重试。"
+)
+
 
 def _normalize_collab_dir(project: Project) -> str:
     return (project.collaboration_dir or "").strip("/")
@@ -111,17 +116,17 @@ def poll_project(db: Session, project: Project) -> None:
     ).all()
     sync_status = git_service.ensure_repo_sync(project.id, project.git_repo_url)
     if sync_status.error:
-        sync_message = (
+        technical_sync_message = (
             f"Git sync failed while polling project {project.id}: {sync_status.error}. "
             "HALF will retry automatically; this is not treated as 'result not found'."
         )
-        logger.error(sync_message)
+        logger.error(technical_sync_message)
         for plan in running_plans:
             if _delay_satisfied(plan.dispatched_at):
-                _set_plan_runtime_error(plan, now, sync_message, needs_attention=False)
+                _set_plan_runtime_error(plan, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
         for task in running_tasks:
             if _delay_satisfied(task.dispatched_at):
-                _set_task_runtime_error(db, task, now, sync_message, needs_attention=False)
+                _set_task_runtime_error(db, task, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
         db.commit()
         return
 

@@ -164,7 +164,7 @@ docker compose up -d
 1. **浏览 Demo 项目** - 预置的 `(Demo) 修复一个bug` 包含示例任务。查看任务
    看板、DAG 视图和 handoff prompt，了解产品形态。
 2. **创建自己的项目** - 点击"新建项目"并配置：
-   - Git 仓库地址（需确保容器内可访问）
+   - Git 仓库地址（必填；填写仓库根地址或 clone URL）
    - 协作目录（用于存放输出的相对路径）
    - **必须选择至少一个 Agent**（从预置的 demo agents 中选择）
    - 轮询间隔和超时设置
@@ -233,6 +233,17 @@ cd src/frontend && npm test && npm run build
 默认情况下，后端容器无法访问私有 Git 仓库。HALF 不会默认挂载宿主机 SSH
 key。如果你需要访问私有仓库，请将 `src/docker-compose.override.yml.example`
 复制为 `src/docker-compose.override.yml`，并挂载专用 deploy key。
+私有仓库建议使用专用 SSH deploy key、credential helper 或后端容器专门配置
+的凭据；不要把 access token 或 password 写进仓库 URL。
+
+创建和编辑项目时必须填写 Git 仓库地址。HALF 接受仓库根地址和 clone URL，
+例如 `https://github.com/org/repo`、`https://github.com/org/repo.git`、
+`ssh://git@github.com/org/repo.git`、`git@github.com:org/repo.git`。GitHub、
+Gitee、Bitbucket、Codeberg 的仓库根地址必须是 `owner/repo` 两段；GitLab
+也接受 `https://gitlab.com/group/subgroup/repo` 这类 subgroup 仓库根地址。
+保存时只做 URL 格式和安全校验，不证明仓库真实存在，也不证明容器已有访问权限。
+不要填 issues、pull、tree、blob、graphs 等仓库内页面 URL，也不要把凭据、
+access token 或 deploy token 内嵌在 URL 的 userinfo、query 或 fragment 中。
 
 ## 生产部署说明
 
