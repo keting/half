@@ -50,6 +50,10 @@ jobs:
           ACTIONS_CHANGED: ${{ needs.changes.outputs.actions }}
         with:
           script: |
+            const pullRequest = context.payload.pull_request;
+            const isForkPullRequest = Boolean(
+              pullRequest && pullRequest.head.repo.full_name !== pullRequest.base.repo.full_name,
+            );
             const requiredChecks = [];
 
             if (process.env.JS_CHANGED === 'true') {
@@ -64,6 +68,13 @@ jobs:
 
             if (requiredChecks.length === 0) {
               core.info('No code or workflow changes detected; CodeQL gate passes without waiting for analysis checks.');
+              return;
+            }
+
+            if (isForkPullRequest) {
+              core.info(
+                `Skipping CodeQL gate for fork pull request ${pullRequest.number}; GitHub-managed CodeQL analyze checks are not emitted for this context.`,
+              );
               return;
             }
 
