@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from access import get_owned_project
+from access import get_owned_project, load_usable_agents
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, TaskEvent, User
 from auth import get_current_user
@@ -105,6 +105,7 @@ class ProjectResponse(UtcDatetimeModel):
     planning_mode: str
     template_inputs: dict[str, str]
     agent_assignments: list[AgentAssignment]
+    inactive_agent_ids: list[int] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -155,7 +156,16 @@ def _parse_template_inputs_json(value: str | None) -> dict[str, str]:
 
 
 
-def _build_project_response(project: Project, next_step: Optional[str] = None, task_summary: Optional[dict] = None) -> ProjectResponse | ProjectDetailResponse:
+def _inactive_project_agent_ids(db: Session, project: Project) -> list[int]:
+    agent_ids = _project_agent_ids(project)
+    if not agent_ids:
+        return []
+    agents = db.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+    inactive = {agent.id for agent in agents if not agent.is_active}
+    return [agent_id for agent_id in agent_ids if agent_id in inactive]
+
+
+def _build_project_response(db: Session, project: Project, next_step: Optional[str] = None, task_summary: Optional[dict] = None) -> ProjectResponse | ProjectDetailResponse:
     payload = {
         'id': project.id,
         'name': project.name,
@@ -175,6 +185,7 @@ def _build_project_response(project: Project, next_step: Optional[str] = None, t
         'task_timeout_minutes': project.task_timeout_minutes,
         'planning_mode': _normalize_planning_mode(getattr(project, 'planning_mode', None)),
         'template_inputs': _parse_template_inputs_json(getattr(project, 'template_inputs_json', None)),
+        'inactive_agent_ids': _inactive_project_agent_ids(db, project),
     }
     if next_step is not None and task_summary is not None:
         return ProjectDetailResponse(next_step=next_step, task_summary=task_summary, **payload)
@@ -191,33 +202,18 @@ def _raise_unavailable_agent_error(agent_ids: list[int]) -> None:
     )
 
 
-def _load_owned_agents(db: Session, agent_ids: list[int], user: User) -> list[Agent]:
-    if not agent_ids:
-        raise HTTPException(status_code=400, detail='At least one agent must be selected')
-    if len(set(agent_ids)) != len(agent_ids):
-        raise HTTPException(status_code=400, detail='Some agent_ids are duplicated')
-    agents = db.query(Agent).filter(
-        Agent.id.in_(agent_ids),
-        Agent.created_by == user.id,
-    ).all()
-    if len(agents) != len(agent_ids):
-        raise HTTPException(status_code=400, detail='Some agent_ids are invalid')
-    agents_by_id = {agent.id: agent for agent in agents}
-    return [agents_by_id[agent_id] for agent_id in agent_ids]
-
-
-def _validate_owned_agent_assignments(
+def _validate_usable_agent_assignments(
     db: Session,
     assignments: list[dict],
     user: User,
     allow_keep_ids: set[int] | None = None,
 ) -> list[dict[str, int | bool]]:
     agent_ids = [int(item.get("id")) for item in assignments]
-    owned_agents = _load_owned_agents(db, agent_ids, user)
+    usable_agents = load_usable_agents(db, agent_ids, user, allow_keep_ids=allow_keep_ids)
     keep_ids = allow_keep_ids or set()
     unavailable_agent_ids = [
         agent.id
-        for agent in owned_agents
+        for agent in usable_agents
         if derive_agent_status(agent) == "unavailable" and agent.id not in keep_ids
     ]
     if unavailable_agent_ids:
@@ -234,7 +230,7 @@ def _agent_assignments_from_ids(
     user: User,
     allow_keep_ids: set[int] | None = None,
 ) -> list[dict[str, int | bool]]:
-    agents = _load_owned_agents(db, agent_ids, user)
+    agents = load_usable_agents(db, agent_ids, user, allow_keep_ids=allow_keep_ids)
     keep_ids = allow_keep_ids or set()
     unavailable_agent_ids = [
         agent.id
@@ -257,7 +253,7 @@ def _project_assignments_from_body(
     allow_keep_ids: set[int] | None = None,
 ) -> list[dict[str, int | bool]]:
     if body.agent_assignments is not None:
-        return _validate_owned_agent_assignments(
+        return _validate_usable_agent_assignments(
             db,
             [item.model_dump() for item in body.agent_assignments],
             user,
@@ -317,7 +313,7 @@ def compute_next_step(db: Session, project: Project) -> tuple[str, dict]:
 @router.get('', response_model=list[ProjectResponse])
 def list_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     projects = db.query(Project).filter(Project.created_by == user.id).all()
-    return [_build_project_response(project) for project in projects]
+    return [_build_project_response(db, project) for project in projects]
 
 
 def _normalize_collab_dir_input(value: Optional[str]) -> Optional[str]:
@@ -454,14 +450,14 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
         project.collaboration_dir = _generate_default_collab_dir(db, project.id)
     db.commit()
     db.refresh(project)
-    return _build_project_response(project)
+    return _build_project_response(db, project)
 
 
 @router.get('/{project_id}', response_model=ProjectDetailResponse)
 def get_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_owned_project(db, project_id, user)
     next_step, task_summary = compute_next_step(db, project)
-    return _build_project_response(project, next_step=next_step, task_summary=task_summary)
+    return _build_project_response(db, project, next_step=next_step, task_summary=task_summary)
 
 
 @router.put('/{project_id}', response_model=ProjectResponse)
@@ -478,7 +474,7 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
     if 'agent_assignments' in update_data:
         update_data.pop('agent_ids', None)
         update_data['agent_ids_json'] = serialize_agent_assignments(
-            _validate_owned_agent_assignments(
+            _validate_usable_agent_assignments(
                 db,
                 update_data.pop('agent_assignments'),
                 user,
@@ -522,7 +518,7 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
     project.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(project)
-    return _build_project_response(project)
+    return _build_project_response(db, project)
 
 
 @router.delete('/{project_id}', status_code=status.HTTP_204_NO_CONTENT)

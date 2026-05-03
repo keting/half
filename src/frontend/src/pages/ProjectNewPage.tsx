@@ -12,7 +12,7 @@ import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 const UNAVAILABLE_AGENT_DETAIL = 'Some selected agents are unavailable';
 
 export function isUnavailableAgentSelectionDisabled(agent: Agent, originalAgentIds: number[]) {
-  return deriveAgentStatus(agent).status === 'unavailable' && !originalAgentIds.includes(agent.id);
+  return (!agent.is_active || deriveAgentStatus(agent).status === 'unavailable') && !originalAgentIds.includes(agent.id);
 }
 
 export function getUnavailableAgentSelectionMessage(unavailableAgents: Agent[]) {
@@ -367,6 +367,10 @@ export default function ProjectNewPage() {
                   <div className="agent-select-card-body">
                     <div className="agent-select-card-top">
                       <span className="agent-select-card-name">{agent.name}</span>
+                      <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                        {agent.is_public ? '公共' : '私有'}
+                      </span>
+                      {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                       <StatusBadge status={deriveAgentStatus(agent).status} />
                     </div>
                     <div className="agent-select-card-models">

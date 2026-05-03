@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from access import get_owned_agent, list_owned_agents
+from access import get_agent_owner_roles, get_mutable_agent, is_agent_public, list_visible_agents
 from database import get_db
-from models import Agent, Project, Task, User, AgentTypeConfig, AgentTypeModelMap, ModelDefinition
+from models import Agent, Project, ProjectPlan, Task, User, AgentTypeConfig, AgentTypeModelMap, ModelDefinition
 from auth import get_current_user
 from services.project_agents import agent_ids_from_assignments_json
 
@@ -83,6 +83,11 @@ class AgentResponse(BaseModel):
     long_term_reset_interval_days: Optional[int]
     long_term_reset_mode: str = "days"
     long_term_reset_needs_confirmation: bool
+    created_by: Optional[int] = None
+    owner_role: Optional[str] = None
+    is_public: bool = False
+    can_edit: bool = False
+    is_disabled_public: bool = False
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -344,7 +349,10 @@ def _clear_confirmation_flags_on_manual_update(agent: Agent, update_data: dict):
         agent.long_term_reset_needs_confirmation = False
 
 
-def _build_agent_response(agent: Agent) -> AgentResponse:
+def _build_agent_response(agent: Agent, user: User, owner_roles: dict[int, str | None] | None = None) -> AgentResponse:
+    roles = owner_roles or {}
+    owner_role = roles.get(agent.created_by) if agent.created_by is not None else None
+    public = owner_role == "admin"
     return AgentResponse(
         id=agent.id,
         name=agent.name,
@@ -365,6 +373,11 @@ def _build_agent_response(agent: Agent) -> AgentResponse:
         long_term_reset_interval_days=agent.long_term_reset_interval_days,
         long_term_reset_mode=agent.long_term_reset_mode or "days",
         long_term_reset_needs_confirmation=agent.long_term_reset_needs_confirmation,
+        created_by=agent.created_by,
+        owner_role=owner_role,
+        is_public=public,
+        can_edit=agent.created_by == user.id,
+        is_disabled_public=public and not bool(agent.is_active),
         created_at=agent.created_at,
         updated_at=agent.updated_at,
     )
@@ -373,7 +386,7 @@ def _build_agent_response(agent: Agent) -> AgentResponse:
 
 @router.get("", response_model=list[AgentResponse])
 def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agents = list_owned_agents(db, user)
+    agents = list_visible_agents(db, user)
     changed = False
     for agent in agents:
         changed = _normalize_agent_reset_times(agent, mark_confirmation=True) or changed
@@ -381,7 +394,8 @@ def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_
         db.commit()
         for agent in agents:
             db.refresh(agent)
-    return [_build_agent_response(agent) for agent in agents]
+    owner_roles = get_agent_owner_roles(db, agents)
+    return [_build_agent_response(agent, user, owner_roles) for agent in agents]
 
 
 @router.get("/config/types", response_model=list[AgentTypeCatalogResponse])
@@ -403,13 +417,14 @@ def reorder_agents(body: ReorderRequest, db: Session = Depends(get_db), user: Us
         if agent:
             agent.display_order = index
     db.commit()
-    agents = list_owned_agents(db, user)
+    agents = list_visible_agents(db, user)
     for agent in agents:
         _normalize_agent_reset_times(agent, mark_confirmation=True)
     db.commit()
     for agent in agents:
         db.refresh(agent)
-    return [_build_agent_response(agent) for agent in agents]
+    owner_roles = get_agent_owner_roles(db, agents)
+    return [_build_agent_response(agent, user, owner_roles) for agent in agents]
 
 
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
@@ -432,12 +447,13 @@ def create_agent(body: AgentCreate, db: Session = Depends(get_db), user: User = 
     db.add(agent)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
 def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
     update_data = _normalize_agent_update_input(body.model_dump(exclude_unset=True))
     for key, value in update_data.items():
         setattr(agent, key, value)
@@ -451,14 +467,15 @@ def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db)
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.patch("/{agent_id}/status", response_model=AgentResponse)
 def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Only modify availability_status. Must NOT call _normalize_agent_input or touch
     model_name / models_json / capability — status changes are isolated from model config."""
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
     # Block status change if subscription expired
     if agent.subscription_expires_at and agent.subscription_expires_at <= _now_beijing_naive():
         raise HTTPException(status_code=400, detail="订阅已过期，无法更改状态")
@@ -469,12 +486,13 @@ def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.post("/{agent_id}/short-term-reset/reset", response_model=AgentResponse)
 def reset_short_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
     if not agent.short_term_reset_at or not agent.short_term_reset_interval_hours:
         raise HTTPException(status_code=400, detail="短期重置时间或间隔未设置")
     agent.short_term_reset_at = _now_beijing_naive() + timedelta(hours=agent.short_term_reset_interval_hours)
@@ -483,22 +501,24 @@ def reset_short_term(agent_id: int, db: Session = Depends(get_db), user: User = 
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.post("/{agent_id}/short-term-reset/confirm", response_model=AgentResponse)
 def confirm_short_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
     agent.short_term_reset_needs_confirmation = False
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.post("/{agent_id}/long-term-reset/reset", response_model=AgentResponse)
 def reset_long_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
     mode = agent.long_term_reset_mode or "days"
     if not agent.long_term_reset_at:
         raise HTTPException(status_code=400, detail="长期重置时间未设置")
@@ -518,37 +538,57 @@ def reset_long_term(agent_id: int, db: Session = Depends(get_db), user: User = D
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.post("/{agent_id}/long-term-reset/confirm", response_model=AgentResponse)
 def confirm_long_term(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
     agent.long_term_reset_needs_confirmation = False
     agent.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent)
-    return _build_agent_response(agent)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    return _build_agent_response(agent, user, owner_roles)
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_agent(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    agent = get_owned_agent(db, agent_id, user)
+    agent = get_mutable_agent(db, agent_id, user)
 
-    task_ref = db.query(Task).join(
-        Project,
-        Project.id == Task.project_id,
-    ).filter(
-        Task.assignee_agent_id == agent_id,
-        Project.created_by == user.id,
-    ).first()
+    task_ref = db.query(Task).filter(Task.assignee_agent_id == agent_id).first()
     if task_ref:
+        owner_roles = get_agent_owner_roles(db, [agent])
+        if is_agent_public(owner_roles, agent):
+            raise HTTPException(status_code=400, detail="公共 Agent 已被引用，无法硬删除，请先禁用")
         raise HTTPException(status_code=400, detail="Agent 已关联任务，无法删除")
 
-    for project in db.query(Project).filter(Project.created_by == user.id).all():
+    referenced = False
+    for project in db.query(Project).all():
         agent_ids = agent_ids_from_assignments_json(project.agent_ids_json)
         if agent_id in agent_ids:
-            raise HTTPException(status_code=400, detail="Agent 已关联项目，无法删除")
+            referenced = True
+            break
+
+    if not referenced:
+        referenced = db.query(ProjectPlan).filter(ProjectPlan.source_agent_id == agent_id).first() is not None
+
+    if not referenced:
+        for plan in db.query(ProjectPlan).all():
+            try:
+                selected_ids = json.loads(plan.selected_agent_ids_json or "[]")
+            except json.JSONDecodeError:
+                selected_ids = []
+            if agent_id in [int(item) for item in selected_ids if isinstance(item, int)]:
+                referenced = True
+                break
+
+    if referenced:
+        owner_roles = get_agent_owner_roles(db, [agent])
+        if is_agent_public(owner_roles, agent):
+            raise HTTPException(status_code=400, detail="公共 Agent 已被引用，无法硬删除，请先禁用")
+        raise HTTPException(status_code=400, detail="Agent 已关联项目或计划，无法删除")
 
     db.delete(agent)
     db.commit()

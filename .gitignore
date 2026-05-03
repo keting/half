@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+.pytest_cache/
 
 # Node
 node_modules/
@@ -22,9 +23,15 @@ Thumbs.db
 # Local environment
 .env
 src/.env
+src/.env.debug
 src/docker-compose.override.yml
+src/docker-compose.debug.yml
 src/backend/half.db
 src/backend/repos/
+
+# Local debugging artifacts
+.codex-debug/
+debug-*.log
 
 # Optional local-only operator notes
 /LOCAL.md
