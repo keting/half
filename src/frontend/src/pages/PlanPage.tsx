@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { copyText, getPlanIdToFinalize } from '../contracts';
 import { Agent, Plan, ProcessTemplate, Project } from '../types';
-import { getAgentModels } from '../utils/agents';
+import { createInactiveProjectAgent, getAgentModels } from '../utils/agents';
 import { applyTemplatePlan, filterTemplateInputs, getMissingTemplateInputs } from '../utils/applyTemplatePlan';
 import { FlowSource, buildPlanSourcePrefKey, resolveFlowSourcePreference } from '../utils/flowSource';
 import { DEFAULT_PLANNING_MODE, PLANNING_MODE_OPTIONS, PlanningMode, getPlanningModeMeta, normalizePlanningMode } from '../utils/planningMode';
@@ -125,7 +125,14 @@ export default function PlanPage() {
 
   const projectAgents = useMemo(() => {
     if (!project?.agent_ids?.length) return agents;
-    return agents.filter((agent) => project.agent_ids?.includes(agent.id));
+    const projectAgentIds = project.agent_ids || [];
+    const projectInactiveAgentIds = project.inactive_agent_ids || [];
+    const visibleProjectAgents = agents.filter((agent) => projectAgentIds.includes(agent.id));
+    const visibleIds = new Set(visibleProjectAgents.map((agent) => agent.id));
+    const missingInactiveAgents = projectInactiveAgentIds
+      .filter((agentId) => projectAgentIds.includes(agentId) && !visibleIds.has(agentId))
+      .map(createInactiveProjectAgent);
+    return [...visibleProjectAgents, ...missingInactiveAgents];
   }, [agents, project]);
 
   const latestPlan = useMemo(() => [...plans].reverse()[0] || null, [plans]);

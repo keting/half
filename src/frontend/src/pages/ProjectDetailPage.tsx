@@ -9,6 +9,7 @@ import { Agent, Project, Task } from '../types';
 import { getNextStepAction, getNextStepText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
+import { createInactiveProjectAgent } from '../utils/agents';
 
 interface PredecessorStatus {
   task_id: number;
@@ -115,7 +116,15 @@ export default function ProjectDetailPage() {
     ...task,
     readiness: readinessMap.get(task.id),
   }));
-  const selectedAgents = agents.filter((agent) => project.agent_ids?.includes(agent.id));
+  const selectedAgents = (() => {
+    const projectAgentIds = project.agent_ids || [];
+    const visibleSelectedAgents = agents.filter((agent) => projectAgentIds.includes(agent.id));
+    const visibleIds = new Set(visibleSelectedAgents.map((agent) => agent.id));
+    const missingInactiveAgents = (project.inactive_agent_ids || [])
+      .filter((agentId) => projectAgentIds.includes(agentId) && !visibleIds.has(agentId))
+      .map(createInactiveProjectAgent);
+    return [...visibleSelectedAgents, ...missingInactiveAgents];
+  })();
   const assignmentMap = new Map((project.agent_assignments || []).map((assignment) => [assignment.id, assignment.co_located]));
   const availableAgents = selectedAgents.filter((agent) => agent.availability_status === 'available');
   const runningTasks = tasksWithReadiness.filter((task) => task.status === 'running');
@@ -326,6 +335,10 @@ export default function ProjectDetailPage() {
                     <strong>{agent.name}</strong>
                     <div className="project-console-agent-meta">
                       <ModelBadge type={agent.agent_type} model={agent.model_name} />
+                      <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                        {agent.is_public ? '公共' : '私有'}
+                      </span>
+                      {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                     </div>
                   </div>
                   <StatusBadge status={agent.availability_status} />

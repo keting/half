@@ -22,6 +22,7 @@ interface AgentForm {
   custom_agent_type: string;
   models: AgentModelForm[];
   co_located: boolean;
+  is_active: boolean;
   subscription_expires_at: string;
   short_term_reset_at: string;
   short_term_reset_timezone: string;
@@ -57,6 +58,7 @@ function createEmptyForm(): AgentForm {
     custom_agent_type: '',
     models: [createEmptyModelForm()],
     co_located: false,
+    is_active: true,
     subscription_expires_at: '',
     short_term_reset_at: '',
     short_term_reset_timezone: 'CST',
@@ -260,6 +262,7 @@ export default function AgentsPage() {
       custom_agent_type: knownType ? '' : agent.agent_type,
       models: normalizeAgentModelsForForm(agent, knownModels),
       co_located: Boolean(agent.co_located),
+      is_active: Boolean(agent.is_active),
       subscription_expires_at: formatForDateTimeLocal(agent.subscription_expires_at),
       short_term_reset_at: formatBeijingStoredForInput(agent.short_term_reset_at),
       short_term_reset_timezone: 'CST',
@@ -303,6 +306,7 @@ export default function AgentsPage() {
         model_name: resolvedFormModels[0]?.model_name || null,
         capability: resolvedCapabilitySummary || null,
         co_located: form.co_located,
+        is_active: form.is_active,
         models: resolvedFormModels.map((model) => ({
           model_name: model.model_name,
           capability: model.capability,
@@ -331,6 +335,22 @@ export default function AgentsPage() {
     try { await api.delete(`/api/agents/${agent.id}`); api.invalidate('/api/agents'); fetchAgents(); }
     catch (err) { setError(`删除失败：${err}`); }
     finally { setDeletingId(null); }
+  }
+
+  async function handleActiveChange(agent: Agent, nextActive: boolean) {
+    if (agent.can_edit === false) return;
+    if (!nextActive && !confirm(`确认停用 "${agent.name}" 吗？停用后普通用户不能在新项目中选择它，已有项目历史绑定会保留。`)) return;
+    setActionAgentId(agent.id);
+    setError('');
+    try {
+      const updated = await api.put<Agent>(`/api/agents/${agent.id}`, { is_active: nextActive });
+      api.invalidate('/api/agents');
+      setAgents((current) => current.map((item) => item.id === agent.id ? updated : item));
+    } catch (err) {
+      setError(`${nextActive ? '启用' : '停用'}失败：${err}`);
+    } finally {
+      setActionAgentId(null);
+    }
   }
 
   async function handleResetAction(agentId: number, mode: 'short' | 'long') {
@@ -524,6 +544,14 @@ export default function AgentsPage() {
                 />
                 <span>同服务器</span>
               </label>
+              <label className="checkbox-field" title="取消勾选会停用该 Agent；已有项目历史绑定会保留，新项目不能再选择它">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(e) => updateField('is_active', e.target.checked)}
+                />
+                <span>启用 Agent</span>
+              </label>
             </SectionCard>
 
             <SectionCard title="模型与能力">
@@ -711,7 +739,7 @@ export default function AgentsPage() {
                   <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
                     {agent.is_public ? '公共' : '私有'}
                   </span>
-                  {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
+                  {!agent.is_active && <span className="badge badge-disabled-public">已停用</span>}
                   <div className="agent-status-container" ref={statusDropdownAgentId === agent.id ? statusDropdownRef : undefined}>
                     <span
                       className="status-badge"
@@ -757,6 +785,14 @@ export default function AgentsPage() {
                   </div>
                   <div className="agent-card-inline-actions">
                     <button className="btn btn-sm btn-edit" onClick={() => handleEdit(agent)} disabled={!canEditAgent} title={readonlyTitle}>编辑</button>
+                    <button
+                      className="btn btn-sm btn-edit"
+                      onClick={() => handleActiveChange(agent, !agent.is_active)}
+                      disabled={!canEditAgent || actionAgentId === agent.id}
+                      title={readonlyTitle}
+                    >
+                      {agent.is_active ? '停用' : '启用'}
+                    </button>
                     <button className="btn btn-sm btn-delete" onClick={() => handleDelete(agent)} disabled={!canEditAgent || deletingId === agent.id} title={readonlyTitle}>
                       {deletingId === agent.id ? '删除中' : '删除'}
                     </button>

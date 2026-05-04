@@ -59,7 +59,10 @@ def get_visible_agent(db: Session, agent_id: int, user: User) -> Agent:
 
 
 def get_mutable_agent(db: Session, agent_id: int, user: User) -> Agent:
-    return get_owned_agent(db, agent_id, user)
+    agent = get_visible_agent(db, agent_id, user)
+    if agent.created_by != user.id:
+        raise HTTPException(status_code=403, detail="公共 Agent 仅创建者可维护")
+    return agent
 
 
 def get_agent_owner_roles(db: Session, agents: list[Agent]) -> dict[int, str | None]:

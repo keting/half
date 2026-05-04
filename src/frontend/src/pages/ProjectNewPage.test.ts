@@ -60,6 +60,32 @@ describe('ProjectNewPage unavailable agent logic', () => {
     expect(isUnavailableAgentSelectionDisabled(unavailableAgent, [3])).toBe(false);
   });
 
+  it('keeps originally selected inactive public agents enabled in edit mode', () => {
+    const inactivePublicAgent = makeAgent({
+      id: 4,
+      name: '历史公共 Agent',
+      is_active: false,
+      is_public: true,
+      is_disabled_public: true,
+      can_edit: false,
+    });
+
+    expect(isUnavailableAgentSelectionDisabled(inactivePublicAgent, [4])).toBe(false);
+  });
+
+  it('prevents newly selecting inactive public agents', () => {
+    const inactivePublicAgent = makeAgent({
+      id: 5,
+      name: '停用公共 Agent',
+      is_active: false,
+      is_public: true,
+      is_disabled_public: true,
+      can_edit: false,
+    });
+
+    expect(isUnavailableAgentSelectionDisabled(inactivePublicAgent, [])).toBe(true);
+  });
+
   it('builds a chinese error message with unavailable agent names', () => {
     expect(
       getUnavailableAgentSelectionMessage([

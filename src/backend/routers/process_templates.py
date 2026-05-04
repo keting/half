@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from access import get_owned_project
+from access import get_owned_project, load_usable_agents
 from auth import get_current_user
 from database import get_db
-from models import Agent, ProcessTemplate, ProjectPlan, User
+from models import ProcessTemplate, ProjectPlan, User
 from routers.plans import finalize_plan_record
 from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
@@ -484,12 +484,11 @@ def apply_template(
     if not set(mapped_agent_ids).issubset(project_agent_ids):
         raise HTTPException(status_code=400, detail="Mapped agents must belong to the project")
 
-    agents = db.query(Agent).filter(
-        Agent.id.in_(mapped_agent_ids),
-        Agent.created_by == user.id,
-    ).all()
-    if len(agents) != len(mapped_agent_ids):
-        raise HTTPException(status_code=400, detail="Some mapped agents do not exist")
+    agents = (
+        load_usable_agents(db, mapped_agent_ids, user, allow_keep_ids=set(project_agent_ids))
+        if mapped_agent_ids
+        else []
+    )
     agents_by_id = {agent.id: agent for agent in agents}
     slot_to_slug = {slot: agents_by_id[agent_id].slug for slot, agent_id in mapping.items()}
 

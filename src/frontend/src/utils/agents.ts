@@ -34,6 +34,10 @@ function getCurrentBeijingParts() {
 }
 
 export function deriveAgentStatus(agent: Agent): DerivedStatus {
+  if (!agent.is_active) {
+    return { status: 'unavailable', label: '已停用', color: '#f97316', canChangeStatus: false };
+  }
+
   // 1. Subscription expiration takes highest priority
   if (agent.subscription_expires_at) {
     const parts = parseStoredDateTime(agent.subscription_expires_at);
@@ -105,6 +109,35 @@ export function getAgentModels(agent: Agent): AgentModelConfig[] {
     return [{ model_name: agent.model_name, capability: agent.capability }];
   }
   return [];
+}
+
+export function createInactiveProjectAgent(agentId: number): Agent {
+  return {
+    id: agentId,
+    name: `Agent #${agentId}`,
+    slug: `inactive-agent-${agentId}`,
+    agent_type: '历史绑定',
+    model_name: null,
+    models: [],
+    capability: '该 Agent 已停用，仅因当前项目历史绑定而保留。',
+    co_located: false,
+    is_active: false,
+    availability_status: 'unavailable',
+    display_order: 0,
+    subscription_expires_at: null,
+    short_term_reset_at: null,
+    short_term_reset_interval_hours: null,
+    short_term_reset_needs_confirmation: false,
+    long_term_reset_at: null,
+    long_term_reset_interval_days: null,
+    long_term_reset_mode: 'days',
+    long_term_reset_needs_confirmation: false,
+    created_by: null,
+    owner_role: 'admin',
+    is_public: true,
+    can_edit: false,
+    is_disabled_public: true,
+  };
 }
 
 export function summarizeAgentCapabilities(agent: Agent): string {

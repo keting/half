@@ -556,37 +556,61 @@ def confirm_long_term(agent_id: int, db: Session = Depends(get_db), user: User =
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_agent(agent_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     agent = get_mutable_agent(db, agent_id, user)
+    owner_roles = get_agent_owner_roles(db, [agent])
+    is_public = is_agent_public(owner_roles, agent)
 
-    task_ref = db.query(Task).filter(Task.assignee_agent_id == agent_id).first()
+    task_query = db.query(Task).filter(Task.assignee_agent_id == agent_id)
+    if not is_public:
+        task_query = task_query.join(Project, Task.project_id == Project.id).filter(
+            Project.created_by == user.id
+        )
+    task_ref = task_query.first()
     if task_ref:
-        owner_roles = get_agent_owner_roles(db, [agent])
-        if is_agent_public(owner_roles, agent):
+        if is_public:
             raise HTTPException(status_code=400, detail="公共 Agent 已被引用，无法硬删除，请先禁用")
         raise HTTPException(status_code=400, detail="Agent 已关联任务，无法删除")
 
     referenced = False
-    for project in db.query(Project).all():
+    project_query = db.query(Project)
+    if not is_public:
+        project_query = project_query.filter(Project.created_by == user.id)
+    for project in project_query.all():
         agent_ids = agent_ids_from_assignments_json(project.agent_ids_json)
         if agent_id in agent_ids:
             referenced = True
             break
 
     if not referenced:
-        referenced = db.query(ProjectPlan).filter(ProjectPlan.source_agent_id == agent_id).first() is not None
+        plan_query = db.query(ProjectPlan)
+        if not is_public:
+            plan_query = plan_query.join(Project, ProjectPlan.project_id == Project.id).filter(
+                Project.created_by == user.id
+            )
+        referenced = plan_query.filter(ProjectPlan.source_agent_id == agent_id).first() is not None
 
     if not referenced:
-        for plan in db.query(ProjectPlan).all():
+        plan_query = db.query(ProjectPlan)
+        if not is_public:
+            plan_query = plan_query.join(Project, ProjectPlan.project_id == Project.id).filter(
+                Project.created_by == user.id
+            )
+        for plan in plan_query.all():
             try:
                 selected_ids = json.loads(plan.selected_agent_ids_json or "[]")
             except json.JSONDecodeError:
                 selected_ids = []
-            if agent_id in [int(item) for item in selected_ids if isinstance(item, int)]:
+            parsed_ids: list[int] = []
+            for item in selected_ids:
+                try:
+                    parsed_ids.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            if agent_id in parsed_ids:
                 referenced = True
                 break
 
     if referenced:
-        owner_roles = get_agent_owner_roles(db, [agent])
-        if is_agent_public(owner_roles, agent):
+        if is_public:
             raise HTTPException(status_code=400, detail="公共 Agent 已被引用，无法硬删除，请先禁用")
         raise HTTPException(status_code=400, detail="Agent 已关联项目或计划，无法删除")
 

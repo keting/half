@@ -6,7 +6,7 @@ import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import ModelBadge from '../components/ModelBadge';
-import { deriveAgentStatus, getAgentModels, summarizeAgentCapabilities } from '../utils/agents';
+import { createInactiveProjectAgent, deriveAgentStatus, getAgentModels, summarizeAgentCapabilities } from '../utils/agents';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 
 const UNAVAILABLE_AGENT_DETAIL = 'Some selected agents are unavailable';
@@ -45,6 +45,7 @@ export default function ProjectNewPage() {
   const [collaborationDir, setCollaborationDir] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>([]);
   const [originalAgentIds, setOriginalAgentIds] = useState<number[]>([]);
+  const [inactiveProjectAgentIds, setInactiveProjectAgentIds] = useState<number[]>([]);
   const [agentCoLocated, setAgentCoLocated] = useState<Record<number, boolean>>({});
   const [agents, setAgents] = useState<Agent[]>([]);
   const [pollingIntervalMin, setPollingIntervalMin] = useState<number | null>(null);
@@ -85,6 +86,7 @@ export default function ProjectNewPage() {
                 return { id: agentId, co_located: Boolean(agent?.co_located) };
               });
           const initialAgentIds = assignments.map((assignment) => assignment.id);
+          setInactiveProjectAgentIds(project.inactive_agent_ids || []);
           setName(project.name || '');
           setGoal(project.goal || '');
           setGitRepoUrl(project.git_repo_url || '');
@@ -99,6 +101,7 @@ export default function ProjectNewPage() {
           setTaskTimeoutMinutes(project.task_timeout_minutes ?? globalPolling?.task_timeout_minutes ?? 10);
         } else if (globalPolling) {
           setOriginalAgentIds([]);
+          setInactiveProjectAgentIds([]);
           // Prefill from global defaults so the user starts with the
           // configured range/delay and can adjust per-project.
           setPollingIntervalMin(globalPolling.polling_interval_min);
@@ -108,6 +111,7 @@ export default function ProjectNewPage() {
           setTaskTimeoutMinutes(globalPolling.task_timeout_minutes);
         } else {
           setOriginalAgentIds([]);
+          setInactiveProjectAgentIds([]);
           setTaskTimeoutMinutes(10);
         }
       } catch (err) {
@@ -119,7 +123,14 @@ export default function ProjectNewPage() {
     fetchData();
   }, [id, isEditMode]);
 
-  const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.name.localeCompare(b.name)), [agents]);
+  const visibleAgents = useMemo(() => {
+    const visibleIds = new Set(agents.map((agent) => agent.id));
+    const missingInactiveAgents = inactiveProjectAgentIds
+      .filter((agentId) => !visibleIds.has(agentId))
+      .map(createInactiveProjectAgent);
+    return [...agents, ...missingInactiveAgents];
+  }, [agents, inactiveProjectAgentIds]);
+  const sortedAgents = useMemo(() => [...visibleAgents].sort((a, b) => a.name.localeCompare(b.name)), [visibleAgents]);
 
   function toggleAgent(agentId: number) {
     setSelectedAgentIds((prev) => {
@@ -131,7 +142,7 @@ export default function ProjectNewPage() {
         });
         return prev.filter((i) => i !== agentId);
       }
-      const agent = agents.find((item) => item.id === agentId);
+      const agent = visibleAgents.find((item) => item.id === agentId);
       setAgentCoLocated((current) => ({ ...current, [agentId]: Boolean(agent?.co_located) }));
       return [...prev, agentId];
     });
