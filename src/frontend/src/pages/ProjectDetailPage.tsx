@@ -9,6 +9,7 @@ import { Agent, Project, Task } from '../types';
 import { getNextStepAction, getNextStepText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
+import { createInactiveProjectAgent } from '../utils/agents';
 
 interface PredecessorStatus {
   task_id: number;
