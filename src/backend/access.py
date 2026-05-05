@@ -15,16 +15,6 @@ def get_owned_project(db: Session, project_id: int, user: User) -> Project:
     return project
 
 
-def get_owned_agent(db: Session, agent_id: int, user: User) -> Agent:
-    agent = db.query(Agent).filter(
-        Agent.id == agent_id,
-        Agent.created_by == user.id,
-    ).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    return agent
-
-
 def _admin_user_ids_query(db: Session):
     return db.query(User.id).filter(User.role == "admin")
 
@@ -79,12 +69,7 @@ def is_agent_public(owner_roles: dict[int, str | None], agent: Agent) -> bool:
     return bool(agent.created_by is not None and owner_roles.get(agent.created_by) == "admin")
 
 
-def load_usable_agents(
-    db: Session,
-    agent_ids: list[int],
-    user: User,
-    allow_keep_ids: set[int] | None = None,
-) -> list[Agent]:
+def load_usable_agents(db: Session, agent_ids: list[int], user: User) -> list[Agent]:
     if not agent_ids:
         raise HTTPException(status_code=400, detail="At least one agent must be selected")
     if len(set(agent_ids)) != len(agent_ids):
@@ -94,7 +79,6 @@ def load_usable_agents(
     if len(agents) != len(agent_ids):
         raise HTTPException(status_code=400, detail="Some agent_ids are invalid")
 
-    keep_ids = allow_keep_ids or set()
     owner_roles = get_agent_owner_roles(db, agents)
     visible_agent_ids = {
         row[0]
@@ -103,14 +87,13 @@ def load_usable_agents(
     invalid_ids: list[int] = []
     inactive_ids: list[int] = []
     for agent in agents:
-        keepable_history = agent.id in keep_ids and (
-            agent.created_by == user.id or is_agent_public(owner_roles, agent)
-        )
-        if agent.id not in visible_agent_ids and not keepable_history:
-            invalid_ids.append(agent.id)
-            continue
-        if not agent.is_active and not keepable_history:
+        if not agent.is_active and (
+            agent.id in visible_agent_ids or agent.created_by == user.id or is_agent_public(owner_roles, agent)
+        ):
             inactive_ids.append(agent.id)
+            continue
+        if agent.id not in visible_agent_ids:
+            invalid_ids.append(agent.id)
     if invalid_ids:
         raise HTTPException(status_code=400, detail="Some agent_ids are invalid")
     if inactive_ids:
@@ -128,7 +111,3 @@ def get_owned_task(db: Session, task_id: int, user: User) -> Task:
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
-
-
-def list_owned_agents(db: Session, user: User) -> list[Agent]:
-    return db.query(Agent).filter(Agent.created_by == user.id).order_by(Agent.display_order, Agent.id).all()

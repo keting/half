@@ -23,15 +23,9 @@ Thumbs.db
 # Local environment
 .env
 src/.env
-src/.env.debug
 src/docker-compose.override.yml
-src/docker-compose.debug.yml
 src/backend/half.db
 src/backend/repos/
-
-# Local debugging artifacts
-.codex-debug/
-debug-*.log
 
 # Optional local-only operator notes
 /LOCAL.md

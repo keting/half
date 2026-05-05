@@ -339,7 +339,7 @@ export default function AgentsPage() {
 
   async function handleActiveChange(agent: Agent, nextActive: boolean) {
     if (agent.can_edit === false) return;
-    if (!nextActive && !confirm(`确认停用 "${agent.name}" 吗？停用后普通用户不能在新项目中选择它，已有项目历史绑定会保留。`)) return;
+    if (!nextActive && !confirm(`确认停用 "${agent.name}" 吗？停用后引用它的项目必须先移除该引用，才能继续编辑或生成新计划。`)) return;
     setActionAgentId(agent.id);
     setError('');
     try {
@@ -544,7 +544,7 @@ export default function AgentsPage() {
                 />
                 <span>同服务器</span>
               </label>
-              <label className="checkbox-field" title="取消勾选会停用该 Agent；已有项目历史绑定会保留，新项目不能再选择它">
+              <label className="checkbox-field" title="取消勾选会停用该 Agent；引用它的项目必须先移除该引用，才能继续编辑或生成新计划">
                 <input
                   type="checkbox"
                   checked={form.is_active}

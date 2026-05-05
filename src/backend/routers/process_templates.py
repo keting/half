@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from access import get_owned_project, load_usable_agents
 from auth import get_current_user
 from database import get_db
-from models import ProcessTemplate, ProjectPlan, User
+from models import Agent, ProcessTemplate, ProjectPlan, User
 from routers.plans import finalize_plan_record
 from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
@@ -481,14 +481,18 @@ def apply_template(
         raise HTTPException(status_code=400, detail="A single agent cannot be mapped to multiple slots")
 
     project_agent_ids = set(agent_ids_from_assignments_json(project.agent_ids_json))
+    inactive_project_agent_ids = {
+        row[0]
+        for row in db.query(Agent.id)
+        .filter(Agent.id.in_(project_agent_ids), Agent.is_active == False)  # noqa: E712
+        .all()
+    }
+    if inactive_project_agent_ids:
+        raise HTTPException(status_code=400, detail="Project references inactive agents; remove them before planning")
     if not set(mapped_agent_ids).issubset(project_agent_ids):
         raise HTTPException(status_code=400, detail="Mapped agents must belong to the project")
 
-    agents = (
-        load_usable_agents(db, mapped_agent_ids, user, allow_keep_ids=set(project_agent_ids))
-        if mapped_agent_ids
-        else []
-    )
+    agents = load_usable_agents(db, mapped_agent_ids, user) if mapped_agent_ids else []
     agents_by_id = {agent.id: agent for agent in agents}
     slot_to_slug = {slot: agents_by_id[agent_id].slug for slot, agent_id in mapping.items()}
 

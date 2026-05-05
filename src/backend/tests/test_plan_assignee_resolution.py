@@ -68,11 +68,11 @@ class PlanAssigneeResolutionTests(unittest.TestCase):
 
         self.assertEqual(_resolve_assignee_agent_id(self.db, "public-active", self.project, self.owner), 3)
 
-    def test_resolves_inactive_public_agent_kept_on_project(self):
+    def test_does_not_resolve_inactive_public_agent_kept_on_project(self):
         self.project.agent_ids_json = json.dumps([4])
         self.db.commit()
 
-        self.assertEqual(_resolve_assignee_agent_id(self.db, "legacy-type", self.project, self.owner), 4)
+        self.assertIsNone(_resolve_assignee_agent_id(self.db, "legacy-type", self.project, self.owner))
 
     def test_prefers_private_agent_over_public_agent_with_same_name(self):
         self.project.agent_ids_json = "[]"

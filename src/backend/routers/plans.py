@@ -183,7 +183,11 @@ def _resolve_assignee_agent_id(db: Session, assignee: Optional[str], project: Pr
         return None
 
     project_agent_ids = agent_ids_from_assignments_json(project.agent_ids_json)
-    project_agents = db.query(Agent).filter(Agent.id.in_(project_agent_ids)).all() if project_agent_ids else []
+    project_agents = (
+        db.query(Agent).filter(Agent.id.in_(project_agent_ids), Agent.is_active == True).all()  # noqa: E712
+        if project_agent_ids
+        else []
+    )
     project_agents_by_id = {agent.id: agent for agent in project_agents}
     ordered_project_agents = [project_agents_by_id[agent_id] for agent_id in project_agent_ids if agent_id in project_agents_by_id]
     project_match = _match_assignee_agent(ordered_project_agents, normalized)
@@ -200,11 +204,19 @@ def _resolve_assignee_agent_id(db: Session, assignee: Optional[str], project: Pr
 
 def _load_project_plan_agents(db: Session, project: Project, user: User, selected_agent_ids: list[int]) -> list[Agent]:
     project_agent_ids = agent_ids_from_assignments_json(project.agent_ids_json)
+    inactive_project_agent_ids = {
+        row[0]
+        for row in db.query(Agent.id)
+        .filter(Agent.id.in_(project_agent_ids), Agent.is_active == False)  # noqa: E712
+        .all()
+    }
+    if inactive_project_agent_ids:
+        raise HTTPException(status_code=400, detail="Project references inactive agents; remove them before planning")
     if not selected_agent_ids:
         raise HTTPException(status_code=400, detail="At least one participating agent must be selected")
     if any(agent_id not in project_agent_ids for agent_id in selected_agent_ids):
         raise HTTPException(status_code=400, detail="Some selected agents are not assigned to this project")
-    return load_usable_agents(db, selected_agent_ids, user, allow_keep_ids=set(project_agent_ids))
+    return load_usable_agents(db, selected_agent_ids, user)
 
 
 def _normalize_task_fields(tasks_data: list[dict]) -> list[dict]:

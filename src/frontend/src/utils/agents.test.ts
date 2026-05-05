@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createInactiveProjectAgent, deriveAgentStatus } from './agents';
+import { deriveAgentStatus } from './agents';
 import type { Agent } from '../types';
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
@@ -46,14 +46,4 @@ describe('agent status helpers', () => {
     expect(status.canChangeStatus).toBe(false);
   });
 
-  it('creates a readonly disabled-public placeholder for historical project bindings', () => {
-    const agent = createInactiveProjectAgent(42);
-
-    expect(agent.id).toBe(42);
-    expect(agent.name).toBe('Agent #42');
-    expect(agent.is_active).toBe(false);
-    expect(agent.is_public).toBe(true);
-    expect(agent.can_edit).toBe(false);
-    expect(agent.is_disabled_public).toBe(true);
-  });
 });

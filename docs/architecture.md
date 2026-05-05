@@ -190,7 +190,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 - **Agent 的可用状态是派生的**：持久字段 `availability_status` 接受 `available / short_reset_pending / long_reset_pending`；同时因为 `models.py` 定义默认值为 `unknown`，旧数据和默认插入值里仍可能出现 `unknown`——运行时 `services/agents.py::derive_agent_status` 把 `unknown` 当作 `available` 处理。`unavailable` 是派生状态（**不存储**），由 `subscription_expires_at` 实时推导
 - **项目轮询配置是快照**：创建项目时把当前的全局默认（`polling_interval_min/max`、`polling_start_delay_*`、`task_timeout_minutes`）快照写入项目；此后全局配置变更**不追溯**影响既有项目
 - **Task 超时时间是快照**：最终计划生成 Task 时把项目级 `task_timeout_minutes` 写入 `tasks.timeout_minutes`；`pending` 状态可编辑，进入 `running` 后不可编辑
-- **Agent 可见性在后端强制**：普通用户可见自己的私有 Agent 与活跃公共 Agent；管理员可见管理员公共池（含停用项），但不可见普通用户私有 Agent。项目和计划只允许新增选择活跃可见 Agent；既有项目引用的停用公共 Agent 可继续保留，用于历史计划和后续 assignee 解析
+- **Agent 可见性在后端强制**：普通用户可见自己的私有 Agent 与活跃公共 Agent；管理员可见管理员公共池（含停用项），但不可见普通用户私有 Agent。项目和计划只允许选择活跃可见 Agent；公共 Agent 被管理员停用后，引用它的项目必须先移除该引用，才能继续编辑或生成新计划
 - **Agent 删除先做全局引用检查**：删除会检查所有任务、项目、计划 source agent 和计划 selected agents；被引用的公共 Agent 只能禁用，不能硬删除
 - **路径统一仓库根相对**：`collaboration_dir`、`source_path`、`expected_output_path` 创建/更新时 strip 前后斜杠；`services.git_service._safe_join` 保证 `..` 越界等非法路径被拒绝
 - **项目 Git 仓库地址必填并校验**：创建项目必须提供 `git_repo_url`，编辑项目时不允许清空；前端即时校验，后端是最终防线。
@@ -224,7 +224,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 |---|---|---|
 | 认证 | `/api/auth` | 登录、注册、获取当前用户、修改密码、运行配置（`allow_register`） |
 | 健康检查 | `/health` | 返回 `{"status": "ok"}` |
-| Agent 管理 | `/api/agents` | 当前用户的 Agent CRUD；短期/长期重置的 reset / confirm；状态切换；类型只读目录 |
+| Agent 管理 | `/api/agents` | 可见 Agent 列表；私有 Agent CRUD；公共 Agent 仅创建者维护；短期/长期重置的 reset / confirm；状态切换；类型只读目录 |
 | 智能体设置 | `/api/agent-settings` | Agent 类型和模型的全局配置，**仅管理员可用** |
 | 项目管理 | `/api/projects` | 项目 CRUD；获取项目详情含"下一步"提示 |
 | 工作计划 | `/api/projects/:id/plans/...` | 生成 prompt、派发、finalize；候选/最终计划查询 |

@@ -9,7 +9,6 @@ import { Agent, Project, Task } from '../types';
 import { getNextStepAction, getNextStepText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
-import { createInactiveProjectAgent } from '../utils/agents';
 
 interface PredecessorStatus {
   task_id: number;
@@ -118,12 +117,7 @@ export default function ProjectDetailPage() {
   }));
   const selectedAgents = (() => {
     const projectAgentIds = project.agent_ids || [];
-    const visibleSelectedAgents = agents.filter((agent) => projectAgentIds.includes(agent.id));
-    const visibleIds = new Set(visibleSelectedAgents.map((agent) => agent.id));
-    const missingInactiveAgents = (project.inactive_agent_ids || [])
-      .filter((agentId) => projectAgentIds.includes(agentId) && !visibleIds.has(agentId))
-      .map(createInactiveProjectAgent);
-    return [...visibleSelectedAgents, ...missingInactiveAgents];
+    return agents.filter((agent) => projectAgentIds.includes(agent.id));
   })();
   const assignmentMap = new Map((project.agent_assignments || []).map((assignment) => [assignment.id, assignment.co_located]));
   const availableAgents = selectedAgents.filter((agent) => agent.availability_status === 'available');

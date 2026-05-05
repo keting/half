@@ -25,6 +25,7 @@ from routers.agents import (
     update_agent,
     update_agent_status,
 )
+from routers.plans import PlanPromptRequest, plan_generate_prompt
 from routers.projects import ProjectCreate, ProjectUpdate, create_project, update_project
 from routers.users import UserRoleUpdateRequest, UserStatusUpdateRequest, update_user_role, update_user_status
 
@@ -145,7 +146,7 @@ class AdminPublicAgentTests(unittest.TestCase):
                     call()
                 self.assertEqual(raised.exception.status_code, 403)
 
-    def test_project_lifecycle_respects_inactive_public_agent_history(self):
+    def test_project_lifecycle_requires_removing_inactive_public_agent(self):
         created = create_project(
             ProjectCreate(
                 name="uses-public",
@@ -176,20 +177,32 @@ class AdminPublicAgentTests(unittest.TestCase):
             goal="x",
             git_repo_url="https://github.com/keting/half",
             created_by=self.alice.id,
-            agent_ids_json=json.dumps([{"id": self.public_inactive.id, "co_located": False}]),
+            agent_ids_json=json.dumps([
+                {"id": self.public_active.id, "co_located": False},
+                {"id": self.public_inactive.id, "co_located": False},
+            ]),
         )
         self.db.add(project)
         self.db.commit()
         self.db.refresh(project)
 
-        kept = update_project(
-            project.id,
-            ProjectUpdate(agent_ids=[self.public_inactive.id]),
-            db=self.db,
-            user=self.alice,
-        )
-        self.assertEqual(kept.agent_ids, [self.public_inactive.id])
-        self.assertEqual(kept.inactive_agent_ids, [self.public_inactive.id])
+        with self.assertRaises(HTTPException) as keep_error:
+            update_project(
+                project.id,
+                ProjectUpdate(agent_ids=[self.public_inactive.id]),
+                db=self.db,
+                user=self.alice,
+            )
+        self.assertEqual(keep_error.exception.status_code, 400)
+
+        with self.assertRaises(HTTPException) as edit_error:
+            update_project(
+                project.id,
+                ProjectUpdate(name="renamed-with-inactive-agent"),
+                db=self.db,
+                user=self.alice,
+            )
+        self.assertEqual(edit_error.exception.status_code, 400)
 
         removed = update_project(
             project.id,
@@ -207,6 +220,31 @@ class AdminPublicAgentTests(unittest.TestCase):
                 user=self.alice,
             )
         self.assertEqual(readd_error.exception.status_code, 400)
+
+    def test_plan_generate_prompt_rejects_inactive_public_agent(self):
+        project = Project(
+            name="historical-public",
+            goal="x",
+            git_repo_url="https://github.com/keting/half",
+            created_by=self.alice.id,
+            agent_ids_json=json.dumps([
+                {"id": self.public_active.id, "co_located": False},
+                {"id": self.public_inactive.id, "co_located": False},
+            ]),
+        )
+        self.db.add(project)
+        self.db.commit()
+        self.db.refresh(project)
+
+        with self.assertRaises(HTTPException) as raised:
+            plan_generate_prompt(
+                project.id,
+                PlanPromptRequest(selected_agent_ids=[self.public_active.id]),
+                db=self.db,
+                user=self.alice,
+            )
+
+        self.assertEqual(raised.exception.status_code, 400)
 
     def test_delete_public_agent_is_blocked_by_cross_user_references(self):
         project = Project(

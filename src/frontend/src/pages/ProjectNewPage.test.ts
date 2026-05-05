@@ -60,7 +60,7 @@ describe('ProjectNewPage unavailable agent logic', () => {
     expect(isUnavailableAgentSelectionDisabled(unavailableAgent, [3])).toBe(false);
   });
 
-  it('keeps originally selected inactive public agents enabled in edit mode', () => {
+  it('keeps originally selected inactive public agents disabled in edit mode', () => {
     const inactivePublicAgent = makeAgent({
       id: 4,
       name: '历史公共 Agent',
@@ -70,7 +70,7 @@ describe('ProjectNewPage unavailable agent logic', () => {
       can_edit: false,
     });
 
-    expect(isUnavailableAgentSelectionDisabled(inactivePublicAgent, [4])).toBe(false);
+    expect(isUnavailableAgentSelectionDisabled(inactivePublicAgent, [4])).toBe(true);
   });
 
   it('prevents newly selecting inactive public agents', () => {

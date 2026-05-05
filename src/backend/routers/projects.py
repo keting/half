@@ -206,11 +206,11 @@ def _validate_usable_agent_assignments(
     db: Session,
     assignments: list[dict],
     user: User,
-    allow_keep_ids: set[int] | None = None,
+    existing_agent_ids: set[int] | None = None,
 ) -> list[dict[str, int | bool]]:
     agent_ids = [int(item.get("id")) for item in assignments]
-    usable_agents = load_usable_agents(db, agent_ids, user, allow_keep_ids=allow_keep_ids)
-    keep_ids = allow_keep_ids or set()
+    usable_agents = load_usable_agents(db, agent_ids, user)
+    keep_ids = existing_agent_ids or set()
     unavailable_agent_ids = [
         agent.id
         for agent in usable_agents
@@ -228,10 +228,10 @@ def _agent_assignments_from_ids(
     db: Session,
     agent_ids: list[int],
     user: User,
-    allow_keep_ids: set[int] | None = None,
+    existing_agent_ids: set[int] | None = None,
 ) -> list[dict[str, int | bool]]:
-    agents = load_usable_agents(db, agent_ids, user, allow_keep_ids=allow_keep_ids)
-    keep_ids = allow_keep_ids or set()
+    agents = load_usable_agents(db, agent_ids, user)
+    keep_ids = existing_agent_ids or set()
     unavailable_agent_ids = [
         agent.id
         for agent in agents
@@ -250,16 +250,16 @@ def _project_assignments_from_body(
     db: Session,
     body: ProjectCreate | ProjectUpdate,
     user: User,
-    allow_keep_ids: set[int] | None = None,
+    existing_agent_ids: set[int] | None = None,
 ) -> list[dict[str, int | bool]]:
     if body.agent_assignments is not None:
         return _validate_usable_agent_assignments(
             db,
             [item.model_dump() for item in body.agent_assignments],
             user,
-            allow_keep_ids=allow_keep_ids,
+            existing_agent_ids=existing_agent_ids,
         )
-    return _agent_assignments_from_ids(db, body.agent_ids or [], user, allow_keep_ids=allow_keep_ids)
+    return _agent_assignments_from_ids(db, body.agent_ids or [], user, existing_agent_ids=existing_agent_ids)
 
 
 
@@ -404,7 +404,7 @@ def _resolve_polling_snapshot(
 @router.post('', response_model=ProjectResponse, status_code=201)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     body.git_repo_url = _validate_required_git_repo_url(body.git_repo_url)
-    agent_assignments = _project_assignments_from_body(db, body, user, allow_keep_ids=set())
+    agent_assignments = _project_assignments_from_body(db, body, user)
     _validate_polling_params(
         body.polling_interval_min,
         body.polling_interval_max,
@@ -464,9 +464,15 @@ def get_project(project_id: int, db: Session = Depends(get_db), user: User = Dep
 def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_owned_project(db, project_id, user)
     update_data = body.model_dump(exclude_unset=True)
-    allow_keep_ids = set(_project_agent_ids(project))
+    existing_agent_ids = set(_project_agent_ids(project))
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
+    if (
+        'agent_assignments' not in update_data
+        and 'agent_ids' not in update_data
+        and _inactive_project_agent_ids(db, project)
+    ):
+        raise HTTPException(status_code=400, detail="Project references inactive agents; remove them before editing")
     if 'git_repo_url' in update_data:
         update_data['git_repo_url'] = _validate_required_git_repo_url(update_data['git_repo_url'])
     elif not project.git_repo_url or not project.git_repo_url.strip():
@@ -478,7 +484,7 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
                 db,
                 update_data.pop('agent_assignments'),
                 user,
-                allow_keep_ids=allow_keep_ids,
+                existing_agent_ids=existing_agent_ids,
             )
         )
     elif 'agent_ids' in update_data:
@@ -487,7 +493,7 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
                 db,
                 update_data.pop('agent_ids'),
                 user,
-                allow_keep_ids=allow_keep_ids,
+                existing_agent_ids=existing_agent_ids,
             )
         )
     if 'collaboration_dir' in update_data:
