@@ -186,7 +186,7 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
         ) as mock_fetch, patch(
             "services.git_service.pull_repo",
             return_value=str(self.repos_dir / "3"),
-        ) as mock_pull, patch("services.git_service.time.sleep") as mock_sleep:
+        ) as mock_pull, patch("services.git_service._sleep") as mock_sleep:
             status = git_service.ensure_repo_sync(3, "git@github.com:example-org/example-repo.git")
 
         self.assertTrue(status.fetched)
