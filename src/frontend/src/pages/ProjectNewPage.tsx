@@ -12,7 +12,7 @@ import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 const UNAVAILABLE_AGENT_DETAIL = 'Some selected agents are unavailable';
 
 export function isUnavailableAgentSelectionDisabled(agent: Agent, originalAgentIds: number[]) {
-  return deriveAgentStatus(agent).status === 'unavailable' && !originalAgentIds.includes(agent.id);
+  return !agent.is_active || (deriveAgentStatus(agent).status === 'unavailable' && !originalAgentIds.includes(agent.id));
 }
 
 export function getUnavailableAgentSelectionMessage(unavailableAgents: Agent[]) {
@@ -78,20 +78,22 @@ export default function ProjectNewPage() {
         ]);
         setAgents(agentList);
         if (project) {
+          const visibleAgentIds = new Set(agentList.map((agent) => agent.id));
           const assignments = project.agent_assignments?.length
             ? project.agent_assignments
             : (project.agent_ids || []).map((agentId) => {
                 const agent = agentList.find((item) => item.id === agentId);
                 return { id: agentId, co_located: Boolean(agent?.co_located) };
               });
-          const initialAgentIds = assignments.map((assignment) => assignment.id);
+          const visibleAssignments = assignments.filter((assignment) => visibleAgentIds.has(assignment.id));
+          const visibleInitialAgentIds = visibleAssignments.map((assignment) => assignment.id);
           setName(project.name || '');
           setGoal(project.goal || '');
           setGitRepoUrl(project.git_repo_url || '');
           setCollaborationDir(project.collaboration_dir || '');
-          setSelectedAgentIds(initialAgentIds);
-          setOriginalAgentIds(initialAgentIds);
-          setAgentCoLocated(Object.fromEntries(assignments.map((assignment) => [assignment.id, assignment.co_located])));
+          setSelectedAgentIds(visibleInitialAgentIds);
+          setOriginalAgentIds(visibleInitialAgentIds);
+          setAgentCoLocated(Object.fromEntries(visibleAssignments.map((assignment) => [assignment.id, assignment.co_located])));
           setPollingIntervalMin(project.polling_interval_min ?? null);
           setPollingIntervalMax(project.polling_interval_max ?? null);
           setPollingStartDelayMinutes(project.polling_start_delay_minutes ?? null);
@@ -367,6 +369,10 @@ export default function ProjectNewPage() {
                   <div className="agent-select-card-body">
                     <div className="agent-select-card-top">
                       <span className="agent-select-card-name">{agent.name}</span>
+                      <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                        {agent.is_public ? '公共' : '私有'}
+                      </span>
+                      {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                       <StatusBadge status={deriveAgentStatus(agent).status} />
                     </div>
                     <div className="agent-select-card-models">

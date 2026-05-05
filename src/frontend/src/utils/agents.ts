@@ -34,6 +34,10 @@ function getCurrentBeijingParts() {
 }
 
 export function deriveAgentStatus(agent: Agent): DerivedStatus {
+  if (!agent.is_active) {
+    return { status: 'unavailable', label: '已停用', color: '#f97316', canChangeStatus: false };
+  }
+
   // 1. Subscription expiration takes highest priority
   if (agent.subscription_expires_at) {
     const parts = parseStoredDateTime(agent.subscription_expires_at);

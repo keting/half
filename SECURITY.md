@@ -16,7 +16,11 @@ assumes:
 
 - The administrator and users all belong to the same organization.
 - At the application layer, business resources are owner-scoped. Regular users
-  cannot access each other's projects, agents, plans, tasks, or polling records.
+  cannot access each other's projects, private agents, plans, tasks, or polling
+  records. Agents created by administrators form a public agent pool: active
+  public agents are visible and usable by all logged-in users, but only the
+  administrator who created a public agent can modify, disable, reset, or delete
+  it. Administrators cannot view or take over regular users' private agents.
   Administrators use separate management surfaces, but application APIs do not
   depend on administrators taking over user-owned projects.
 - At the deployment layer, the administrator or host operator is fully trusted:

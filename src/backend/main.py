@@ -293,6 +293,10 @@ def repair_unassigned_tasks_from_plan_json():
             project.id: project
             for project in db.query(Project).filter(Project.id.in_([task.project_id for task in tasks])).all()
         }
+        owners_by_id = {
+            owner.id: owner
+            for owner in db.query(User).filter(User.id.in_([project.created_by for project in projects_by_id.values()])).all()
+        }
 
         for task in tasks:
             plan = plans_by_id.get(task.plan_id)
@@ -300,6 +304,9 @@ def repair_unassigned_tasks_from_plan_json():
                 continue
             project = projects_by_id.get(task.project_id)
             if not project:
+                continue
+            owner = owners_by_id.get(project.created_by)
+            if not owner:
                 continue
             try:
                 plan_data = json.loads(plan.plan_json)
@@ -323,7 +330,8 @@ def repair_unassigned_tasks_from_plan_json():
             assignee_agent_id = plans_router._resolve_assignee_agent_id(
                 db,
                 matched_task.get("assignee"),
-                owner_user_id=project.created_by,
+                project,
+                owner,
             )
             if not assignee_agent_id:
                 continue

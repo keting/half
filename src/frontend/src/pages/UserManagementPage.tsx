@@ -14,6 +14,17 @@ function statusLabel(status: string) {
   return status === 'active' ? '正常' : '冻结中';
 }
 
+function parseApiDetailObject(err: unknown): Record<string, unknown> | null {
+  const match = String(err).match(/^(?:Error:\s+)?API error \d+:\s*(.*)$/s);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]);
+    return parsed?.detail && typeof parsed.detail === 'object' ? parsed.detail : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function UserManagementPage() {
   const navigate = useNavigate();
   const isAdmin = isAdminUser();
@@ -53,10 +64,35 @@ export default function UserManagementPage() {
     }
     setSavingAction(`role-${user.id}`);
     setError('');
+    const payload: { role: 'admin' | 'user'; confirm_publicize_agents?: boolean } = { role };
     try {
-      const updated = await api.put<AdminUser>(`/api/admin/users/${user.id}/role`, { role });
+      const updated = await api.put<AdminUser>(`/api/admin/users/${user.id}/role`, payload);
       setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
     } catch (err) {
+      const detail = parseApiDetailObject(err);
+      if (detail?.requires_confirmation && Array.isArray(detail.agents)) {
+        const agentNames = detail.agents
+          .map((item) => typeof item === 'object' && item !== null && 'name' in item ? String((item as { name: unknown }).name) : '')
+          .filter(Boolean);
+        if (window.confirm(`升级后该用户的 Agent 将变为公共 Agent：${agentNames.join('、') || '无名称 Agent'}。是否继续？`)) {
+          try {
+            const updated = await api.put<AdminUser>(`/api/admin/users/${user.id}/role`, { role, confirm_publicize_agents: true });
+            setUsers((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+            return;
+          } catch (retryErr) {
+            setError(extractApiErrorDetail(String(retryErr)) || '更新用户角色失败');
+            return;
+          }
+        }
+        return;
+      }
+      if (Array.isArray(detail?.conflicts)) {
+        const names = detail.conflicts
+          .map((item) => typeof item === 'object' && item !== null && 'name' in item ? String((item as { name: unknown }).name) : '')
+          .filter(Boolean);
+        setError(`无法降级：迁移给超级管理员时 Agent 名称冲突${names.length ? `（${names.join('、')}）` : ''}`);
+        return;
+      }
       setError(extractApiErrorDetail(String(err)) || '更新用户角色失败');
     } finally {
       setSavingAction('');
@@ -64,7 +100,10 @@ export default function UserManagementPage() {
   }
 
   async function updateStatus(user: AdminUser, status: 'active' | 'frozen') {
-    if (status === 'frozen' && !window.confirm(`确定要冻结用户 ${user.username} 吗？冻结后该用户将无法登录。`)) {
+    const freezeMessage = user.role === 'admin'
+      ? `确定要冻结管理员 ${user.username} 吗？冻结后该用户将无法登录，但不会撤销其维护的公共 Agent。`
+      : `确定要冻结用户 ${user.username} 吗？冻结后该用户将无法登录。`;
+    if (status === 'frozen' && !window.confirm(freezeMessage)) {
       return;
     }
     setSavingAction(`status-${user.id}`);
@@ -115,11 +154,14 @@ export default function UserManagementPage() {
               const isSelf = currentUser?.id === user.id;
               const activeAdminCount = users.filter((item) => item.role === 'admin' && item.status === 'active').length;
               const isLastActiveAdmin = user.role === 'admin' && user.status === 'active' && activeAdminCount <= 1;
-              const disableRoleAction = roleBusy || statusBusy || isSelf || (user.role === 'admin' && isLastActiveAdmin);
+              const isSuperAdmin = user.username === 'admin';
+              const disableRoleAction = roleBusy || statusBusy || isSelf || (user.role === 'admin' && (isLastActiveAdmin || isSuperAdmin));
               const disableStatusAction = roleBusy || statusBusy || (nextStatus === 'frozen' && (isSelf || isLastActiveAdmin));
               const roleTitle = isSelf
                 ? '不能修改自己的角色'
-                : (user.role === 'admin' && isLastActiveAdmin ? '系统至少需要保留一个激活状态的管理员' : undefined);
+                : (user.role === 'admin' && isSuperAdmin
+                    ? '超级管理员不可降级'
+                    : (user.role === 'admin' && isLastActiveAdmin ? '系统至少需要保留一个激活状态的管理员' : undefined));
               const statusTitle = isSelf && nextStatus === 'frozen'
                 ? '不能冻结自己'
                 : (nextStatus === 'frozen' && isLastActiveAdmin ? '系统至少需要保留一个激活状态的管理员' : undefined);

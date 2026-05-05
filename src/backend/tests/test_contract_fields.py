@@ -30,6 +30,11 @@ class ContractFieldTests(unittest.TestCase):
         self.assertIn('long_term_reset_interval_days', AgentResponse.model_fields)
         self.assertIn('short_term_reset_needs_confirmation', AgentResponse.model_fields)
         self.assertIn('long_term_reset_needs_confirmation', AgentResponse.model_fields)
+        self.assertIn('created_by', AgentResponse.model_fields)
+        self.assertIn('owner_role', AgentResponse.model_fields)
+        self.assertIn('is_public', AgentResponse.model_fields)
+        self.assertIn('can_edit', AgentResponse.model_fields)
+        self.assertIn('is_disabled_public', AgentResponse.model_fields)
 
     def test_project_contracts_expose_collaboration_dir(self):
         self.assertIn('collaboration_dir', ProjectCreate.model_fields)
