@@ -111,35 +111,6 @@ export function getAgentModels(agent: Agent): AgentModelConfig[] {
   return [];
 }
 
-export function createInactiveProjectAgent(agentId: number): Agent {
-  return {
-    id: agentId,
-    name: `Agent #${agentId}`,
-    slug: `inactive-agent-${agentId}`,
-    agent_type: '历史绑定',
-    model_name: null,
-    models: [],
-    capability: '该 Agent 已停用，仅因当前项目历史绑定而保留。',
-    co_located: false,
-    is_active: false,
-    availability_status: 'unavailable',
-    display_order: 0,
-    subscription_expires_at: null,
-    short_term_reset_at: null,
-    short_term_reset_interval_hours: null,
-    short_term_reset_needs_confirmation: false,
-    long_term_reset_at: null,
-    long_term_reset_interval_days: null,
-    long_term_reset_mode: 'days',
-    long_term_reset_needs_confirmation: false,
-    created_by: null,
-    owner_role: 'admin',
-    is_public: true,
-    can_edit: false,
-    is_disabled_public: true,
-  };
-}
-
 export function summarizeAgentCapabilities(agent: Agent): string {
   const models = getAgentModels(agent);
   const capabilities = Array.from(new Set(models.map((model) => model.capability).filter(Boolean) as string[]));

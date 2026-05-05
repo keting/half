@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from access import get_owned_project, load_usable_agents
 from auth import get_current_user
 from database import get_db
-from models import ProcessTemplate, ProjectPlan, User
+from models import Agent, ProcessTemplate, ProjectPlan, User
 from routers.plans import finalize_plan_record
 from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
