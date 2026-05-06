@@ -11,7 +11,7 @@ dependencies = [
     "bcrypt==4.0.1",
     "python-multipart>=0.0.27",
     "json-repair>=0.59.5",
-    "dotenv>=0.9.9",
+    "python-dotenv>=1.2.2",
 ]
 
 [dependency-groups]

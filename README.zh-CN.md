@@ -199,6 +199,12 @@ HALF_DEMO_SEED_ENABLED=false
 
 ## 本地开发
 
+运行后端前，请先安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 后端：
 
 ```bash
@@ -229,7 +235,7 @@ npm run dev
 ## 测试
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 

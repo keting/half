@@ -218,6 +218,12 @@ HALF_DEMO_SEED_ENABLED=false
 
 ## Local Development
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) before running the backend locally:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 Backend:
 
 ```bash
@@ -248,7 +254,7 @@ The frontend uses relative `/api` requests. In local development, Vite proxies
 ## Testing
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 

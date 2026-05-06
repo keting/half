@@ -14,7 +14,7 @@ services:
     volumes:
       - backend-data:/app/data
       - backend-repos:/app/repos
-    command: ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uv", "run", "--no-dev", "--frozen", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
