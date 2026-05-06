@@ -254,7 +254,7 @@ The frontend uses relative `/api` requests. In local development, Vite proxies
 ## Testing
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 

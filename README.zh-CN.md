@@ -235,7 +235,7 @@ npm run dev
 ## 测试
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 
