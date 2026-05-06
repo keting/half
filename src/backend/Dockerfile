@@ -5,8 +5,8 @@ RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY pyproject.toml .
-RUN uv sync --no-dev
+COPY pyproject.toml uv.lock .
+RUN uv sync --no-dev --frozen
 
 COPY . .
 
