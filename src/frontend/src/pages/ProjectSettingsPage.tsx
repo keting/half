@@ -18,11 +18,25 @@ interface PromptSettings {
   default_co_location_guidance: string;
 }
 
+const FEISHU_NOTIFY_EVENT_LABELS: Record<string, string> = {
+  completed: '任务完成',
+  timeout: '任务超时',
+  error: '任务报错',
+  project_completed: '项目完成',
+};
+const FEISHU_NOTIFY_EVENT_KEYS = Object.keys(FEISHU_NOTIFY_EVENT_LABELS);
+
+interface FeishuSettings {
+  webhook_url: string;
+  notify_events: string[];
+}
+
 export default function ProjectSettingsPage() {
   const navigate = useNavigate();
   const isAdmin = isAdminUser();
   const [settings, setSettings] = useState<PollingSettings | null>(null);
   const [promptSettings, setPromptSettings] = useState<PromptSettings | null>(null);
+  const [feishuSettings, setFeishuSettings] = useState<FeishuSettings>({ webhook_url: '', notify_events: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -41,10 +55,12 @@ export default function ProjectSettingsPage() {
     Promise.all([
       api.get<PollingSettings>('/api/settings/polling'),
       api.get<PromptSettings>('/api/settings/prompt'),
+      api.get<FeishuSettings>('/api/settings/feishu'),
     ])
-      .then(([polling, prompt]) => {
+      .then(([polling, prompt, feishu]) => {
         setSettings(polling);
         setPromptSettings(prompt);
+        setFeishuSettings(feishu);
       })
       .catch(() => setError('加载设置失败'))
       .finally(() => setLoading(false));
@@ -94,6 +110,7 @@ export default function ProjectSettingsPage() {
         co_location_guidance: promptSettings.co_location_guidance,
       });
       setPromptSettings(savedPrompt);
+      await api.put<FeishuSettings>('/api/settings/feishu', feishuSettings);
       setSuccess('设置保存成功');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -263,6 +280,46 @@ export default function ProjectSettingsPage() {
           >
             恢复默认值
           </button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="飞书通知">
+        <p className="section-description">
+          配置飞书自定义机器人 Webhook，当任务或项目状态发生关键变化时，自动推送卡片通知。Webhook URL
+          格式：https://open.feishu.cn/open-apis/bot/v2/hook/&lt;token&gt;
+        </p>
+        <div className="form-group">
+          <label htmlFor="feishu-webhook-url">Webhook URL</label>
+          <input
+            id="feishu-webhook-url"
+            type="url"
+            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+            value={feishuSettings.webhook_url}
+            onChange={(e) =>
+              setFeishuSettings({ ...feishuSettings, webhook_url: e.target.value })
+            }
+          />
+          <div className="helper-text">留空则不发送飞书通知。</div>
+        </div>
+        <div className="form-group">
+          <label>通知事件</label>
+          <div className="checkbox-group">
+            {FEISHU_NOTIFY_EVENT_KEYS.map((key) => (
+              <label key={key} className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={feishuSettings.notify_events.includes(key)}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                      ? [...feishuSettings.notify_events, key]
+                      : feishuSettings.notify_events.filter((k) => k !== key);
+                    setFeishuSettings({ ...feishuSettings, notify_events: next });
+                  }}
+                />
+                {FEISHU_NOTIFY_EVENT_LABELS[key]}
+              </label>
+            ))}
+          </div>
         </div>
       </SectionCard>
 

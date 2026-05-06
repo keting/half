@@ -169,3 +169,8 @@ export interface TaskEvent {
   detail: string | null;
   created_at: string;
 }
+
+export interface FeishuSettings {
+  webhook_url: string;
+  notify_events: string[];
+}

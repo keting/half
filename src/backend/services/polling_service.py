@@ -12,6 +12,8 @@ from services import git_service
 from services.polling_config_service import (
     get_project_polling_settings,
 )
+from services import feishu_service
+from services.feishu_service import NotificationEvent
 
 logger = logging.getLogger("half.poller")
 
@@ -86,9 +88,12 @@ def _set_plan_runtime_error(plan: ProjectPlan, now: datetime, message: str, *, n
         plan.status = "needs_attention"
 
 
-def poll_project(db: Session, project: Project) -> None:
+def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
+    """Poll a project for task/plan updates. Returns notification events to dispatch."""
+    pending_notifications: list[NotificationEvent] = []
+
     if not project.git_repo_url:
-        return
+        return pending_notifications
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
     running_tasks = [task for task in all_tasks if task.status in ("running", "needs_attention")]
@@ -198,6 +203,11 @@ def poll_project(db: Session, project: Project) -> None:
                 event_type="completed",
                 detail=f"Result detected at {result_path}",
             ))
+            pending_notifications.append(NotificationEvent(
+                event_type="completed",
+                project_name=project.name,
+                task_name=task.task_name,
+            ))
         elif task.dispatched_at:
             elapsed_minutes = (now - task.dispatched_at.replace(tzinfo=timezone.utc)).total_seconds() / 60
             timeout_limit = get_effective_task_timeout_minutes(db, project, task)
@@ -209,6 +219,12 @@ def poll_project(db: Session, project: Project) -> None:
                     task_id=task.id,
                     event_type="timeout",
                     detail=f"Timeout after {elapsed_minutes:.1f} minutes",
+                ))
+                pending_notifications.append(NotificationEvent(
+                    event_type="timeout",
+                    project_name=project.name,
+                    task_name=task.task_name,
+                    detail=f"超时 {elapsed_minutes:.1f} 分钟",
                 ))
 
         # Check usage.json
@@ -231,11 +247,16 @@ def poll_project(db: Session, project: Project) -> None:
         if all_tasks and all(t.status in ("completed", "abandoned") for t in all_tasks):
             project.status = "completed"
             project.updated_at = now
+            pending_notifications.append(NotificationEvent(
+                event_type="project_completed",
+                project_name=project.name,
+            ))
     elif project.status == "planning":
         if any(plan.status in ("completed", "final") for plan in db.query(ProjectPlan).filter(ProjectPlan.project_id == project.id).all()):
             project.updated_at = now
 
     db.commit()
+    return pending_notifications
 
 
 def _compute_next_poll_time(db: Session, project: Project, now: datetime) -> datetime:
@@ -282,14 +303,25 @@ async def polling_loop(interval_seconds: int) -> None:
                     if stale_id not in active_ids:
                         next_poll_at.pop(stale_id, None)
 
+                feishu_cfg = feishu_service.get_feishu_settings(db)
+                feishu_webhook_url = feishu_cfg.get("webhook_url", "")
+                feishu_notify_events = set(feishu_cfg.get("notify_events", []))
+
                 for project in projects:
                     scheduled = next_poll_at.get(project.id)
                     if scheduled is not None and scheduled > now:
                         continue  # Not yet time for this project
                     try:
-                        poll_project(db, project)
+                        notifications = poll_project(db, project)
                     except Exception as e:
                         logger.error(f"Error polling project {project.id}: {e}")
+                        notifications = []
+                    if feishu_webhook_url and notifications:
+                        for evt in notifications:
+                            if evt.event_type in feishu_notify_events:
+                                asyncio.create_task(
+                                    feishu_service.send_feishu_notification(feishu_webhook_url, evt)
+                                )
                     # Re-fetch settings each time so live config changes take effect
                     next_poll_at[project.id] = _compute_next_poll_time(db, project, now)
                     logger.debug(
