@@ -41,7 +41,8 @@ half/
 ```
 backend/
 ├── Dockerfile
-├── requirements.txt               # fastapi, uvicorn, sqlalchemy, pyjwt, passlib[bcrypt], bcrypt, python-multipart, json-repair
+├── pyproject.toml                 # project metadata and dependencies (managed by uv)
+├── uv.lock                        # locked dependency manifest
 ├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
