@@ -1,5 +1,7 @@
 # Security Policy
 
+[English](./SECURITY.md) | [简体中文](./SECURITY.zh-CN.md)
+
 ## Reporting A Vulnerability
 
 Please report security issues privately to `osscontact@163.com`. Do not open
@@ -13,12 +15,20 @@ HALF is designed for **single-tenant self-hosting**. The deployment model
 assumes:
 
 - The administrator and users all belong to the same organization.
-- The administrator is fully trusted: they can see all projects, bind any
-  agent, and read the filesystem and git remotes that HALF has been configured
-  with.
-- Regular users (`role="user"`) are isolated from each other's projects, but
-  are not isolated from HALF-scoped resources such as agents or process
-  templates authored by admin.
+- At the application layer, business resources are owner-scoped. Regular users
+  cannot access each other's projects, private agents, plans, tasks, or polling
+  records. Agents created by administrators form a public agent pool: active
+  public agents are visible and usable by all logged-in users, but only the
+  administrator who created a public agent can modify, disable, reset, or delete
+  it. Administrators cannot view or take over regular users' private agents.
+  Administrators use separate management surfaces, but application APIs do not
+  depend on administrators taking over user-owned projects.
+- At the deployment layer, the administrator or host operator is fully trusted:
+  they can access the HALF database, repository clones, container volumes, host
+  filesystem mounts, and git remotes configured for HALF.
+- Process templates are shared resources: all logged-in users can list, view,
+  and use templates, while only the creator or an administrator can update or
+  delete them.
 
 HALF is not suitable for hosting untrusted users.
 

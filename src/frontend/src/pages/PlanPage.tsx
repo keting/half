@@ -125,7 +125,8 @@ export default function PlanPage() {
 
   const projectAgents = useMemo(() => {
     if (!project?.agent_ids?.length) return agents;
-    return agents.filter((agent) => project.agent_ids?.includes(agent.id));
+    const projectAgentIds = project.agent_ids || [];
+    return agents.filter((agent) => projectAgentIds.includes(agent.id));
   }, [agents, project]);
 
   const latestPlan = useMemo(() => [...plans].reverse()[0] || null, [plans]);
@@ -507,6 +508,11 @@ export default function PlanPage() {
                           <span className="agent-option-name">{agent.name}</span>
                           {' '}
                           <span className="agent-option-type">{agent.agent_type}</span>
+                          {' '}
+                          <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                            {agent.is_public ? '公共' : '私有'}
+                          </span>
+                          {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                         </label>
                         <span className="agent-option-model-list">
                           {getAgentModels(agent).map((model) => model.model_name).join(' / ') || '未配置模型'}
@@ -620,6 +626,8 @@ export default function PlanPage() {
                                     disabled={mappedAgentIds.includes(agent.id) && selectedAgentId !== agent.id}
                                   >
                                     {agent.name} ({agent.agent_type})
+                                    {agent.is_public ? ' · 公共' : ''}
+                                    {agent.is_disabled_public ? ' · 已停用' : ''}
                                   </option>
                                 ))}
                               </select>

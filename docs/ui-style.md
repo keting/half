@@ -14,7 +14,7 @@ The interface should communicate:
 The right visual style is:
 
 > **Professional developer control panel**
->  
+>
 > Clean, restrained, structured, slightly technical, and highly readable.
 
 ## 2. Style keywords

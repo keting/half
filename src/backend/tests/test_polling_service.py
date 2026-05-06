@@ -15,7 +15,12 @@ if str(BACKEND_DIR) not in sys.path:
 from database import Base
 from models import Project, Task, ProjectPlan, TaskEvent
 from services.git_service import RepoSyncStatus
-from services.polling_service import _task_usage_path, get_effective_task_timeout_minutes, poll_project
+from services.polling_service import (
+    GIT_REPO_ACCESS_ERROR_MESSAGE,
+    _task_usage_path,
+    get_effective_task_timeout_minutes,
+    poll_project,
+)
 
 
 class PollingServiceTests(unittest.TestCase):
@@ -352,7 +357,7 @@ class PollingServiceTests(unittest.TestCase):
         self.addCleanup(verify_db.close)
         refreshed = verify_db.query(Task).filter(Task.id == task.id).first()
         self.assertEqual(refreshed.status, "running")
-        self.assertIn("Git sync failed", refreshed.last_error)
+        self.assertEqual(refreshed.last_error, GIT_REPO_ACCESS_ERROR_MESSAGE)
         self.assertNotIn("Timeout: result not found", refreshed.last_error)
 
     def test_poll_project_logs_git_sync_warning_without_recording_error(self):

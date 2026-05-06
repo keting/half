@@ -40,17 +40,27 @@ class ProcessTemplateTests(unittest.TestCase):
         self.db = self.SessionLocal()
         self.user = User(id=1, username="owner", password_hash=hash_password("Owner123"), role="user", status="active")
         self.other_user = User(id=2, username="other", password_hash=hash_password("Other123"), role="user", status="active")
+        self.admin = User(
+            id=3,
+            username="admin",
+            password_hash=hash_password("Admin123"),
+            role="admin",
+            status="active",
+        )
         self.db.add(self.user)
         self.db.add(self.other_user)
+        self.db.add(self.admin)
         self.db.add_all([
             Agent(id=10, name="Claude", slug="claude-a", agent_type="claude", created_by=1),
             Agent(id=11, name="Codex", slug="codex-b", agent_type="codex", created_by=1),
             Agent(id=12, name="Outside", slug="outside", agent_type="codex", created_by=1),
+            Agent(id=13, name="Public Codex", slug="public-codex", agent_type="codex", created_by=3),
         ])
         self.db.add(Project(
             id=20,
             name="Demo",
             goal="Ship feature",
+            git_repo_url="https://github.com/keting/half",
             collaboration_dir="outputs/proj-20",
             status="planning",
             created_by=1,
@@ -537,6 +547,31 @@ class ProcessTemplateTests(unittest.TestCase):
         self.assertEqual([task.assignee_agent_id for task in tasks], [10, 11])
         self.assertEqual(tasks[0].expected_output_path, "outputs/proj-20/T1/result.json")
         self.assertEqual(tasks[0].timeout_minutes, 33)
+
+    def test_apply_template_accepts_project_bound_public_agent(self):
+        project = self.db.query(Project).filter(Project.id == 20).one()
+        project.agent_ids_json = json.dumps([
+            {"id": 10, "co_located": False},
+            {"id": 13, "co_located": False},
+        ])
+        self.db.commit()
+        template = create_template(
+            ProcessTemplateCreate(name="", description="", template_json=self._template_json()),
+            self.db,
+            self.user,
+        )
+
+        response = apply_template(
+            template.id,
+            20,
+            TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 13}),
+            self.db,
+            self.user,
+        )
+
+        self.assertEqual(response.tasks_created, 2)
+        tasks = self.db.query(Task).filter(Task.project_id == 20).order_by(Task.task_code.asc()).all()
+        self.assertEqual([task.assignee_agent_id for task in tasks], [10, 13])
 
     def test_apply_template_rejects_project_status_that_cannot_plan(self):
         project = self.db.query(Project).filter(Project.id == 20).one()

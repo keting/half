@@ -22,6 +22,7 @@ interface AgentForm {
   custom_agent_type: string;
   models: AgentModelForm[];
   co_located: boolean;
+  is_active: boolean;
   subscription_expires_at: string;
   short_term_reset_at: string;
   short_term_reset_timezone: string;
@@ -57,6 +58,7 @@ function createEmptyForm(): AgentForm {
     custom_agent_type: '',
     models: [createEmptyModelForm()],
     co_located: false,
+    is_active: true,
     subscription_expires_at: '',
     short_term_reset_at: '',
     short_term_reset_timezone: 'CST',
@@ -250,6 +252,7 @@ export default function AgentsPage() {
   function handleAdd() { setForm(createEmptyForm()); setEditingId(null); setShowForm(true); setError(''); }
 
   function handleEdit(agent: Agent) {
+    if (agent.can_edit === false) return;
     const knownType = agentTypeNames.includes(agent.agent_type);
     const typeConfig = agentTypeConfigs.find((t) => t.name === agent.agent_type);
     const knownModels = typeConfig?.models.map((m) => m.name) || [];
@@ -259,6 +262,7 @@ export default function AgentsPage() {
       custom_agent_type: knownType ? '' : agent.agent_type,
       models: normalizeAgentModelsForForm(agent, knownModels),
       co_located: Boolean(agent.co_located),
+      is_active: Boolean(agent.is_active),
       subscription_expires_at: formatForDateTimeLocal(agent.subscription_expires_at),
       short_term_reset_at: formatBeijingStoredForInput(agent.short_term_reset_at),
       short_term_reset_timezone: 'CST',
@@ -302,6 +306,7 @@ export default function AgentsPage() {
         model_name: resolvedFormModels[0]?.model_name || null,
         capability: resolvedCapabilitySummary || null,
         co_located: form.co_located,
+        is_active: form.is_active,
         models: resolvedFormModels.map((model) => ({
           model_name: model.model_name,
           capability: model.capability,
@@ -324,6 +329,7 @@ export default function AgentsPage() {
   }
 
   async function handleDelete(agent: Agent) {
+    if (agent.can_edit === false) return;
     if (!confirm(`确认删除 "${agent.name}" 吗？`)) return;
     setDeletingId(agent.id); setError('');
     try { await api.delete(`/api/agents/${agent.id}`); api.invalidate('/api/agents'); fetchAgents(); }
@@ -331,7 +337,25 @@ export default function AgentsPage() {
     finally { setDeletingId(null); }
   }
 
+  async function handleActiveChange(agent: Agent, nextActive: boolean) {
+    if (agent.can_edit === false) return;
+    if (!nextActive && !confirm(`确认停用 "${agent.name}" 吗？停用后引用它的项目必须先移除该引用，才能继续编辑或生成新计划。`)) return;
+    setActionAgentId(agent.id);
+    setError('');
+    try {
+      const updated = await api.put<Agent>(`/api/agents/${agent.id}`, { is_active: nextActive });
+      api.invalidate('/api/agents');
+      setAgents((current) => current.map((item) => item.id === agent.id ? updated : item));
+    } catch (err) {
+      setError(`${nextActive ? '启用' : '停用'}失败：${err}`);
+    } finally {
+      setActionAgentId(null);
+    }
+  }
+
   async function handleResetAction(agentId: number, mode: 'short' | 'long') {
+    const agent = agents.find((item) => item.id === agentId);
+    if (agent?.can_edit === false) return;
     setActionAgentId(agentId); setError('');
     try {
       const updated = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/reset`);
@@ -341,6 +365,8 @@ export default function AgentsPage() {
   }
 
   async function handleConfirmAction(agentId: number, mode: 'short' | 'long') {
+    const agent = agents.find((item) => item.id === agentId);
+    if (agent?.can_edit === false) return;
     setActionAgentId(agentId); setError('');
     try {
       const updated = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/confirm`);
@@ -350,6 +376,8 @@ export default function AgentsPage() {
   }
 
   async function handleStatusChange(agentId: number, newStatus: string) {
+    const agent = agents.find((item) => item.id === agentId);
+    if (agent?.can_edit === false) return;
     setStatusDropdownAgentId(null);
     setError('');
     try {
@@ -415,10 +443,11 @@ export default function AgentsPage() {
   }, [agents, nowTick]);
 
   const isManuallyOrdered = useMemo(() => {
-    if (agents.length <= 1) return false;
-    const currentIds = sortedAgents.map((a) => a.id);
-    return currentIds.some((id, i) => id !== autoSortedIds[i]);
-  }, [sortedAgents, autoSortedIds, agents.length]);
+    const editableIds = sortedAgents.filter((agent) => agent.can_edit !== false).map((a) => a.id);
+    if (editableIds.length <= 1) return false;
+    const autoEditableIds = autoSortedIds.filter((id) => agents.find((agent) => agent.id === id)?.can_edit !== false);
+    return editableIds.some((id, i) => id !== autoEditableIds[i]);
+  }, [sortedAgents, autoSortedIds, agents]);
 
   // Build a map of agent_type -> description from settings
   const typeDescriptionMap = useMemo(() => {
@@ -448,13 +477,14 @@ export default function AgentsPage() {
   }, [autoSortedIds, agents]);
 
   async function handleAutoSort() {
-    const updated = autoSortedIds.map((id, i) => {
+    const editableAutoSortedIds = autoSortedIds.filter((id) => agents.find((agent) => agent.id === id)?.can_edit !== false);
+    const updatedEditable = editableAutoSortedIds.map((id, i) => {
       const agent = agents.find((a) => a.id === id)!;
       return { ...agent, display_order: i };
     });
-    setAgents(updated);
+    setAgents((current) => current.map((agent) => updatedEditable.find((item) => item.id === agent.id) || agent));
     try {
-      const result = await api.put<Agent[]>('/api/agents/reorder', { agent_ids: autoSortedIds });
+      const result = await api.put<Agent[]>('/api/agents/reorder', { agent_ids: editableAutoSortedIds });
       setAgents(result);
     } catch {
       fetchAgents();
@@ -463,6 +493,9 @@ export default function AgentsPage() {
 
   async function handleReorder(fromId: number, toId: number) {
     if (fromId === toId) return;
+    const fromAgent = agents.find((agent) => agent.id === fromId);
+    const toAgent = agents.find((agent) => agent.id === toId);
+    if (fromAgent?.can_edit === false || toAgent?.can_edit === false) return;
     const ordered = [...sortedAgents];
     const fromIndex = ordered.findIndex((a) => a.id === fromId);
     const toIndex = ordered.findIndex((a) => a.id === toId);
@@ -473,7 +506,7 @@ export default function AgentsPage() {
     const updated = ordered.map((a, i) => ({ ...a, display_order: i }));
     setAgents(updated);
     try {
-      const result = await api.put<Agent[]>('/api/agents/reorder', { agent_ids: updated.map((a) => a.id) });
+      const result = await api.put<Agent[]>('/api/agents/reorder', { agent_ids: updated.filter((agent) => agent.can_edit !== false).map((a) => a.id) });
       setAgents(result);
     } catch {
       fetchAgents();
@@ -510,6 +543,14 @@ export default function AgentsPage() {
                   onChange={(e) => updateField('co_located', e.target.checked)}
                 />
                 <span>同服务器</span>
+              </label>
+              <label className="checkbox-field" title="取消勾选会停用该 Agent；引用它的项目必须先移除该引用，才能继续编辑或生成新计划">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(e) => updateField('is_active', e.target.checked)}
+                />
+                <span>启用 Agent</span>
               </label>
             </SectionCard>
 
@@ -649,8 +690,10 @@ export default function AgentsPage() {
           const shortTerm = formatCountdown(agent.short_term_reset_at);
           const longTerm = formatCountdown(agent.long_term_reset_at);
           const derivedStatus = deriveAgentStatus(agent);
-          const showShortActions = Boolean(agent.short_term_reset_at && agent.short_term_reset_interval_hours && agent.short_term_reset_needs_confirmation);
-          const showLongActions = Boolean(agent.long_term_reset_at && (agent.long_term_reset_interval_days || agent.long_term_reset_mode === 'monthly') && agent.long_term_reset_needs_confirmation);
+          const canEditAgent = agent.can_edit !== false;
+          const readonlyTitle = canEditAgent ? undefined : '公共 Agent 仅创建者可维护';
+          const showShortActions = Boolean(canEditAgent && agent.short_term_reset_at && agent.short_term_reset_interval_hours && agent.short_term_reset_needs_confirmation);
+          const showLongActions = Boolean(canEditAgent && agent.long_term_reset_at && (agent.long_term_reset_interval_days || agent.long_term_reset_mode === 'monthly') && agent.long_term_reset_needs_confirmation);
 
           let shortColor: string | undefined;
           if (shortTerm.display !== '-' && shortTerm.diffMs >= 0 && shortTerm.diffMs < 3600_000) shortColor = '#ef4444';
@@ -666,18 +709,21 @@ export default function AgentsPage() {
 
           return (
             <div
-              className={`agent-card${draggedId === agent.id ? ' agent-card-dragging' : ''}${dragOverId === agent.id ? ' agent-card-dragover' : ''}${derivedStatus.status !== 'available' ? ' agent-card-unavailable' : ''}`}
+              className={`agent-card${!canEditAgent ? ' agent-card-readonly' : ''}${draggedId === agent.id ? ' agent-card-dragging' : ''}${dragOverId === agent.id ? ' agent-card-dragover' : ''}${derivedStatus.status !== 'available' ? ' agent-card-unavailable' : ''}`}
               key={agent.id}
-              draggable
+              draggable={canEditAgent}
+              title={readonlyTitle}
               onDragStart={(e) => {
+                if (!canEditAgent) return;
                 setDraggedId(agent.id);
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('text/plain', String(agent.id));
               }}
               onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverId(agent.id); }}
+              onDragOver={(e) => { if (!canEditAgent) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverId(agent.id); }}
               onDragLeave={() => { if (dragOverId === agent.id) setDragOverId(null); }}
               onDrop={(e) => {
+                if (!canEditAgent) return;
                 e.preventDefault();
                 setDragOverId(null);
                 if (draggedId != null && draggedId !== agent.id) {
@@ -688,8 +734,12 @@ export default function AgentsPage() {
             >
               <div className="agent-card-top">
                 <div className="agent-card-identity">
-                  <span className="agent-card-drag-handle" title="拖动排序">⠿</span>
+                  <span className="agent-card-drag-handle" title={canEditAgent ? '拖动排序' : '公共 Agent 仅创建者可维护'}>⠿</span>
                   <span className="agent-card-name">{agent.name}</span>
+                  <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                    {agent.is_public ? '公共' : '私有'}
+                  </span>
+                  {!agent.is_active && <span className="badge badge-disabled-public">已停用</span>}
                   <div className="agent-status-container" ref={statusDropdownAgentId === agent.id ? statusDropdownRef : undefined}>
                     <span
                       className="status-badge"
@@ -697,11 +747,11 @@ export default function AgentsPage() {
                         backgroundColor: `${derivedStatus.color}20`,
                         color: derivedStatus.color,
                         border: `1px solid ${derivedStatus.color}40`,
-                        cursor: derivedStatus.canChangeStatus ? 'pointer' : 'default',
+                        cursor: derivedStatus.canChangeStatus && canEditAgent ? 'pointer' : 'default',
                       }}
                       title={`当前状态：${derivedStatus.label}`}
                       onClick={() => {
-                        if (derivedStatus.canChangeStatus) {
+                        if (derivedStatus.canChangeStatus && canEditAgent) {
                           setStatusDropdownAgentId((prev) => prev === agent.id ? null : agent.id);
                         }
                       }}
@@ -734,8 +784,16 @@ export default function AgentsPage() {
                     )}
                   </div>
                   <div className="agent-card-inline-actions">
-                    <button className="btn btn-sm btn-edit" onClick={() => handleEdit(agent)}>编辑</button>
-                    <button className="btn btn-sm btn-delete" onClick={() => handleDelete(agent)} disabled={deletingId === agent.id}>
+                    <button className="btn btn-sm btn-edit" onClick={() => handleEdit(agent)} disabled={!canEditAgent} title={readonlyTitle}>编辑</button>
+                    <button
+                      className="btn btn-sm btn-edit"
+                      onClick={() => handleActiveChange(agent, !agent.is_active)}
+                      disabled={!canEditAgent || actionAgentId === agent.id}
+                      title={readonlyTitle}
+                    >
+                      {agent.is_active ? '停用' : '启用'}
+                    </button>
+                    <button className="btn btn-sm btn-delete" onClick={() => handleDelete(agent)} disabled={!canEditAgent || deletingId === agent.id} title={readonlyTitle}>
                       {deletingId === agent.id ? '删除中' : '删除'}
                     </button>
                   </div>
@@ -778,7 +836,7 @@ export default function AgentsPage() {
                   showActions={showShortActions}
                   onReset={() => handleResetAction(agent.id, 'short')}
                   onConfirm={() => handleConfirmAction(agent.id, 'short')}
-                  disabled={actionAgentId === agent.id}
+                  disabled={actionAgentId === agent.id || !canEditAgent}
                 />
                 <CountdownChip
                   label="长期"
@@ -792,7 +850,7 @@ export default function AgentsPage() {
                   showActions={showLongActions}
                   onReset={() => handleResetAction(agent.id, 'long')}
                   onConfirm={() => handleConfirmAction(agent.id, 'long')}
-                  disabled={actionAgentId === agent.id}
+                  disabled={actionAgentId === agent.id || !canEditAgent}
                 />
               </div>
             </div>

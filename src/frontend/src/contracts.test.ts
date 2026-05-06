@@ -96,7 +96,13 @@ describe('contracts helpers', () => {
       short_term_reset_needs_confirmation: false,
       long_term_reset_at: null,
       long_term_reset_interval_days: null,
+      long_term_reset_mode: 'days',
       long_term_reset_needs_confirmation: false,
+      created_by: 1,
+      owner_role: 'admin',
+      is_public: true,
+      can_edit: true,
+      is_disabled_public: false,
     };
 
     expect(agent.capability).toContain('任务拆解');

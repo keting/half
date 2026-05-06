@@ -13,12 +13,19 @@ half/
 ├── CONTRIBUTING.md                # 贡献指南
 ├── LICENSE                        # Apache License 2.0
 ├── README.md                      # 项目总览、快速启动
+├── README.zh-CN.md                # 中文项目总览、快速启动
 ├── SECURITY.md                    # 信任模型、威胁模型、漏洞报告渠道
+├── SECURITY.zh-CN.md              # 中文安全政策
+├── ROADMAP.md                     # 对外路线图与方向性规划
+├── ROADMAP.zh-CN.md               # 中文路线图
 ├── docs/                          # 公开文档
 │   ├── architecture.md            # 系统架构说明
 │   ├── task-lifecycle.md          # 运行时机制（状态流转、轮询、契约）
 │   ├── project-structure.md       # 本文档
-│   └── ui-style.md                # 前端设计系统
+│   ├── quickstart.md              # 快速启动与排错（英文）
+│   ├── quickstart.zh-CN.md        # 快速启动与排错（中文）
+│   ├── ui-style.md                # 前端设计系统
+│   └── releases/                  # 版本发布说明
 └── src/                           # 应用代码
     ├── docker-compose.yml
     ├── docker-compose.override.yml.example
@@ -41,7 +48,7 @@ backend/
 ├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
-├── access.py                      # get_owned_project / get_owned_agent / get_owned_task 等 owner 级业务隔离工具
+├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
 ├── routers/                       # REST API 路由层
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
@@ -233,5 +240,6 @@ src/
 
 - `architecture.md`：系统整体架构、数据模型、API 分组
 - `task-lifecycle.md`：运行时机制、状态流转、轮询
+- `quickstart.md` / `quickstart.zh-CN.md`：首次启动与排错
 - `ui-style.md`：前端设计系统
 - FastAPI `/docs`：完整 API 参考（启动后端后访问）

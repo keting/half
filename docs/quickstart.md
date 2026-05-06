@@ -1,28 +1,30 @@
-# HALF Quick Start Guide
+# HALF Quickstart
 
-This guide walks through running HALF for the first time in a clean environment.
+[English](./quickstart.md) | [简体中文](./quickstart.zh-CN.md)
+
+This guide walks through the first run of HALF in a clean environment.
 
 ## Prerequisites
 
 - Docker 20.10+ and Docker Compose v2+
-- 2GB available RAM
-- Ports 3000 (frontend) and 8000 (backend) available, or configure custom ports
+- 2GB available memory
+- Ports 3000 (frontend) and 8000 (backend) available, or custom ports configured
 
-## Step 1: Configure Environment
+## Step 1: Configure The Environment
 
 ```bash
 cd src
 cp .env.example .env
 ```
 
-Edit `.env` and set the **required** values:
+Edit `.env` and set the required values:
 
 ```bash
-# Generate a secure random key:
+# Generate a secure random secret:
 # python3 -c 'import secrets; print(secrets.token_urlsafe(48))'
 HALF_SECRET_KEY=your-generated-secret-key
 
-# Must be at least 8 characters
+# At least 8 characters, containing uppercase, lowercase, and digits
 HALF_ADMIN_PASSWORD=YourSecurePass123
 ```
 
@@ -32,160 +34,204 @@ Optional settings:
 # Set to 'false' to start without the demo project
 HALF_DEMO_SEED_ENABLED=true
 
-# Allow self-registration (default: false, only enable for internal demos)
+# Allow self-registration (default: false; only enable for internal demos)
 HALF_ALLOW_REGISTER=false
 ```
 
-## Step 2: Start Services
+## Step 2: Start The Services
 
 ```bash
 docker compose up -d --build
 ```
 
-Wait for services to be healthy (usually 10-30 seconds):
+Wait for the services to become healthy, usually 10-30 seconds:
 
 ```bash
 docker compose ps
 ```
 
-You should see:
-- `src-backend-1` status: `healthy`
-- `src-frontend-1` status: `running`
+Expected state:
+
+- `src-backend-1`: `healthy`
+- `src-frontend-1`: `running`
 
 ## Step 3: First Login
 
 Open `http://localhost:3000` in your browser.
 
-Login credentials:
+Credentials:
+
 - Username: `admin`
-- Password: The `HALF_ADMIN_PASSWORD` value you set in `.env`
+- Password: the `HALF_ADMIN_PASSWORD` value you set in `.env`
 
-## Step 4: Explore the Demo Project
+## Step 4: Explore The Demo Project
 
-On first startup, HALF seeds a demo project:
+On first startup, HALF initializes a demo project:
 
 - **Name**: `(Demo) 修复一个bug`
 - **Repository**: `https://github.com/keting/half.git`
-- **Status**: Contains 5 tasks in various states (completed, ready, blocked)
+- **State**: includes tasks in different states, such as completed, ready, and
+  blocked
 
-Navigate to the project to see:
-1. **Task Board** - Kanban view of tasks by status
-2. **DAG View** - Visual dependency graph
-3. **Task Queue** - Tasks ready for execution
-4. **Handoff Prompts** - Generated prompts for agents
+Open the project to inspect:
 
-The demo is read-only exploration. HALF does not execute agents automatically.
+1. **Task board** - tasks grouped by status
+2. **DAG view** - visual dependency graph
+3. **Task queue** - executable tasks
+4. **Handoff prompts** - prompts generated for agents
+
+The demo is for browsing and learning. HALF does not execute agents
+automatically.
 
 ## Step 5: Create Your First Project
 
-1. Click "新建项目" (New Project)
+1. Click "新建项目".
 2. Fill in the form:
-   - **项目名称**: Your project name
-   - **项目目标**: Description of what you want to achieve
-   - **Git 仓库地址**: Repository URL (e.g., `https://github.com/your/repo.git`)
-   - **协作目录**: Relative path for outputs (e.g., `projects/my-project`)
-   - **轮询间隔**: How often to check for task completion (seconds)
-   - **任务超时**: Task timeout in minutes
+   - **Project name**: your project name
+   - **Project goal**: what you want to accomplish
+   - **Git repository URL**: required repository root or clone URL, for
+     example `https://github.com/your/repo` or
+     `https://github.com/your/repo.git`
+   - **Collaboration directory**: relative output path, for example
+     `projects/my-project`
+   - **Polling interval**: how often HALF checks for task completion
+   - **Task timeout**: task timeout in minutes
+3. **Select Agents** (required):
+   - select at least one agent from the list
+   - pre-seeded demo agents include Claude Max, Codex Pro, and Copilot Pro
+   - configure same-machine deployment settings for each agent where needed
+4. Click "创建项目".
 
-3. **Select Agents** (Required)
-   - At least one agent must be selected
-   - Pre-seeded demo agents: Claude Max, Codex Pro, Copilot Pro
-   - Configure co-location settings per agent
+## Step 6: Generate A Plan
 
-4. Click "创建项目"
+1. Open your project.
+2. Open the Plan page and choose a flow source.
+3. For the template path:
+   - select a process template
+   - map each template role slot to a project agent
+   - fill in required inputs
+   - click "下一步" to create executable tasks and open the task page
+4. For the prompt path:
+   - select planning agents and models where needed
+   - click "生成 Prompt"
+   - click "拷贝 Prompt" and paste the prompt into the planning agent UI
+   - wait for the planning result to be written back to Git; when HALF detects
+     a valid plan, it finalizes the plan and opens the task page automatically
 
-## Step 6: Generate a Plan
+Common required inputs may include:
 
-1. Open your project
-2. Click "生成 Plan" (Generate Plan)
-3. Select a **流程模板** (Process Template)
-4. Fill in required inputs:
-   - `docPath`: Path to your PRD or spec document
-   - `test_url`: URL for testing (if applicable)
-   - Other template-specific inputs
-5. Select which agents to use for plan generation
-6. Click "生成 Plan"
+- `docPath`: PRD or specification document path
+- `test_url`: test URL, when applicable
+- other template-specific inputs
 
 HALF will:
-- Generate a task DAG based on the template
-- Assign tasks to selected agents
-- Create handoff prompts for each task
 
-## Step 7: Dispatch and Execute Tasks
+- create a task DAG from the selected template or detected planning result
+- assign tasks to selected agents
+- create handoff prompts for each task
 
-1. Go to the **任务列表** (Task List) tab
-2. Find tasks with status "待处理" (Pending)
-3. Click "派发" (Dispatch) to generate the prompt
-4. Copy the prompt and paste it into your agent's UI
-5. The agent works in the Git repository
-6. HALF polls for `result.json` to detect completion
+## Step 7: Dispatch And Execute Tasks
+
+1. Open the task list tab.
+2. Find a task with status "待处理" (pending).
+3. Click "复制 Prompt 并派发" to copy the prompt and mark the task as dispatched.
+4. Paste the copied prompt into your agent UI.
+5. The agent works in the Git repository.
+6. HALF polls for `result.json` to detect completion.
 
 ## Troubleshooting
 
-### Services fail to start
+### Services Fail To Start
 
-**Check logs:**
+Check logs:
+
 ```bash
 docker compose logs backend
 docker compose logs frontend
 ```
 
-**Port conflicts:**
-If ports 3000 or 8000 are in use, edit `docker-compose.yml`:
+Port conflict:
+
+If ports 3000 or 8000 are already in use, edit `docker-compose.yml`:
+
 ```yaml
 frontend:
   ports:
-    - "3001:80"  # Change host port
+    - "3001:80"  # change host port
 
 backend:
   ports:
-    - "8001:8000"  # Change host port
+    - "8001:8000"  # change host port
 ```
 
-**Weak password error:**
-HALF refuses to start with weak defaults. Ensure:
+Weak password error:
+
+HALF refuses to start with weak defaults. Make sure:
+
 - `HALF_SECRET_KEY` is set and sufficiently random
-- `HALF_ADMIN_PASSWORD` is at least 8 characters
+- `HALF_ADMIN_PASSWORD` is at least 8 characters long and contains uppercase,
+  lowercase, and digits
 
-### Login fails
+### Login Fails
 
-- Verify `HALF_ADMIN_PASSWORD` in `.env`
-- Check browser console for CORS errors
-- Ensure you're using `http://localhost:3000`, not `https`
+- Verify `HALF_ADMIN_PASSWORD` in `.env`.
+- Check the browser console for CORS errors.
+- Make sure you are using `http://localhost:3000`, not `https`.
 
-### "At least one agent must be selected" error
+### "At Least One Agent Must Be Selected"
 
 When creating a project, you must:
-1. Select at least one agent from the list
-2. Configure agent assignments with co-location settings
 
-### Demo project not showing
+1. Select at least one agent from the list.
+2. Configure agent assignment settings where required.
 
-Check if seeding is enabled:
+### Demo Project Does Not Appear
+
+Check whether demo seeding is enabled:
+
 ```bash
 HALF_DEMO_SEED_ENABLED=true docker compose up -d
 ```
 
-### Git repository access fails
+### Git Repository Access Fails
 
 For private repositories, copy `src/docker-compose.override.yml.example` to
 `src/docker-compose.override.yml` and mount a dedicated deploy key. Do not mount
 your whole `~/.ssh` directory into the container.
+Use a dedicated SSH deploy key, credential helper, or backend-managed
+credentials for private repository access. Do not put access tokens or passwords
+in the repository URL.
 
-Alternatively, use HTTPS with a deploy token in the repository URL.
+HALF accepts repository roots and clone URLs such as
+`https://github.com/org/repo`, `https://github.com/org/repo.git`,
+`ssh://git@github.com/org/repo.git`, and `git@github.com:org/repo.git`.
+On GitHub, Gitee, Bitbucket, and Codeberg, root URLs must be exactly
+`owner/repo`; GitLab subgroup root URLs such as
+`https://gitlab.com/group/subgroup/repo` are also accepted. Do not enter issues,
+pull request, tree, blob, graphs, or other repository-internal page URLs. URLs
+with unsafe protocols, query strings, fragments, embedded credentials, access
+tokens or deploy tokens in userinfo/query/fragment, and local/private network
+hosts are rejected.
+
+Save-time validation checks URL shape and safety only. It does not prove that
+the repository exists or that the backend container has access. If the
+repository does not exist or the container lacks credentials, Git sync and
+polling will fail later and the project page will show a repository access
+error while HALF retries automatically.
 
 ## Next Steps
 
-- Read [architecture.md](./architecture.md) for system design
-- Read [task-lifecycle.md](./task-lifecycle.md) for task state transitions
-- Review the API docs at `http://localhost:8000/docs`
+- Read [architecture.md](./architecture.md) for system design.
+- Read [task-lifecycle.md](./task-lifecycle.md) for task state transitions.
+- Open `http://localhost:8000/docs` for the API reference.
 
-## Clean Up
+## Cleanup
 
-To remove all data and start fresh:
+Remove all data and start again:
 
 ```bash
 docker compose down -v
 ```
 
-This removes containers and volumes (SQLite database, cloned repos).
+This removes containers and volumes, including the SQLite database and cloned
+repositories.

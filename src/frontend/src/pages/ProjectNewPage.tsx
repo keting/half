@@ -7,11 +7,12 @@ import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import ModelBadge from '../components/ModelBadge';
 import { deriveAgentStatus, getAgentModels, summarizeAgentCapabilities } from '../utils/agents';
+import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 
 const UNAVAILABLE_AGENT_DETAIL = 'Some selected agents are unavailable';
 
 export function isUnavailableAgentSelectionDisabled(agent: Agent, originalAgentIds: number[]) {
-  return deriveAgentStatus(agent).status === 'unavailable' && !originalAgentIds.includes(agent.id);
+  return !agent.is_active || (deriveAgentStatus(agent).status === 'unavailable' && !originalAgentIds.includes(agent.id));
 }
 
 export function getUnavailableAgentSelectionMessage(unavailableAgents: Agent[]) {
@@ -57,7 +58,8 @@ export default function ProjectNewPage() {
   const navigate = useNavigate();
 
   const hasAgents = agents.length > 0;
-  const canSubmit = hasAgents && selectedAgentIds.length > 0 && name.trim() && goal.trim() && !loading;
+  const gitRepoUrlError = validateGitRepoUrl(gitRepoUrl, { required: true });
+  const canSubmit = Boolean(hasAgents && selectedAgentIds.length > 0 && name.trim() && goal.trim() && !gitRepoUrlError && !loading);
   const pageTitle = isEditMode ? '编辑项目' : '新建项目';
 
   useEffect(() => {
@@ -76,20 +78,22 @@ export default function ProjectNewPage() {
         ]);
         setAgents(agentList);
         if (project) {
+          const visibleAgentIds = new Set(agentList.map((agent) => agent.id));
           const assignments = project.agent_assignments?.length
             ? project.agent_assignments
             : (project.agent_ids || []).map((agentId) => {
                 const agent = agentList.find((item) => item.id === agentId);
                 return { id: agentId, co_located: Boolean(agent?.co_located) };
               });
-          const initialAgentIds = assignments.map((assignment) => assignment.id);
+          const visibleAssignments = assignments.filter((assignment) => visibleAgentIds.has(assignment.id));
+          const visibleInitialAgentIds = visibleAssignments.map((assignment) => assignment.id);
           setName(project.name || '');
           setGoal(project.goal || '');
           setGitRepoUrl(project.git_repo_url || '');
           setCollaborationDir(project.collaboration_dir || '');
-          setSelectedAgentIds(initialAgentIds);
-          setOriginalAgentIds(initialAgentIds);
-          setAgentCoLocated(Object.fromEntries(assignments.map((assignment) => [assignment.id, assignment.co_located])));
+          setSelectedAgentIds(visibleInitialAgentIds);
+          setOriginalAgentIds(visibleInitialAgentIds);
+          setAgentCoLocated(Object.fromEntries(visibleAssignments.map((assignment) => [assignment.id, assignment.co_located])));
           setPollingIntervalMin(project.polling_interval_min ?? null);
           setPollingIntervalMax(project.polling_interval_max ?? null);
           setPollingStartDelayMinutes(project.polling_start_delay_minutes ?? null);
@@ -167,6 +171,7 @@ export default function ProjectNewPage() {
     if (selectedAgentIds.length === 0) { setError('请至少选择 1 个 Agent。'); return; }
     const unavailableSelectionError = getUnavailableSelectionError(selectedAgentIds);
     if (unavailableSelectionError) { setError(unavailableSelectionError); return; }
+    if (gitRepoUrlError) { setError(gitRepoUrlError); return; }
     // Polling param validation (mirrors backend rules)
     if (pollingIntervalMin !== null && (pollingIntervalMin < 1 || pollingIntervalMin > 600)) {
       setError('轮询间隔最小值必须在 1-600 秒之间'); return;
@@ -191,7 +196,7 @@ export default function ProjectNewPage() {
       const payload = {
         name,
         goal,
-        git_repo_url: gitRepoUrl,
+        git_repo_url: gitRepoUrl.trim() || null,
         collaboration_dir: collaborationDir.trim() || null,
         agent_assignments: selectedAgentIds.map((agentId) => ({
           id: agentId,
@@ -249,7 +254,18 @@ export default function ProjectNewPage() {
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="repo">Git 仓库地址</label>
-              <input id="repo" type="text" value={gitRepoUrl} onChange={(e) => setGitRepoUrl(e.target.value)} placeholder="例如：git@github.com:org/repo.git" className="input-mono" />
+              <input
+                id="repo"
+                type="text"
+                value={gitRepoUrl}
+                onChange={(e) => setGitRepoUrl(e.target.value)}
+                placeholder="例如：git@github.com:org/repo.git"
+                className="input-mono"
+                required
+                aria-invalid={gitRepoUrlError ? 'true' : 'false'}
+                aria-describedby={gitRepoUrlError ? 'repo-error' : undefined}
+              />
+              {gitRepoUrlError && <div id="repo-error" className="helper-text helper-text-error">{gitRepoUrlError}</div>}
             </div>
             <div className="form-group">
               <label htmlFor="collab-dir">协作目录</label>
@@ -353,6 +369,10 @@ export default function ProjectNewPage() {
                   <div className="agent-select-card-body">
                     <div className="agent-select-card-top">
                       <span className="agent-select-card-name">{agent.name}</span>
+                      <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                        {agent.is_public ? '公共' : '私有'}
+                      </span>
+                      {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                       <StatusBadge status={deriveAgentStatus(agent).status} />
                     </div>
                     <div className="agent-select-card-models">
