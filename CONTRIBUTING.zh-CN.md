@@ -66,13 +66,12 @@ HALF 仓库以内本文档中的本地约定为准。
 ## 开发环境
 
 请参考 [`README.zh-CN.md`](./README.zh-CN.md) 中的本地开发说明。
-后端测试依赖位于
-[`src/backend/requirements-dev.txt`](./src/backend/requirements-dev.txt)。
+后端测试依赖通过 `uv sync` 安装（由 `pyproject.toml` 管理）。
 
 ## 运行测试
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run python -m pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 
