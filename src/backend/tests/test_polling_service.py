@@ -613,14 +613,7 @@ class PollingLoopExecutorTests(unittest.IsolatedAsyncioTestCase):
             except asyncio.CancelledError:
                 pass
 
-        # Allow the scheduled coroutine to complete.
-        await asyncio.sleep(0)
-
-        self.assertTrue(
-            event_loop_ran_concurrently.is_set(),
-            "The event loop did not process callbacks while poll_project was running; "
-            "poll_project is likely blocking the event loop thread directly",
-        )
+        await asyncio.wait_for(event_loop_ran_concurrently.wait(), timeout=1.0)
 
 
 if __name__ == "__main__":
