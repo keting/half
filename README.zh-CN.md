@@ -203,12 +203,17 @@ HALF_DEMO_SEED_ENABLED=false
 
 ```bash
 cd src/backend
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
 export HALF_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
 export HALF_ADMIN_PASSWORD='<your-strong-password>'
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+> `uv` 会读取 `pyproject.toml`，并在首次运行时自动创建虚拟环境。
+> 如需显式安装开发依赖，可执行：
+>
+> ```bash
+> uv sync
+> ```
 
 前端：
 
