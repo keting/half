@@ -77,12 +77,12 @@ repository conventions in this file take precedence for HALF.
 ## Development Setup
 
 See the local development section of [`README.md`](./README.md).
-For backend tests, install [`src/backend/requirements-dev.txt`](./src/backend/requirements-dev.txt).
+For backend tests, run `uv sync` to install dev dependencies (managed via `pyproject.toml`).
 
 ## Running Tests
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run python -m pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 

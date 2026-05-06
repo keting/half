@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from sqlalchemy import inspect, text
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+load_dotenv()
 
 from config import settings, validate_security_config
 from database import engine, SessionLocal, Base
