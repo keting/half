@@ -48,7 +48,7 @@ backend/
 ├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
-├── access.py                      # get_owned_project / get_owned_agent / get_owned_task 等 owner 级业务隔离工具
+├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
 ├── routers/                       # REST API 路由层
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*

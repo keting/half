@@ -12,6 +12,103 @@ if str(BACKEND_DIR) not in sys.path:
 
 from config import settings
 from services import git_service
+
+
+class GitServiceValidateGitUrlTests(unittest.TestCase):
+    def test_accepts_git_repository_clone_urls(self):
+        valid_urls = [
+            "https://github.com/org/repo",
+            "https://github.com/org/repo.git",
+            "https://gitlab.com/group/subgroup/repo",
+            "https://gitlab.com/group/repo.git",
+            "https://gitlab.com/group/subgroup/repo.git",
+            "https://gitee.com/org/repo",
+            "https://gitee.com/org/repo.git",
+            "https://git.example.com/team/repo.git",
+            "https://fcc.com/team/repo.git",
+            "https://fdic.gov/team/repo.git",
+            "https://git.fcompany.com/team/repo.git",
+            "git@github.com:org/repo.git",
+            "git@gitlab.com:group/repo.git",
+            "git@gitlab.com:group/subgroup/repo.git",
+            "ssh://git@github.com/org/repo.git",
+            "ssh://git@github.com:22/org/repo.git",
+            "ssh://git@git.example.com:2222/team/repo.git",
+            "ssh://gitea@git.example.com/team/repo.git",
+            "ssh://repo@git.example.com/team/repo.git",
+        ]
+
+        for url in valid_urls:
+            with self.subTest(url=url):
+                self.assertEqual(git_service.validate_git_url(f" {url} "), url)
+
+    def test_rejects_missing_or_non_string_git_urls(self):
+        invalid_values = [None, "", "   ", 42]
+
+        for value in invalid_values:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "Git 仓库地址不能为空"):
+                    git_service.validate_git_url(value)  # type: ignore[arg-type]
+
+    def test_rejects_non_clone_or_unsafe_git_urls(self):
+        invalid_urls = [
+            "www.baidu.com",
+            "https://www.baidu.com",
+            "https://notgithub.com/test/repo",
+            "https://github.com/org",
+            "https://github.com/org/repo/foo",
+            "https://github.com/org/repo/graphs/contributors",
+            "https://github.com/org/repo.git/graphs",
+            "https://github.com/org/repo/issues",
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/tree/main",
+            "https://gitlab.com/group/repo/-/tree/main",
+            "https://gitlab.com/group/repo/graphs/contributors",
+            "https://gitee.com/org/repo/foo",
+            "git@github.com:org/repo/foo.git",
+            "https://github.com/org/repo.git?tab=readme",
+            "https://token@github.com/org/repo.git",
+            "https://user:pass@git.example.com/team/repo.git",
+            "https://bad host/org/repo.git",
+            "https://bad_host.example.com/org/repo.git",
+            "https://-bad.example.com/org/repo.git",
+            "https://bad-.example.com/org/repo.git",
+            "https://bad..example.com/org/repo.git",
+            "https://127.1/org/repo.git",
+            "https://10.1/org/repo.git",
+            "https://172.16.1/org/repo.git",
+            "https://192.168.1/org/repo.git",
+            "https://169.254.1/org/repo.git",
+            "https://2130706433/org/repo.git",
+            "https://0x7f000001/org/repo.git",
+            "https://012.1/org/repo.git",
+            "https://0xa9fea9fe/org/repo.git",
+            "http://github.com/org/repo.git",
+            "file:///tmp/repo",
+            "ext::ssh -oProxyCommand=calc example.com/repo.git",
+            "-uhttps://github.com/org/repo.git",
+            "ssh://git@[::1]/org/repo.git",
+            "ssh://git@[fe80::1]/org/repo.git",
+            "ssh://git@[fd12:3456::1]/org/repo.git",
+            "ssh://git@[::ffff:127.0.0.1]/org/repo.git",
+            "ssh://git@[::ffff:10.0.0.1]/org/repo.git",
+            "ssh://git@localhost/org/repo.git",
+            "ssh://git@127.0.0.1/org/repo.git",
+            "ssh://git@127.1/org/repo.git",
+            "ssh://git@169.254.169.254/org/repo.git",
+            "ssh://git@bad host/org/repo.git",
+            "ssh://git@bad_host.example.com/org/repo.git",
+            "ssh://-bad@git.example.com/org/repo.git",
+            "ssh://git:secret@git.example.com/org/repo.git",
+            "ssh://git.example.com/org/repo.git",
+        ]
+
+        for url in invalid_urls:
+            with self.subTest(url=url):
+                with self.assertRaises(ValueError):
+                    git_service.validate_git_url(url)
+
+
 class GitServiceWorkspaceFallbackTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

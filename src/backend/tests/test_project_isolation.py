@@ -83,8 +83,18 @@ class ProjectIsolationTests(unittest.TestCase):
             bob_agent.long_term_reset_at = datetime.utcnow() + timedelta(days=1)
             bob_agent.long_term_reset_interval_days = 30
             db.add_all([
-                Project(name="alice-project", created_by=alice.id, agent_ids_json=f"[{alice_agent.id}]"),
-                Project(name="bob-project", created_by=bob.id, agent_ids_json=f"[{bob_agent.id}]"),
+                Project(
+                    name="alice-project",
+                    git_repo_url="https://github.com/keting/half",
+                    created_by=alice.id,
+                    agent_ids_json=f"[{alice_agent.id}]",
+                ),
+                Project(
+                    name="bob-project",
+                    git_repo_url="https://github.com/keting/half",
+                    created_by=bob.id,
+                    agent_ids_json=f"[{bob_agent.id}]",
+                ),
             ])
             db.add(GlobalSetting(key="task_timeout_minutes", value="37"))
             db.flush()
@@ -154,6 +164,7 @@ class ProjectIsolationTests(unittest.TestCase):
             json={
                 "name": "assigned-project",
                 "goal": "x",
+                "git_repo_url": "https://github.com/keting/half",
                 "agent_assignments": [{"id": 1, "co_located": True}],
             },
             headers=self._login_headers("alice", "Alice123"),
@@ -170,6 +181,7 @@ class ProjectIsolationTests(unittest.TestCase):
             json={
                 "name": "mode-project",
                 "goal": "x",
+                "git_repo_url": "https://github.com/keting/half",
                 "agent_ids": [1],
                 "planning_mode": "quality",
             },
@@ -193,6 +205,7 @@ class ProjectIsolationTests(unittest.TestCase):
             json={
                 "name": "invalid-mode-project",
                 "goal": "x",
+                "git_repo_url": "https://github.com/keting/half",
                 "agent_ids": [1],
                 "planning_mode": "unknown",
             },
@@ -203,7 +216,12 @@ class ProjectIsolationTests(unittest.TestCase):
     def test_create_project_agent_ids_use_agent_default_co_located(self):
         response = self.client.post(
             "/api/projects",
-            json={"name": "default-project", "goal": "x", "agent_ids": [1]},
+            json={
+                "name": "default-project",
+                "goal": "x",
+                "git_repo_url": "https://github.com/keting/half",
+                "agent_ids": [1],
+            },
             headers=self._login_headers("alice", "Alice123"),
         )
         self.assertEqual(response.status_code, 201)
@@ -299,7 +317,12 @@ class ProjectIsolationTests(unittest.TestCase):
     def test_create_project_rejects_other_users_agent(self):
         response = self.client.post(
             "/api/projects",
-            json={"name": "bad-project", "goal": "x", "agent_ids": [2]},
+            json={
+                "name": "bad-project",
+                "goal": "x",
+                "git_repo_url": "https://github.com/keting/half",
+                "agent_ids": [2],
+            },
             headers=self._login_headers("alice", "Alice123"),
         )
         self.assertEqual(response.status_code, 400)

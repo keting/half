@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from access import get_owned_project
+from access import agent_visibility_filter, get_agent_owner_roles, get_owned_project, is_agent_public, load_usable_agents
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, User
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
@@ -16,6 +16,7 @@ from services.prompt_service import generate_plan_prompt
 from services.polling_config_service import get_project_polling_settings
 from services.prompt_settings import get_plan_co_location_guidance
 from schemas import UtcDatetimeModel
+from services.project_agents import agent_ids_from_assignments_json
 
 router = APIRouter(prefix="/api/projects", tags=["plans"])
 
@@ -160,25 +161,62 @@ def _normalize_assignee_token(value: Optional[str]) -> str:
     return str(value).strip().casefold()
 
 
-def _resolve_assignee_agent_id(db: Session, assignee: Optional[str], owner_user_id: int) -> Optional[int]:
+def _match_assignee_agent(agents: list[Agent], normalized: str) -> Optional[Agent]:
+    exact_slug = next((agent for agent in agents if _normalize_assignee_token(agent.slug) == normalized), None)
+    if exact_slug:
+        return exact_slug
+
+    exact_name = next((agent for agent in agents if _normalize_assignee_token(agent.name) == normalized), None)
+    if exact_name:
+        return exact_name
+
+    exact_type = next((agent for agent in agents if _normalize_assignee_token(agent.agent_type) == normalized), None)
+    if exact_type:
+        return exact_type
+
+    return None
+
+
+def _resolve_assignee_agent_id(db: Session, assignee: Optional[str], project: Project, owner: User) -> Optional[int]:
     normalized = _normalize_assignee_token(assignee)
     if not normalized:
         return None
 
-    agents = db.query(Agent).filter(Agent.created_by == owner_user_id).all()
-    exact_slug = next((agent for agent in agents if _normalize_assignee_token(agent.slug) == normalized), None)
-    if exact_slug:
-        return exact_slug.id
+    project_agent_ids = agent_ids_from_assignments_json(project.agent_ids_json)
+    project_agents = (
+        db.query(Agent).filter(Agent.id.in_(project_agent_ids), Agent.is_active == True).all()  # noqa: E712
+        if project_agent_ids
+        else []
+    )
+    project_agents_by_id = {agent.id: agent for agent in project_agents}
+    ordered_project_agents = [project_agents_by_id[agent_id] for agent_id in project_agent_ids if agent_id in project_agents_by_id]
+    project_match = _match_assignee_agent(ordered_project_agents, normalized)
+    if project_match:
+        return project_match.id
 
-    exact_name = next((agent for agent in agents if _normalize_assignee_token(agent.name) == normalized), None)
-    if exact_name:
-        return exact_name.id
+    agents = db.query(Agent).filter(agent_visibility_filter(db, owner)).all()
+    owner_roles = get_agent_owner_roles(db, agents)
+    private_agents = [agent for agent in agents if agent.created_by == owner.id and not is_agent_public(owner_roles, agent)]
+    public_agents = [agent for agent in agents if is_agent_public(owner_roles, agent) and agent.is_active]
+    fallback_match = _match_assignee_agent(private_agents + public_agents, normalized)
+    return fallback_match.id if fallback_match else None
 
-    exact_type = next((agent for agent in agents if _normalize_assignee_token(agent.agent_type) == normalized), None)
-    if exact_type:
-        return exact_type.id
 
-    return None
+def _load_project_plan_agents(db: Session, project: Project, user: User, selected_agent_ids: list[int]) -> list[Agent]:
+    project_agent_ids = agent_ids_from_assignments_json(project.agent_ids_json)
+    inactive_project_agent_ids = {
+        row[0]
+        for row in db.query(Agent.id)
+        .filter(Agent.id.in_(project_agent_ids), Agent.is_active == False)  # noqa: E712
+        .all()
+    }
+    if inactive_project_agent_ids:
+        raise HTTPException(status_code=400, detail="Project references inactive agents; remove them before planning")
+    if not selected_agent_ids:
+        raise HTTPException(status_code=400, detail="At least one participating agent must be selected")
+    if any(agent_id not in project_agent_ids for agent_id in selected_agent_ids):
+        raise HTTPException(status_code=400, detail="Some selected agents are not assigned to this project")
+    return load_usable_agents(db, selected_agent_ids, user)
 
 
 def _normalize_task_fields(tasks_data: list[dict]) -> list[dict]:
@@ -220,14 +258,7 @@ def plan_generate_prompt(
     user: User = Depends(get_current_user),
 ):
     project = get_owned_project(db, project_id, user)
-    selected_agents = db.query(Agent).filter(
-        Agent.id.in_(body.selected_agent_ids),
-        Agent.created_by == user.id,
-    ).all() if body.selected_agent_ids else []
-    if len(selected_agents) != len(body.selected_agent_ids):
-        raise HTTPException(status_code=400, detail="Some selected agents do not exist")
-    if not selected_agents:
-        raise HTTPException(status_code=400, detail="At least one participating agent must be selected")
+    selected_agents = _load_project_plan_agents(db, project, user, body.selected_agent_ids)
     selected_agent_models = {}
     for agent in selected_agents:
         selected_model = body.selected_agent_models.get(agent.id)
@@ -335,10 +366,7 @@ def dispatch_plan(
         )
         db.add(plan)
         db.flush()
-        selected_agents = db.query(Agent).filter(
-            Agent.id.in_(_parse_selected_agent_ids(plan.selected_agent_ids_json)),
-            Agent.created_by == user.id,
-        ).all()
+        selected_agents = _load_project_plan_agents(db, project, user, _parse_selected_agent_ids(plan.selected_agent_ids_json))
         plan.source_path = _plan_file_path(project, plan.id)
         plan.prompt_text, resolved_models = generate_plan_prompt(
             project,
@@ -463,7 +491,7 @@ def finalize_plan_record(
             raise HTTPException(status_code=400, detail="Each task must have a task_code")
 
         # Resolve assignee
-        assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"), owner_user_id=user.id)
+        assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"), project, user)
 
         depends_on = t.get("depends_on", [])
         collab = _normalize_collab_dir(project)
