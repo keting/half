@@ -218,6 +218,12 @@ HALF_DEMO_SEED_ENABLED=false
 
 ## Local Development
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) before running the backend locally:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 Backend:
 
 ```bash
