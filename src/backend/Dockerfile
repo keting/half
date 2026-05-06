@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
