@@ -112,7 +112,7 @@ def poll_project(db: Session, project: Project) -> None:
 
     running_plans = db.query(ProjectPlan).filter(
         ProjectPlan.project_id == project.id,
-        ProjectPlan.status == "running",
+        ProjectPlan.status.in_(("running", "needs_attention")),
     ).all()
     sync_status = git_service.ensure_repo_sync(project.id, project.git_repo_url)
     if sync_status.error:
