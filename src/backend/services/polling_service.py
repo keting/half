@@ -86,6 +86,17 @@ def _set_plan_runtime_error(plan: ProjectPlan, now: datetime, message: str, *, n
         plan.status = "needs_attention"
 
 
+def _poll_project_in_worker(project_id: int) -> None:
+    db = SessionLocal()
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project is None:
+            return
+        poll_project(db, project)
+    finally:
+        db.close()
+
+
 def poll_project(db: Session, project: Project) -> None:
     if not project.git_repo_url:
         return
@@ -287,16 +298,22 @@ async def polling_loop(interval_seconds: int) -> None:
                     if scheduled is not None and scheduled > now:
                         continue  # Not yet time for this project
                     try:
+                        project_id = project.id
                         await asyncio.get_running_loop().run_in_executor(
-                            None, poll_project, db, project
+                            None, _poll_project_in_worker, project_id
                         )
                     except Exception as e:
                         logger.error(f"Error polling project {project.id}: {e}")
                     # Re-fetch settings each time so live config changes take effect
-                    next_poll_at[project.id] = _compute_next_poll_time(db, project, now)
+                    db.expire_all()
+                    refreshed_project = db.query(Project).filter(Project.id == project_id).first()
+                    if refreshed_project is None:
+                        next_poll_at.pop(project_id, None)
+                        continue
+                    next_poll_at[project_id] = _compute_next_poll_time(db, refreshed_project, now)
                     logger.debug(
                         "Project %s next poll at %s",
-                        project.id, next_poll_at[project.id].isoformat(),
+                        project_id, next_poll_at[project_id].isoformat(),
                     )
             finally:
                 db.close()

@@ -528,7 +528,7 @@ class PollingLoopExecutorTests(unittest.IsolatedAsyncioTestCase):
     async def test_polling_loop_dispatches_poll_project_via_run_in_executor(self):
         """polling_loop must use run_in_executor, not a direct blocking call."""
         from unittest.mock import AsyncMock, MagicMock, patch
-        from services.polling_service import poll_project, polling_loop
+        from services.polling_service import _poll_project_in_worker, polling_loop
 
         project = MagicMock()
         project.id = 42
@@ -562,9 +562,9 @@ class PollingLoopExecutorTests(unittest.IsolatedAsyncioTestCase):
         )
         submitted_fns = [c.args[1] for c in executor_mock.call_args_list]
         self.assertIn(
-            poll_project,
+            _poll_project_in_worker,
             submitted_fns,
-            "poll_project was not submitted via run_in_executor; a direct call blocks "
+            "The polling worker wrapper was not submitted via run_in_executor; a direct call blocks "
             "the event loop and causes thread exhaustion (RuntimeError: can't start new thread)",
         )
 
