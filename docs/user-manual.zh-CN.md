@@ -33,8 +33,6 @@
 1. 输入用户名和密码，点击登录。
 2. 若页面提供“注册”切换入口（由系统配置控制，例如 `HALF_ALLOW_REGISTER=true`），可切换到注册表单创建普通账号。
 
-![user-manual-login-page](./images/user-manual-login-page.png)
-
 ---
 
 ### 2.2 项目列表页（`/projects`）
@@ -54,14 +52,10 @@
 **操作步骤**
 
 1. 点击“新建项目”进入创建页。
-   ![user-manual-projects-new-button](./images/user-manual-projects-new-button.png)
 2. 点击项目卡片标题/描述进入对应项目详情。
-   ![user-manual-projects-open-detail](./images/user-manual-projects-open-detail.png)
 3. 点击“编辑”修改项目信息。
-   ![user-manual-projects-edit-button](./images/user-manual-projects-edit-button.png)
 4. 点击“删除”移除项目（会同步移除关联计划与任务）。
 5. 管理员可通过“设置”入口进入全局项目参数页。
-   ![user-manual-projects-admin-settings-entry](./images/user-manual-projects-admin-settings-entry.png)
 
 ---
 
@@ -329,4 +323,17 @@
 - 不能降级或冻结系统最后一个激活管理员。
 
 ![user-manual-user-management-page](./images/user-manual-user-management-page.png)
+
+---
+
+## 3. 最小闭环：Git 回写与完成判定
+
+为了让任务从“执行中”进入“已完成”，Agent 应遵循以下最小闭环：
+
+1. 将任务产物写入目录：`<collaboration_dir>/<task_code>/`
+2. 所有产物写完后，最后写入（并提交）`<collaboration_dir>/<task_code>/result.json` 作为完成哨兵
+3. 将本次变更 `git add`、`git commit`、`git push`
+4. HALF 后端轮询检测到 `result.json` 后，任务状态推进为完成，并可在“执行总结”页查看结果
+
+说明：`result.json` 是完成信号文件，应在其他产物准备好后最后落盘并提交。
 

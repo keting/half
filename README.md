@@ -146,6 +146,8 @@ Application code lives under [`src/`](./src). Documentation lives under
 - [`docs/ui-style.md`](./docs/ui-style.md) - UI and interaction principles
 - [`docs/quickstart.md`](./docs/quickstart.md) - step-by-step setup guide with
   troubleshooting
+- [`docs/user-manual.md`](./docs/user-manual.md) - page-oriented user manual
+  (purpose, steps, and screenshots)
 - `docs/roadmap/` - version-specific execution plans (coming)
 - `docs/research/` - research notes for exploratory work (coming)
 - `docs/adr/` - architecture decision records (coming)

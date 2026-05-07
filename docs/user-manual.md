@@ -33,8 +33,6 @@
 1. Enter username and password, then click Sign In.
 2. If a "Register" switch is shown (controlled by system configuration, for example `HALF_ALLOW_REGISTER=true`), switch to registration mode to create a regular account.
 
-![user-manual-login-page](./images/user-manual-login-page.png)
-
 ---
 
 ### 2.2 Project List Page (`/projects`)
@@ -54,14 +52,10 @@
 **Steps**
 
 1. Click "New Project" to open the creation page.
-   ![user-manual-projects-new-button](./images/user-manual-projects-new-button.png)
 2. Click a project card title/description to open project details.
-   ![user-manual-projects-open-detail](./images/user-manual-projects-open-detail.png)
 3. Click "Edit" to modify project information.
-   ![user-manual-projects-edit-button](./images/user-manual-projects-edit-button.png)
 4. Click "Delete" to remove the project (related plans and tasks are removed as well).
 5. Admins can use the "Settings" entry to open global project parameter settings.
-   ![user-manual-projects-admin-settings-entry](./images/user-manual-projects-admin-settings-entry.png)
 
 ---
 
@@ -329,3 +323,16 @@
 - You cannot demote or freeze the last active admin.
 
 ![user-manual-user-management-page](./images/user-manual-user-management-page.png)
+
+---
+
+## 3. Minimum Closed Loop: Git Writeback and Completion
+
+To move a task from "running" to "completed", the agent should follow this minimum closed loop:
+
+1. Write task artifacts into: `<collaboration_dir>/<task_code>/`
+2. After all artifacts are ready, write (and commit) `<collaboration_dir>/<task_code>/result.json` as the completion sentinel
+3. Run `git add`, `git commit`, and `git push`
+4. After HALF polling detects `result.json`, task status moves to completed and the result is visible on the Summary page
+
+Note: `result.json` is the completion signal file and should be written and committed last.
