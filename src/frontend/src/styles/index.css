@@ -1732,13 +1732,12 @@ body {
   padding: 16px 20px;
   transition: box-shadow 0.15s;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   grid-template-areas:
-    "top      resets"
-    "typedesc resets"
-    "badges   resets"
-    "cap      resets"
-    "usage    resets";
+    "top      quota"
+    "typedesc quota"
+    "badges   quota"
+    "cap      quota";
   gap: 4px 24px;
   align-items: center;
 }
@@ -1968,55 +1967,71 @@ body {
   line-height: 1.5;
 }
 
-.agent-codex-usage {
-  grid-area: usage;
+.agent-card-quota {
+  grid-area: quota;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px 10px;
-  align-items: center;
-  margin-top: 4px;
-  color: var(--color-text-secondary);
-  font-size: 12px;
+  gap: 10px;
+  align-self: stretch;
+  padding-left: 24px;
+  border-left: 1px solid var(--color-border);
 }
 
-.agent-codex-usage-window,
-.agent-codex-usage-updated,
-.agent-codex-usage > span {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 6px 8px;
-  background: #f8fafc;
+.agent-card-quota .btn-codex-auth {
+  justify-self: stretch;
 }
 
-.agent-codex-usage-window {
+.agent-card-quota-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px 8px;
+  gap: 8px;
 }
 
-.agent-codex-usage-window strong {
-  grid-column: 1 / -1;
+.agent-card-quota-column {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 8px;
+  background: #f8fafc;
+  display: grid;
+  gap: 6px;
+}
+
+.agent-card-quota-title {
   color: var(--color-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
 }
 
-.agent-codex-usage-window span,
-.agent-codex-usage-updated {
+.agent-card-quota-row {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-card-quota-row span {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.agent-card-quota-row strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
-.agent-codex-usage-error span {
+.agent-card-quota-error {
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  padding: 6px 8px;
   color: #b91c1c;
-  border-color: #fecaca;
   background: #fef2f2;
-}
-
-.agent-card-resets {
-  grid-area: resets;
-  display: flex;
-  gap: 24px;
-  align-self: center;
-  padding-left: 24px;
-  border-left: 1px solid var(--color-border);
+  font-size: 12px;
 }
 
 /* ===== Countdown Chip ===== */
@@ -3051,15 +3066,18 @@ body {
       "typedesc"
       "badges"
       "cap"
-      "usage"
-      "resets";
+      "quota";
   }
 
-  .agent-card-resets {
+  .agent-card-quota {
     border-left: none;
     padding-left: 0;
     padding-top: 12px;
     border-top: 1px solid var(--color-border);
+  }
+
+  .agent-card-quota-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .agent-select-cards {

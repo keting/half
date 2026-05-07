@@ -6,7 +6,6 @@ import { api, extractApiErrorDetail } from '../api/client';
 
 interface OAuthStartResponse {
   auth_url: string;
-  login_url: string;
   session_id: string;
   redirect_uri: string;
 }

@@ -16,8 +16,6 @@ from services.codex_usage_cache import (
     UsageRefreshTooSoonError,
     _parse_codex_headers,
     build_callback_redirect_url,
-    build_callback_server_login_url,
-    build_forward_login_url,
 )
 
 
@@ -56,48 +54,6 @@ def test_oauth_session_is_memory_only_and_clearable():
     cache.clear()
 
     assert cache.status()["authenticated"] is False
-
-
-def test_oauth_session_can_return_remote_forward_login_url():
-    cache = CodexUsageCache()
-
-    session = cache.start_oauth(
-        CODEX_REDIRECT_URI,
-        login_forward_url="https://forward.example/start",
-        callback_url="https://half.example/api/codex-usage/oauth/callback",
-        return_url="https://half.example/agents",
-    )
-    forwarded = urlparse(session["login_url"])
-    forwarded_params = parse_qs(forwarded.query)
-
-    assert forwarded.scheme == "https"
-    assert forwarded.netloc == "forward.example"
-    assert forwarded.path == "/start"
-    assert forwarded_params["url"] == [session["auth_url"]]
-    assert forwarded_params["session_id"] == [session["session_id"]]
-    assert forwarded_params["callback_url"] == ["https://half.example/api/codex-usage/oauth/callback"]
-    assert forwarded_params["return_url"] == ["https://half.example/agents"]
-
-
-def test_oauth_session_can_return_callback_server_login_url():
-    cache = CodexUsageCache()
-
-    session = cache.start_oauth(
-        CODEX_REDIRECT_URI,
-        callback_server_base_url="http://localhost:1455",
-    )
-
-    assert session["login_url"] == f"http://localhost:1455/auth/start?session_id={session['session_id']}"
-    assert cache.get_auth_url_for_session(session["session_id"]) == session["auth_url"]
-
-
-def test_build_forward_login_url_uses_direct_url_without_forwarder():
-    assert build_forward_login_url("https://auth.example/start", None) == "https://auth.example/start"
-
-
-def test_build_callback_server_login_url():
-    assert build_callback_server_login_url("http://localhost:1455/", "session-1") == "http://localhost:1455/auth/start?session_id=session-1"
-    assert build_callback_server_login_url("", "session-1") is None
 
 
 def test_build_callback_redirect_url_preserves_code_and_state():
@@ -325,7 +281,7 @@ def test_same_account_different_agent_reuses_cached_usage_within_rate_limit(monk
     assert cache.status(7, 202)["last_usage"]["windows"]["five_hour"]["remaining_percent"] == 75.0
 
 
-def test_callback_exchange_exposes_agent_scope_for_auto_usage_refresh(monkeypatch):
+def test_callback_exchange_exposes_agent_scope_without_fetching_usage():
     class StubCodexUsageCache(CodexUsageCache):
         def _exchange_code(self, code: str, code_verifier: str, redirect_uri: str):
             return {
@@ -348,27 +304,4 @@ def test_callback_exchange_exposes_agent_scope_for_auto_usage_refresh(monkeypatc
     assert token_info["_auth_user_id"] == 9
     assert token_info["_auth_agent_id"] == 303
 
-    class FakeResponse:
-        headers = Message()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self, _size=-1):
-            return b""
-
-    FakeResponse.headers["x-codex-primary-used-percent"] = "10"
-    FakeResponse.headers["x-codex-primary-reset-after-seconds"] = "3600"
-    FakeResponse.headers["x-codex-primary-window-minutes"] = "300"
-    FakeResponse.headers["x-codex-secondary-used-percent"] = "20"
-    FakeResponse.headers["x-codex-secondary-reset-after-seconds"] = "604800"
-    FakeResponse.headers["x-codex-secondary-window-minutes"] = "10080"
-
-    monkeypatch.setattr("services.codex_usage_cache.urlopen", lambda request, timeout: FakeResponse())
-
-    cache.try_fetch_usage(token_info["_auth_user_id"], token_info["_auth_agent_id"])
-
-    assert cache.status(9, 303)["last_usage"]["windows"]["five_hour"]["remaining_percent"] == 90.0
+    assert cache.status(9, 303)["last_usage"] is None

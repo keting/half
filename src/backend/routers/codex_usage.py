@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from access import get_visible_agent, list_visible_agents
 from auth import get_current_user, require_admin
-from config import settings
 from database import get_db
 from models import User
 from services.codex_usage_cache import (
@@ -31,7 +30,6 @@ class ManualOAuthExchangeRequest(BaseModel):
 class AgentOAuthStartRequest(BaseModel):
     return_url: str | None = None
     callback_url: str | None = None
-    callback_server_base_url: str | None = None
 
 
 def _require_codex_agent(agent):
@@ -77,10 +75,7 @@ async def start_agent_oauth(
         user_id=user.id,
         agent_id=agent_id,
         return_url=body.return_url if body else None,
-        login_forward_url=settings.CODEX_OAUTH_FORWARD_URL,
-        login_forward_param=settings.CODEX_OAUTH_FORWARD_PARAM,
         callback_url=(body.callback_url if body and body.callback_url else str(request.url_for("codex_oauth_callback"))),
-        callback_server_base_url=body.callback_server_base_url if body else None,
     )
     try:
         codex_oauth_callback_server.start()
@@ -110,14 +105,12 @@ async def exchange_agent_oauth(
     except RuntimeError as err:
         raise HTTPException(status_code=502, detail=str(err))
 
-    usage = await asyncio.to_thread(codex_usage_cache.try_fetch_usage, user.id, agent_id)
     return {
         "authenticated": True,
         "email": token_info.get("email"),
         "plan_type": token_info.get("plan_type"),
         "chatgpt_account_id": token_info.get("chatgpt_account_id"),
         "expires_at": token_info.get("expires_at"),
-        "last_usage": usage,
     }
 
 
@@ -179,11 +172,6 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
     except (ValueError, RuntimeError) as err:
         return HTMLResponse(callback_html(False, str(err)), status_code=400)
 
-    await asyncio.to_thread(
-        codex_usage_cache.try_fetch_usage,
-        token_info.get("_auth_user_id"),
-        token_info.get("_auth_agent_id"),
-    )
     account = token_info.get("email") or token_info.get("chatgpt_account_id") or "OpenAI account"
     return HTMLResponse(callback_html(True, f"{account} 已登录。可以回到 HALF 智能体页面刷新额度。"))
 

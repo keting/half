@@ -12,8 +12,6 @@ services:
       - HALF_ALLOW_REGISTER=${HALF_ALLOW_REGISTER:-false}
       - HALF_DEMO_SEED_ENABLED=${HALF_DEMO_SEED_ENABLED:-true}
       - HALF_STRICT_SECURITY=${HALF_STRICT_SECURITY:-true}
-      - HALF_CODEX_OAUTH_FORWARD_URL=${HALF_CODEX_OAUTH_FORWARD_URL:-}
-      - HALF_CODEX_OAUTH_FORWARD_PARAM=${HALF_CODEX_OAUTH_FORWARD_PARAM:-url}
     volumes:
       - backend-data:/app/data
       - backend-repos:/app/repos

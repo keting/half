@@ -41,42 +41,6 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def build_forward_login_url(
-    auth_url: str,
-    forward_url: str | None,
-    *,
-    forward_param: str = "url",
-    session_id: str | None = None,
-    callback_url: str | None = None,
-    return_url: str | None = None,
-) -> str:
-    forward_url = (forward_url or "").strip()
-    if not forward_url:
-        return auth_url
-
-    params = {
-        (forward_param or "url").strip() or "url": auth_url,
-    }
-    if session_id:
-        params["session_id"] = session_id
-    if callback_url:
-        params["callback_url"] = callback_url
-    if return_url:
-        params["return_url"] = return_url
-
-    separator = "?" if "?" not in forward_url else "&"
-    if forward_url.endswith("?") or forward_url.endswith("&"):
-        separator = ""
-    return f"{forward_url}{separator}{urlencode(params)}"
-
-
-def build_callback_server_login_url(callback_server_base_url: str | None, session_id: str) -> str | None:
-    base_url = (callback_server_base_url or "").strip().rstrip("/")
-    if not base_url:
-        return None
-    return f"{base_url}/auth/start?{urlencode({'session_id': session_id})}"
-
-
 def build_callback_redirect_url(callback_url: str | None, redirect_url: str) -> str:
     callback_url = (callback_url or "").strip()
     if not callback_url:
@@ -258,10 +222,7 @@ class CodexUsageCache:
         user_id: int | None = None,
         agent_id: int | None = None,
         return_url: str | None = None,
-        login_forward_url: str | None = None,
-        login_forward_param: str = "url",
         callback_url: str | None = None,
-        callback_server_base_url: str | None = None,
     ) -> dict[str, str]:
         state = secrets.token_hex(32)
         code_verifier = secrets.token_hex(64)
@@ -296,22 +257,9 @@ class CodexUsageCache:
             }
             self._prune_sessions_locked()
 
-        login_url = build_callback_server_login_url(callback_server_base_url, session_id)
-        if login_forward_url:
-            login_url = build_forward_login_url(
-                auth_url,
-                login_forward_url,
-                forward_param=login_forward_param,
-                session_id=session_id,
-                callback_url=callback_url,
-                return_url=return_url,
-            )
-        if not login_url:
-            login_url = auth_url
         return {
             "session_id": session_id,
             "auth_url": auth_url,
-            "login_url": login_url,
             "redirect_uri": redirect_uri,
         }
 
@@ -491,15 +439,6 @@ class CodexUsageCache:
                 self._account_usage_refresh_agent[account_key] = usage_key
                 self._account_usage_snapshot_agents[account_key] = {usage_key}
         return snapshot
-
-    def try_fetch_usage(self, user_id: int | None = None, agent_id: int | None = None) -> dict[str, Any] | None:
-        agent_ref = self._agent_ref(user_id, agent_id)
-        try:
-            return self.fetch_usage(user_id, agent_id)
-        except (ValueError, RuntimeError) as err:
-            with self._lock:
-                self._agent_usage_errors[agent_ref or "__global__"] = str(err)
-            return None
 
     def _ensure_access_token(self, user_id: int | None = None, agent_id: int | None = None) -> dict[str, Any]:
         agent_ref = self._agent_ref(user_id, agent_id)
@@ -687,7 +626,6 @@ class CodexOAuthCallbackServer:
                         self._send_html(callback_html(False, str(err)), 400)
                         return
 
-                    cache.try_fetch_usage(token_info.get("_auth_user_id"), token_info.get("_auth_agent_id"))
                     account = token_info.get("email") or token_info.get("chatgpt_account_id") or "OpenAI account"
                     self._send_html(
                         callback_html(True, f"{account} 已登录。正在返回 HALF 智能体页面。", return_url),
