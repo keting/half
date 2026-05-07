@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from auth import require_admin
 from database import get_db
-from models import AuditLog, User
+from models import Agent, AuditLog, User
 from schemas import UtcDatetimeModel
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
@@ -30,6 +30,7 @@ class AdminUserResponse(UtcDatetimeModel):
 
 class UserRoleUpdateRequest(BaseModel):
     role: Literal["admin", "user"]
+    confirm_publicize_agents: bool = False
 
 
 class UserStatusUpdateRequest(BaseModel):
@@ -86,6 +87,50 @@ def update_user_role(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统至少需要保留一个激活状态的管理员")
 
     old_role = target.role
+
+    migrated_agent_ids: list[int] = []
+    if old_role == "admin" and body.role == "user":
+        if target.username == "admin":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="超级管理员不可降级")
+        super_admin = db.query(User).filter(User.username == "admin", User.role == "admin").first()
+        if not super_admin:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未找到超级管理员，无法迁移公共 Agent")
+        target_agents = db.query(Agent).filter(Agent.created_by == target.id).all()
+        target_names = {agent.name for agent in target_agents}
+        conflicts = (
+            db.query(Agent)
+            .filter(Agent.created_by == super_admin.id, Agent.name.in_(target_names))
+            .all()
+            if target_names
+            else []
+        )
+        if conflicts:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "Agent name conflicts prevent admin downgrade",
+                    "conflicts": [
+                        {"name": agent.name, "target_owner": target.username, "new_owner": super_admin.username}
+                        for agent in conflicts
+                    ],
+                },
+            )
+        migrated_agent_ids = [agent.id for agent in target_agents]
+        for agent in target_agents:
+            agent.created_by = super_admin.id
+
+    if old_role == "user" and body.role == "admin":
+        target_agents = db.query(Agent).filter(Agent.created_by == target.id).order_by(Agent.id).all()
+        if target_agents and not body.confirm_publicize_agents:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "Promoting this user will publicize their agents",
+                    "requires_confirmation": True,
+                    "agents": [{"id": agent.id, "name": agent.name} for agent in target_agents],
+                },
+            )
+
     target.role = body.role
     audit = AuditLog(
         operator_id=admin.id,
@@ -93,7 +138,13 @@ def update_user_role(
         target_type="user",
         target_id=user_id,
         detail=json.dumps(
-            {"user_id": user_id, "old_role": old_role, "new_role": body.role},
+            {
+                "user_id": user_id,
+                "old_role": old_role,
+                "new_role": body.role,
+                "migrated_agent_count": len(migrated_agent_ids),
+                "migrated_agent_ids": migrated_agent_ids,
+            },
             ensure_ascii=False,
         ),
     )

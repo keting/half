@@ -6,7 +6,7 @@ Closes #
 
 ## Testing
 
-- [ ] `cd src/backend && python -m pytest tests/ -v`
+- [ ] `cd src/backend && uv run python -m pytest tests/ -v`
 - [ ] `cd src/frontend && npm test`
 - [ ] `cd src/frontend && npm run build`
 

@@ -8,6 +8,7 @@ import ModelBadge from '../components/ModelBadge';
 import { Agent, Project, Task } from '../types';
 import { getNextStepAction, getNextStepText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
+import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 
 interface PredecessorStatus {
   task_id: number;
@@ -106,6 +107,7 @@ export default function ProjectDetailPage() {
   }
 
   const summary = project.task_summary;
+  const repoUrlError = validateGitRepoUrl(project.git_repo_url);
   const nextStepText = getNextStepText(project.next_step);
   const nextStepAction = getNextStepAction(project.next_step);
   const readinessMap = new Map(predecessorStatuses.map((status) => [status.task_id, status]));
@@ -113,7 +115,10 @@ export default function ProjectDetailPage() {
     ...task,
     readiness: readinessMap.get(task.id),
   }));
-  const selectedAgents = agents.filter((agent) => project.agent_ids?.includes(agent.id));
+  const selectedAgents = (() => {
+    const projectAgentIds = project.agent_ids || [];
+    return agents.filter((agent) => projectAgentIds.includes(agent.id));
+  })();
   const assignmentMap = new Map((project.agent_assignments || []).map((assignment) => [assignment.id, assignment.co_located]));
   const availableAgents = selectedAgents.filter((agent) => agent.availability_status === 'available');
   const runningTasks = tasksWithReadiness.filter((task) => task.status === 'running');
@@ -164,7 +169,10 @@ export default function ProjectDetailPage() {
             </div>
             <div className="project-console-meta-row">
               <span className="project-console-label">仓库地址</span>
-              <p className="project-console-code">{project.git_repo_url || '-'}</p>
+              <div>
+                <p className="project-console-code">{project.git_repo_url || '-'}</p>
+                {repoUrlError && <div className="helper-text helper-text-error">{repoUrlError}</div>}
+              </div>
             </div>
             <div className="project-console-meta-row">
               <span className="project-console-label">协作目录</span>
@@ -321,6 +329,10 @@ export default function ProjectDetailPage() {
                     <strong>{agent.name}</strong>
                     <div className="project-console-agent-meta">
                       <ModelBadge type={agent.agent_type} model={agent.model_name} />
+                      <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
+                        {agent.is_public ? '公共' : '私有'}
+                      </span>
+                      {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                     </div>
                   </div>
                   <StatusBadge status={agent.availability_status} />

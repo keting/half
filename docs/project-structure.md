@@ -41,14 +41,15 @@ half/
 ```
 backend/
 ├── Dockerfile
-├── requirements.txt               # fastapi, uvicorn, sqlalchemy, pyjwt, passlib[bcrypt], bcrypt, python-multipart, json-repair
+├── pyproject.toml                 # project metadata and dependencies (managed by uv)
+├── uv.lock                        # locked dependency manifest
 ├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
 ├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
-├── access.py                      # get_owned_project / get_owned_agent / get_owned_task 等 owner 级业务隔离工具
+├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
 ├── routers/                       # REST API 路由层
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
