@@ -393,7 +393,7 @@ def dispatch_plan(
 
 
 @router.get("/{project_id}/plans", response_model=list[PlanResponse])
-def list_plans(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def list_plans(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_owned_project(db, project_id, user)
     plans = db.query(ProjectPlan).filter(ProjectPlan.project_id == project_id).order_by(ProjectPlan.created_at.asc()).all()
     return [_build_plan_response(plan) for plan in plans]
