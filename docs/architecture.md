@@ -131,7 +131,9 @@ MVP 所有任务分发均由项目负责人手工完成——系统生成 prompt
 - **管理员（`admin`）**：可访问系统级设置、智能体类型配置、项目参数设置、用户管理页面
 - **普通用户（`user`）**：可管理自己创建的智能体、项目、计划、任务、模版
 
-**Owner 级业务隔离（应用层）**：所有业务资源（Agent / Project / Plan / Task / 轮询记录）在 `access.py` 中强制按当前登录用户的 `created_by` 字段过滤——**应用层面管理员不会看到其他用户创建的项目和智能体**，跨用户访问返回资源不存在或参数非法。这是当前代码实际的权限边界。
+**Owner 级业务隔离（应用层）**：Project / Plan / Task / 轮询记录在 `access.py` 中强制按当前登录用户的 `created_by` 字段过滤，跨用户访问返回资源不存在或参数非法。Agent 采用“公共池 + 私有资源”模型：管理员创建的 Agent 是公共 Agent，活跃公共 Agent 对所有登录用户可见可用；普通用户创建的 Agent 是私有 Agent，仅创建者可见可用。管理员也不会看到普通用户的私有 Agent。
+
+**公共 Agent 维护权限**：公共 Agent 只能由创建它的管理员修改、禁用、重置、确认或删除；其他管理员和普通用户只能使用活跃公共 Agent。公共 Agent 的订阅、可用状态、短期/长期重置时间和确认标记是共享状态，不按使用者拆分。
 
 **部署层信任模型（参见根目录 `SECURITY.md`）**：HALF 默认面向单租户自托管场景。部署层面假设管理员被完全信任（可以访问 HALF 数据库、git 仓库副本、宿主机文件系统等）。换句话说：应用层不依赖管理员的额外权限（比如接管别人的项目），但**部署者必须默认管理员有能力绕过应用层访问所有数据**。
 
@@ -142,7 +144,7 @@ MVP 所有任务分发均由项目负责人手工完成——系统生成 prompt
 - `active`：正常，可登录
 - `frozen`：冻结，禁止登录；已签发的 token 在后续请求时也会被拒绝
 
-系统强制**至少保留一个激活状态的管理员**；管理员不能冻结自己、不能修改自己的角色。
+系统强制**至少保留一个激活状态的管理员**；管理员不能冻结自己、不能修改自己的角色。`username == "admin"` 的超级管理员不可降级。其他管理员降级为普通用户时，其公共 Agent 自动迁移给超级管理员，若迁移后 Agent 名称冲突则拒绝降级。普通用户升级为管理员前必须确认其私有 Agent 将变为公共 Agent。冻结管理员只影响登录，不会撤销其公共 Agent。
 
 ### 5.4 注册控制
 
@@ -188,8 +190,15 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 - **Agent 的可用状态是派生的**：持久字段 `availability_status` 接受 `available / short_reset_pending / long_reset_pending`；同时因为 `models.py` 定义默认值为 `unknown`，旧数据和默认插入值里仍可能出现 `unknown`——运行时 `services/agents.py::derive_agent_status` 把 `unknown` 当作 `available` 处理。`unavailable` 是派生状态（**不存储**），由 `subscription_expires_at` 实时推导
 - **项目轮询配置是快照**：创建项目时把当前的全局默认（`polling_interval_min/max`、`polling_start_delay_*`、`task_timeout_minutes`）快照写入项目；此后全局配置变更**不追溯**影响既有项目
 - **Task 超时时间是快照**：最终计划生成 Task 时把项目级 `task_timeout_minutes` 写入 `tasks.timeout_minutes`；`pending` 状态可编辑，进入 `running` 后不可编辑
-- **Owner 隔离在后端强制**：业务接口在 Session 层按 `created_by = current_user.id` 过滤，历史 `NULL` 值启动时自动回填到默认管理员
+- **Agent 可见性在后端强制**：普通用户可见自己的私有 Agent 与活跃公共 Agent；管理员可见管理员公共池（含停用项），但不可见普通用户私有 Agent。项目和计划只允许选择活跃可见 Agent；公共 Agent 被管理员停用后，引用它的项目必须先移除该引用，才能继续编辑或生成新计划
+- **Agent 删除先做全局引用检查**：删除会检查所有任务、项目、计划 source agent 和计划 selected agents；被引用的公共 Agent 只能禁用，不能硬删除
 - **路径统一仓库根相对**：`collaboration_dir`、`source_path`、`expected_output_path` 创建/更新时 strip 前后斜杠；`services.git_service._safe_join` 保证 `..` 越界等非法路径被拒绝
+- **项目 Git 仓库地址必填并校验**：创建项目必须提供 `git_repo_url`，编辑项目时不允许清空；前端即时校验，后端是最终防线。
+  - 接受形态：`https://host/org/repo(.git)`、`ssh://user@host/org/repo.git`、`git@host:org/repo.git`。
+  - 已知 Web Git host：GitHub/Gitee/Bitbucket/Codeberg 不带 `.git` 时只接受 `owner/repo` 两段仓库根地址；GitLab 允许 subgroup 形式的仓库根地址。
+  - 未知 host：要求仓库路径以 `.git` 结尾。
+  - 拒绝清单：issues/pull/tree/blob/graphs 等仓库内页面 URL、query/fragment、内嵌凭据、私有/本地/metadata IP、非规范内网 IP 写法、危险协议和 leading dash。
+  - 校验边界：这是格式与安全校验，不是仓库存在性或可访问性校验。
 - **时间语义分两组**：
   - *业务运行事件时间*（项目/计划/任务/事件/用户/审计日志）按 UTC 存储传输，API 响应带 UTC 标记；前端按浏览器本地时区展示
   - *Agent 相关时间*（`subscription_expires_at`、`short_term_reset_at`、`long_term_reset_at`）以"北京时间无时区" datetime 直接存储；`services/agents.py::derive_agent_status` 和前端 `utils/agents.ts::deriveAgentStatus` 都以北京时间为基准做比较，不经 UTC 换算
@@ -215,7 +224,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 |---|---|---|
 | 认证 | `/api/auth` | 登录、注册、获取当前用户、修改密码、运行配置（`allow_register`） |
 | 健康检查 | `/health` | 返回 `{"status": "ok"}` |
-| Agent 管理 | `/api/agents` | 当前用户的 Agent CRUD；短期/长期重置的 reset / confirm；状态切换；类型只读目录 |
+| Agent 管理 | `/api/agents` | 可见 Agent 列表；私有 Agent CRUD；公共 Agent 仅创建者维护；短期/长期重置的 reset / confirm；状态切换；类型只读目录 |
 | 智能体设置 | `/api/agent-settings` | Agent 类型和模型的全局配置，**仅管理员可用** |
 | 项目管理 | `/api/projects` | 项目 CRUD；获取项目详情含"下一步"提示 |
 | 工作计划 | `/api/projects/:id/plans/...` | 生成 prompt、派发、finalize；候选/最终计划查询 |
