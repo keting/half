@@ -128,7 +128,7 @@ MVP 所有任务分发均由项目负责人手工完成——系统生成 prompt
 
 账号分两类：
 
-- **管理员（`admin`）**：可访问系统级设置、智能体类型配置、项目参数设置、用户管理页面
+- **管理员（`admin`）**：可访问系统级设置、智能体类型配置、项目参数设置、用户管理页面；飞书通知配置对所有用户开放，管理员还可在同一页面修改全局轮询参数
 - **普通用户（`user`）**：可管理自己创建的智能体、项目、计划、任务、模版
 
 **Owner 级业务隔离（应用层）**：Project / Plan / Task / 轮询记录在 `access.py` 中强制按当前登录用户的 `created_by` 字段过滤，跨用户访问返回资源不存在或参数非法。Agent 采用“公共池 + 私有资源”模型：管理员创建的 Agent 是公共 Agent，活跃公共 Agent 对所有登录用户可见可用；普通用户创建的 Agent 是私有 Agent，仅创建者可见可用。管理员也不会看到普通用户的私有 Agent。
@@ -231,7 +231,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 | 流程模版 | `/api/process-templates` | 模版 CRUD、生成模版编写 prompt、应用模版到项目 |
 | 任务管理 | `/api/tasks/...` | 任务详情、更新、生成 prompt、派发、重新派发、标记完成、标记放弃、前序状态查询（兼容保留） |
 | 状态与汇总 | `/api/projects/:id/...` | 手动轮询触发、获取轮询配置、获取执行汇总 |
-| 全局设置 | `/api/settings` | 轮询默认值、Prompt 设置（同机分配引导）；写接口**仅管理员可用** |
+| 全局设置 | `/api/settings` | 轮询默认值、Prompt 设置（写接口**仅管理员可用**）；飞书通知设置（`/api/settings/feishu`，读写均对**所有登录用户**开放，按账户隔离） |
 | 用户管理 | `/api/admin/users` + `/api/admin/audit-logs` | 用户列表、改角色、冻结/解冻、审计日志；**仅管理员可用** |
 
 **分页说明**：当前版本没有统一的分页抽象，大多数列表接口直接返回全量。仅 `GET /api/admin/audit-logs` 接受 `limit` query 参数（默认 50，最大 200）。
@@ -249,7 +249,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 | `/projects/:id/plan` | 计划生成 | 流程来源选择（左：使用模版；右：由 Prompt）、任务介绍、规划模式（仅 Prompt 路径）、Agent 勾选、Prompt 生成与复制、状态灯与计时器 |
 | `/projects/:id/tasks` | 任务执行 | DAG 视图 + 右侧任务详情面板 + Prompt 复制 + 异常处理 |
 | `/projects/:id/summary` | 执行汇总 | 任务状态总览 + 产出文件链接 + 人工介入记录 |
-| `/settings` | 项目参数设置 | 全局轮询参数、默认 Task 超时、Prompt 设置；**仅管理员可访问** |
+| `/settings` | 设置 | 飞书通知配置（**所有登录用户**）；全局轮询参数、Prompt 设置（**仅管理员可见**） |
 | `/templates` | 模版列表 | 所有登录用户可查看/使用；创建者与管理员可编辑/删除 |
 | `/templates/new`、`/templates/:templateId`、`/templates/:templateId/edit` | 模版新建/详情/编辑 | 三段式：基本信息 / 输入描述 / 编辑 JSON；DAG 预览；角色说明；必需输入声明 |
 | `/agents` | 智能体总览 | 单列卡片；自动排序按状态分组；支持拖拽手动排序；卡片内显示短期/长期重置倒计时 |
