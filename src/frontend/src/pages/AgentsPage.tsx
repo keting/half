@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, extractApiErrorDetail } from '../api/client';
 import { isAdminUser } from '../auth';
 import { Agent, AgentModelConfig, AgentTypeConfig, ModelDefinition } from '../types';
 import PageHeader from '../components/PageHeader';
@@ -33,7 +33,36 @@ interface AgentForm {
   long_term_reset_mode: string;
 }
 
+interface CodexUsageWindow {
+  label: string;
+  used_percent: number | null;
+  remaining_percent: number | null;
+  reset_after_seconds: number | null;
+  reset_at: string | null;
+  window_minutes: number | null;
+}
+
+interface CodexUsageSnapshot {
+  updated_at: string;
+  windows: {
+    five_hour?: CodexUsageWindow;
+    seven_day?: CodexUsageWindow;
+  };
+}
+
+interface CodexAgentStatus {
+  agent_id: number;
+  authenticated: boolean;
+  email?: string;
+  plan_type?: string;
+  chatgpt_account_id?: string;
+  expires_at?: string;
+  last_usage?: CodexUsageSnapshot | null;
+  last_usage_error?: string;
+}
+
 // Agent types and models are fetched from /api/agent-settings/types
+const CODEX_LOGIN_AGENT_TYPE = 'chatgpt-pro';
 
 const TIMEZONE_OPTIONS = [
   { value: 'CST', label: 'CST (UTC+8)', offsetMinutes: 8 * 60 },
@@ -176,6 +205,53 @@ function formatBeijingDisplay(value: string | null | undefined) {
   return `${parts.year}/${pad2(parts.month)}/${pad2(parts.day)} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
 }
 
+function formatPercent(value?: number | null) {
+  return value == null ? '-' : `${value.toFixed(1)}%`;
+}
+
+function formatDurationSeconds(value?: number | null) {
+  if (value == null) return '-';
+  const seconds = Math.max(0, Math.floor(value));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatIsoBeijing(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
+function renderCodexUsageWindow(title: string, window?: CodexUsageWindow) {
+  if (!window) return null;
+  return (
+    <div className="agent-codex-usage-window">
+      <strong>{title}</strong>
+      <span>剩余 {formatPercent(window.remaining_percent)}</span>
+      <span>已用 {formatPercent(window.used_percent)}</span>
+      <span>重置 {formatDurationSeconds(window.reset_after_seconds)}</span>
+      <span>{formatIsoBeijing(window.reset_at)}</span>
+    </div>
+  );
+}
+
 export default function AgentsPage() {
   const navigate = useNavigate();
   const isAdmin = isAdminUser();
@@ -188,10 +264,12 @@ export default function AgentsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [actionAgentId, setActionAgentId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [statusDropdownAgentId, setStatusDropdownAgentId] = useState<number | null>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [agentTypeConfigs, setAgentTypeConfigs] = useState<AgentTypeConfig[]>([]);
+  const [codexStatuses, setCodexStatuses] = useState<Record<number, CodexAgentStatus>>({});
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
 
@@ -241,13 +319,22 @@ export default function AgentsPage() {
     api.get<AgentTypeConfig[]>('/api/agents/config/types').then(setAgentTypeConfigs).catch(() => {});
   }, []);
 
-  useEffect(() => { fetchAgents(); fetchTypeConfigs(); }, [fetchAgents, fetchTypeConfigs]);
+  const fetchCodexStatuses = useCallback(() => {
+    api.get<CodexAgentStatus[]>('/api/codex-usage/agents/status')
+      .then((items) => {
+        setCodexStatuses(Object.fromEntries(items.map((item) => [item.agent_id, item])));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchAgents(); fetchTypeConfigs(); fetchCodexStatuses(); }, [fetchAgents, fetchTypeConfigs, fetchCodexStatuses]);
 
   useEffect(() => {
     const ct = window.setInterval(() => setNowTick(Date.now()), 30_000);
     const rt = window.setInterval(() => fetchAgents(), 60_000);
-    return () => { window.clearInterval(ct); window.clearInterval(rt); };
-  }, [fetchAgents]);
+    const st = window.setInterval(() => fetchCodexStatuses(), 60_000);
+    return () => { window.clearInterval(ct); window.clearInterval(rt); window.clearInterval(st); };
+  }, [fetchAgents, fetchCodexStatuses]);
 
   function handleAdd() { setForm(createEmptyForm()); setEditingId(null); setShowForm(true); setError(''); }
 
@@ -385,6 +472,38 @@ export default function AgentsPage() {
       setAgents((prev) => prev.map((a) => a.id === agentId ? updated : a));
     } catch (err) {
       setError(`状态更新失败：${err}`);
+    }
+  }
+
+  async function handleCodexAuthAction(agent: Agent) {
+    if ((agent.agent_type || '').trim().toLowerCase() !== CODEX_LOGIN_AGENT_TYPE) {
+      window.alert('当前未适配');
+      return;
+    }
+    const status = codexStatuses[agent.id];
+    if (!status?.authenticated) {
+      navigate(`/agents/${agent.id}/codex-login`);
+      return;
+    }
+
+    setActionAgentId(agent.id);
+    setError('');
+    setMessage('');
+    try {
+      const usage = await api.post<CodexUsageSnapshot>(`/api/codex-usage/agents/${agent.id}/usage`);
+      setCodexStatuses((current) => ({
+        ...current,
+        [agent.id]: {
+          ...(current[agent.id] || { agent_id: agent.id, authenticated: true }),
+          authenticated: true,
+          last_usage: usage,
+        },
+      }));
+      setMessage(`已刷新 "${agent.name}" 的 Codex 额度`);
+    } catch (err) {
+      setError(extractApiErrorDetail(String(err)) || '刷新 Codex 额度失败');
+    } finally {
+      setActionAgentId(null);
     }
   }
 
@@ -683,6 +802,7 @@ export default function AgentsPage() {
       </PageHeader>
 
       {error && !showForm && <div className="error-message">{error}</div>}
+      {message && !showForm && <div className="success-message">{message}</div>}
       {showForm && renderForm()}
 
       <div className="agent-card-list">
@@ -694,6 +814,9 @@ export default function AgentsPage() {
           const readonlyTitle = canEditAgent ? undefined : '公共 Agent 仅创建者可维护';
           const showShortActions = Boolean(canEditAgent && agent.short_term_reset_at && agent.short_term_reset_interval_hours && agent.short_term_reset_needs_confirmation);
           const showLongActions = Boolean(canEditAgent && agent.long_term_reset_at && (agent.long_term_reset_interval_days || agent.long_term_reset_mode === 'monthly') && agent.long_term_reset_needs_confirmation);
+          const isCodexAgent = (agent.agent_type || '').trim().toLowerCase() === CODEX_LOGIN_AGENT_TYPE;
+          const codexStatus = codexStatuses[agent.id];
+          const codexUsage = codexStatus?.last_usage;
 
           let shortColor: string | undefined;
           if (shortTerm.display !== '-' && shortTerm.diffMs >= 0 && shortTerm.diffMs < 3600_000) shortColor = '#ef4444';
@@ -796,6 +919,14 @@ export default function AgentsPage() {
                     <button className="btn btn-sm btn-delete" onClick={() => handleDelete(agent)} disabled={!canEditAgent || deletingId === agent.id} title={readonlyTitle}>
                       {deletingId === agent.id ? '删除中' : '删除'}
                     </button>
+                    <button
+                      className="btn btn-sm btn-codex-auth"
+                      onClick={() => handleCodexAuthAction(agent)}
+                      disabled={actionAgentId === agent.id}
+                      title={isCodexAgent ? undefined : '当前未适配'}
+                    >
+                      {actionAgentId === agent.id ? '刷新中' : isCodexAgent && codexStatus?.authenticated ? '刷新额度' : '登录'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -823,6 +954,21 @@ export default function AgentsPage() {
                       </p>
                     );
                   })}
+                </div>
+              )}
+
+              {isCodexAgent && codexUsage && (
+                <div className="agent-codex-usage">
+                  {renderCodexUsageWindow('短窗口', codexUsage.windows.five_hour)}
+                  {renderCodexUsageWindow('长窗口', codexUsage.windows.seven_day)}
+                  <span className="agent-codex-usage-updated">
+                    更新 {formatIsoBeijing(codexUsage.updated_at)}
+                  </span>
+                </div>
+              )}
+              {isCodexAgent && codexStatus?.last_usage_error && !codexUsage && (
+                <div className="agent-codex-usage agent-codex-usage-error">
+                  <span>{codexStatus.last_usage_error}</span>
                 </div>
               )}
 

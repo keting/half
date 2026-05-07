@@ -34,6 +34,8 @@ class Settings:
     )
     REPOS_DIR: str = os.getenv("HALF_REPOS_DIR", os.path.join(os.getcwd(), "repos"))
     WORKSPACE_ROOT: str | None = os.getenv("HALF_WORKSPACE_ROOT")
+    CODEX_OAUTH_FORWARD_URL: str | None = os.getenv("HALF_CODEX_OAUTH_FORWARD_URL")
+    CODEX_OAUTH_FORWARD_PARAM: str = os.getenv("HALF_CODEX_OAUTH_FORWARD_PARAM", "url")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     POLL_INTERVAL_SECONDS: int = 45

@@ -225,6 +225,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 | 认证 | `/api/auth` | 登录、注册、获取当前用户、修改密码、运行配置（`allow_register`） |
 | 健康检查 | `/health` | 返回 `{"status": "ok"}` |
 | Agent 管理 | `/api/agents` | 可见 Agent 列表；私有 Agent CRUD；公共 Agent 仅创建者维护；短期/长期重置的 reset / confirm；状态切换；类型只读目录 |
+| Codex 额度 | `/api/codex-usage` | `chatgpt-pro` Agent 的 OpenAI OAuth 登录、登录状态查询和 Codex 额度刷新；OAuth token、额度快照和账号级刷新冷却均只保存在后端进程内存中，不落库 |
 | 智能体设置 | `/api/agent-settings` | Agent 类型和模型的全局配置，**仅管理员可用** |
 | 项目管理 | `/api/projects` | 项目 CRUD；获取项目详情含"下一步"提示 |
 | 工作计划 | `/api/projects/:id/plans/...` | 生成 prompt、派发、finalize；候选/最终计划查询 |
@@ -252,7 +253,7 @@ ProcessTemplate ──applied to──► Project ──creates──► Project
 | `/settings` | 项目参数设置 | 全局轮询参数、默认 Task 超时、Prompt 设置；**仅管理员可访问** |
 | `/templates` | 模版列表 | 所有登录用户可查看/使用；创建者与管理员可编辑/删除 |
 | `/templates/new`、`/templates/:templateId`、`/templates/:templateId/edit` | 模版新建/详情/编辑 | 三段式：基本信息 / 输入描述 / 编辑 JSON；DAG 预览；角色说明；必需输入声明 |
-| `/agents` | 智能体总览 | 单列卡片；自动排序按状态分组；支持拖拽手动排序；卡片内显示短期/长期重置倒计时 |
+| `/agents` | 智能体总览 | 单列卡片；自动排序按状态分组；支持拖拽手动排序；卡片内显示短期/长期重置倒计时；`chatgpt-pro` Agent 支持登录后刷新 Codex 额度 |
 | `/agents/settings` | 智能体设置 | Agent 类型和模型的全局配置；**仅管理员可访问** |
 | `/admin/users` | 用户管理 | 用户列表 + 改角色 + 冻结/解冻；**仅管理员可访问** |
 

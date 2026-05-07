@@ -53,6 +53,7 @@ backend/
 ├── routers/                       # REST API 路由层
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
+│   ├── codex_usage.py             # /api/codex-usage/*（Codex OAuth 登录、状态与额度刷新）
 │   ├── agent_settings.py          # /api/agent-settings/*（仅管理员）
 │   ├── projects.py                # /api/projects CRUD
 │   ├── plans.py                   # /api/projects/:id/plans/*
@@ -69,6 +70,7 @@ backend/
 │   ├── polling_service.py         # polling_loop / poll_project / get_effective_task_timeout_minutes
 │   ├── polling_config_service.py  # 项目级轮询参数解析
 │   ├── agents.py                  # Agent availability 状态推导、短期/长期重置续推逻辑
+│   ├── codex_usage_cache.py       # Codex OAuth token、账号额度快照与账号级刷新冷却的内存缓存
 │   ├── project_agents.py          # 项目-Agent 绑定校验
 │   └── usage_limits.py            # 用量相关辅助
 ├── middleware/

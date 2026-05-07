@@ -1737,7 +1737,8 @@ body {
     "top      resets"
     "typedesc resets"
     "badges   resets"
-    "cap      resets";
+    "cap      resets"
+    "usage    resets";
   gap: 4px 24px;
   align-items: center;
 }
@@ -1874,6 +1875,16 @@ body {
   background: #fee2e2;
 }
 
+.btn-codex-auth {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #bbf7d0;
+}
+
+.btn-codex-auth:hover:not(:disabled) {
+  background: #dcfce7;
+}
+
 /* ===== Agent Status Dropdown ===== */
 .agent-status-container {
   position: relative;
@@ -1955,6 +1966,48 @@ body {
   font-size: 13px;
   color: var(--color-text-secondary);
   line-height: 1.5;
+}
+
+.agent-codex-usage {
+  grid-area: usage;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 10px;
+  align-items: center;
+  margin-top: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.agent-codex-usage-window,
+.agent-codex-usage-updated,
+.agent-codex-usage > span {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  background: #f8fafc;
+}
+
+.agent-codex-usage-window {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 8px;
+}
+
+.agent-codex-usage-window strong {
+  grid-column: 1 / -1;
+  color: var(--color-text);
+}
+
+.agent-codex-usage-window span,
+.agent-codex-usage-updated {
+  overflow-wrap: anywhere;
+}
+
+.agent-codex-usage-error span {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
 }
 
 .agent-card-resets {
@@ -2313,6 +2366,131 @@ body {
 
 .settings-add-model-btn {
   margin-top: 4px;
+}
+
+/* ===== Codex Usage ===== */
+.codex-status-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.codex-status-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.codex-status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--color-warning);
+}
+
+.codex-status-ok {
+  background: var(--color-success);
+}
+
+.codex-status-warn {
+  background: var(--color-warning);
+}
+
+.codex-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.codex-actions-compact {
+  margin-top: 0;
+}
+
+.codex-oauth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.codex-oauth-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.codex-oauth-form input,
+.codex-oauth-form textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--color-text);
+  background: #fff;
+  resize: vertical;
+}
+
+.codex-oauth-form input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn.disabled {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.codex-note {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.codex-updated-at {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.codex-usage-windows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.codex-usage-window {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: #fff;
+}
+
+.codex-usage-window-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.codex-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.codex-usage-grid span {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.codex-usage-grid strong {
+  display: block;
+  font-size: 15px;
+  overflow-wrap: anywhere;
 }
 
 /* ===== Agent Form Overlay ===== */
@@ -2870,8 +3048,10 @@ body {
     grid-template-columns: 1fr;
     grid-template-areas:
       "top"
+      "typedesc"
       "badges"
       "cap"
+      "usage"
       "resets";
   }
 
