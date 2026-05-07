@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { isAdminUser } from '../auth';
 import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
+import type { FeishuSettings } from '../types';
 
 interface PollingSettings {
   polling_interval_min: number;
@@ -18,17 +19,64 @@ interface PromptSettings {
   default_co_location_guidance: string;
 }
 
-const FEISHU_NOTIFY_EVENT_LABELS: Record<string, string> = {
+export const FEISHU_NOTIFY_EVENT_LABELS: Record<string, string> = {
   completed: '任务完成',
   timeout: '任务超时',
-  error: '任务报错',
   project_completed: '项目完成',
 };
 const FEISHU_NOTIFY_EVENT_KEYS = Object.keys(FEISHU_NOTIFY_EVENT_LABELS);
 
-interface FeishuSettings {
-  webhook_url: string;
-  notify_events: string[];
+type SettingsApiClient = Pick<typeof api, 'get' | 'put'>;
+
+export function toggleFeishuNotifyEvent(current: string[], key: string, checked: boolean): string[] {
+  if (checked) {
+    return current.includes(key) ? current : [...current, key];
+  }
+  return current.filter((item) => item !== key);
+}
+
+export async function loadProjectSettingsData(isAdmin: boolean, client: SettingsApiClient = api): Promise<{
+  settings: PollingSettings | null;
+  promptSettings: PromptSettings | null;
+  feishuSettings: FeishuSettings;
+}> {
+  if (isAdmin) {
+    const [settings, promptSettings, feishuSettings] = await Promise.all([
+      client.get<PollingSettings>('/api/settings/polling'),
+      client.get<PromptSettings>('/api/settings/prompt'),
+      client.get<FeishuSettings>('/api/settings/feishu'),
+    ]);
+    return { settings, promptSettings, feishuSettings };
+  }
+
+  const feishuSettings = await client.get<FeishuSettings>('/api/settings/feishu');
+  return { settings: null, promptSettings: null, feishuSettings };
+}
+
+export async function saveProjectSettingsData(
+  isAdmin: boolean,
+  feishuSettings: FeishuSettings,
+  client: SettingsApiClient = api,
+  settings?: PollingSettings | null,
+  promptSettings?: PromptSettings | null,
+): Promise<{
+  promptSettings: PromptSettings | null;
+  feishuSettings: FeishuSettings;
+}> {
+  let nextPromptSettings = promptSettings ?? null;
+
+  if (isAdmin && settings && promptSettings) {
+    await client.put('/api/settings/polling', settings);
+    nextPromptSettings = await client.put<PromptSettings>('/api/settings/prompt', {
+      co_location_guidance: promptSettings.co_location_guidance,
+    });
+  }
+
+  const savedFeishuSettings = await client.put<FeishuSettings>('/api/settings/feishu', feishuSettings);
+  return {
+    promptSettings: nextPromptSettings,
+    feishuSettings: savedFeishuSettings,
+  };
 }
 
 export default function ProjectSettingsPage() {
@@ -37,31 +85,32 @@ export default function ProjectSettingsPage() {
   const [settings, setSettings] = useState<PollingSettings | null>(null);
   const [promptSettings, setPromptSettings] = useState<PromptSettings | null>(null);
   const [feishuSettings, setFeishuSettings] = useState<FeishuSettings>({ webhook_url: '', notify_events: [] });
+  const [feishuLoaded, setFeishuLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!isAdmin) {
-      navigate('/projects', { replace: true });
-      return;
-    }
     fetchSettings();
-  }, [isAdmin, navigate]);
+  }, [isAdmin]);
 
   function fetchSettings() {
     setLoading(true);
-    Promise.all([
-      api.get<PollingSettings>('/api/settings/polling'),
-      api.get<PromptSettings>('/api/settings/prompt'),
-      api.get<FeishuSettings>('/api/settings/feishu'),
-    ])
-      .then(([polling, prompt, feishu]) => {
-        setSettings(polling);
-        setPromptSettings(prompt);
-        setFeishuSettings(feishu);
-      })
+    setError('');
+    const request = loadProjectSettingsData(isAdmin)
+      .then(({ settings, promptSettings, feishuSettings }) => {
+        if (settings) {
+          setSettings(settings);
+        }
+        if (promptSettings) {
+          setPromptSettings(promptSettings);
+        }
+        setFeishuSettings(feishuSettings);
+          setFeishuLoaded(true);
+        });
+
+    request
       .catch(() => setError('加载设置失败'))
       .finally(() => setLoading(false));
   }
@@ -92,12 +141,14 @@ export default function ProjectSettingsPage() {
   }
 
   async function handleSave() {
-    if (!settings || !promptSettings) return;
+    if (isAdmin) {
+      if (!settings || !promptSettings) return;
 
-    const validationError = validateSettings(settings);
-    if (validationError) {
-      setError(validationError);
-      return;
+      const validationError = validateSettings(settings);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
     }
 
     setSaving(true);
@@ -105,12 +156,9 @@ export default function ProjectSettingsPage() {
     setSuccess('');
 
     try {
-      await api.put('/api/settings/polling', settings);
-      const savedPrompt = await api.put<PromptSettings>('/api/settings/prompt', {
-        co_location_guidance: promptSettings.co_location_guidance,
-      });
-      setPromptSettings(savedPrompt);
-      await api.put<FeishuSettings>('/api/settings/feishu', feishuSettings);
+      const saved = await saveProjectSettingsData(isAdmin, feishuSettings, api, settings, promptSettings);
+      setPromptSettings(saved.promptSettings);
+      setFeishuSettings(saved.feishuSettings);
       setSuccess('设置保存成功');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -124,10 +172,10 @@ export default function ProjectSettingsPage() {
     return <div className="page-loading">正在加载设置...</div>;
   }
 
-  if (!settings || !promptSettings) {
+  if (!feishuLoaded || (isAdmin && (!settings || !promptSettings))) {
     return (
       <div className="page">
-        <PageHeader title="项目参数设置" />
+        <PageHeader title={isAdmin ? '项目与通知设置' : '通知设置'} />
         <div className="error-message">加载设置失败，请刷新重试</div>
       </div>
     );
@@ -135,11 +183,13 @@ export default function ProjectSettingsPage() {
 
   return (
     <div className="page">
-      <PageHeader title="项目参数设置" />
+      <PageHeader title={isAdmin ? '项目与通知设置' : '通知设置'} />
 
       {error && <div className="error-message">{error}</div>}
       {success && <div className="success-message">{success}</div>}
 
+      {isAdmin && settings && promptSettings && (
+        <>
       <SectionCard title="轮询默认间隔">
         <p className="section-description">
           系统会在该范围内随机选择一个间隔时间进行轮询。例如，设置为 15-30 秒时，每次轮询会随机延迟 15-30 秒后再进行下一次轮询。这样可以避免规律性的轮询对服务器造成压力。
@@ -282,11 +332,12 @@ export default function ProjectSettingsPage() {
           </button>
         </div>
       </SectionCard>
+        </>
+      )}
 
       <SectionCard title="飞书通知">
         <p className="section-description">
-          配置飞书自定义机器人 Webhook，当任务或项目状态发生关键变化时，自动推送卡片通知。Webhook URL
-          格式：https://open.feishu.cn/open-apis/bot/v2/hook/&lt;token&gt;
+          配置你自己的飞书自定义机器人 Webhook。当任务或项目状态发生关键变化时，系统会按你勾选的事件向当前账户配置的地址推送卡片通知。Webhook URL 格式：https://open.feishu.cn/open-apis/bot/v2/hook/&lt;token&gt;
         </p>
         <div className="form-group">
           <label htmlFor="feishu-webhook-url">Webhook URL</label>
@@ -299,7 +350,7 @@ export default function ProjectSettingsPage() {
               setFeishuSettings({ ...feishuSettings, webhook_url: e.target.value })
             }
           />
-          <div className="helper-text">留空则不发送飞书通知。</div>
+          <div className="helper-text">留空则当前账户不接收飞书通知。</div>
         </div>
         <div className="form-group">
           <label>通知事件</label>
@@ -310,9 +361,7 @@ export default function ProjectSettingsPage() {
                   type="checkbox"
                   checked={feishuSettings.notify_events.includes(key)}
                   onChange={(e) => {
-                    const next = e.target.checked
-                      ? [...feishuSettings.notify_events, key]
-                      : feishuSettings.notify_events.filter((k) => k !== key);
+                    const next = toggleFeishuNotifyEvent(feishuSettings.notify_events, key, e.target.checked);
                     setFeishuSettings({ ...feishuSettings, notify_events: next });
                   }}
                 />
