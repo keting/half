@@ -117,7 +117,7 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
 
     running_plans = db.query(ProjectPlan).filter(
         ProjectPlan.project_id == project.id,
-        ProjectPlan.status == "running",
+        ProjectPlan.status.in_(("running", "needs_attention")),
     ).all()
     sync_status = git_service.ensure_repo_sync(project.id, project.git_repo_url)
     if sync_status.error:
@@ -133,7 +133,7 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
             if _delay_satisfied(task.dispatched_at):
                 _set_task_runtime_error(db, task, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
         db.commit()
-        return
+        return pending_notifications
 
     sync_warning = None
     if sync_status.warnings:
@@ -259,6 +259,17 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
     return pending_notifications
 
 
+def _poll_project_in_worker(project_id: int) -> list[NotificationEvent]:
+    db = SessionLocal()
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project is None:
+            return []
+        return poll_project(db, project)
+    finally:
+        db.close()
+
+
 def _compute_next_poll_time(db: Session, project: Project, now: datetime) -> datetime:
     """Compute the next polling time for a project based on its random interval config."""
     settings = get_project_polling_settings(db, project)
@@ -311,8 +322,11 @@ async def polling_loop(interval_seconds: int) -> None:
                     scheduled = next_poll_at.get(project.id)
                     if scheduled is not None and scheduled > now:
                         continue  # Not yet time for this project
+                    project_id = project.id
                     try:
-                        notifications = poll_project(db, project)
+                        notifications = await asyncio.get_running_loop().run_in_executor(
+                            None, _poll_project_in_worker, project_id
+                        )
                     except Exception as e:
                         logger.error(f"Error polling project {project.id}: {e}")
                         notifications = []
@@ -323,10 +337,15 @@ async def polling_loop(interval_seconds: int) -> None:
                                     feishu_service.send_feishu_notification(feishu_webhook_url, evt)
                                 )
                     # Re-fetch settings each time so live config changes take effect
-                    next_poll_at[project.id] = _compute_next_poll_time(db, project, now)
+                    db.expire_all()
+                    refreshed_project = db.query(Project).filter(Project.id == project_id).first()
+                    if refreshed_project is None:
+                        next_poll_at.pop(project_id, None)
+                        continue
+                    next_poll_at[project_id] = _compute_next_poll_time(db, refreshed_project, now)
                     logger.debug(
                         "Project %s next poll at %s",
-                        project.id, next_poll_at[project.id].isoformat(),
+                        project_id, next_poll_at[project_id].isoformat(),
                     )
             finally:
                 db.close()
