@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -7,14 +8,12 @@ from typing import Optional
 import httpx
 from sqlalchemy.orm import Session
 
-from models import GlobalSetting
+from models import User
 
 logger = logging.getLogger("half.feishu")
 
-FEISHU_WEBHOOK_URL_KEY = "feishu_webhook_url"
-FEISHU_NOTIFY_EVENTS_KEY = "feishu_notify_events"
 DEFAULT_NOTIFY_EVENTS = ["completed", "timeout", "project_completed"]
-ALLOWED_NOTIFY_EVENTS = {"completed", "timeout", "error", "project_completed"}
+ALLOWED_NOTIFY_EVENTS = {"completed", "timeout", "project_completed"}
 
 
 @dataclass
@@ -25,16 +24,13 @@ class NotificationEvent:
     detail: Optional[str] = field(default=None)
 
 
-def get_feishu_settings(db: Session) -> dict:
-    """Read Feishu notification settings from GlobalSetting table."""
-    rows = db.query(GlobalSetting).filter(
-        GlobalSetting.key.in_([FEISHU_WEBHOOK_URL_KEY, FEISHU_NOTIFY_EVENTS_KEY])
-    ).all()
-    result = {r.key: r.value for r in rows}
+@dataclass(frozen=True)
+class FeishuDestination:
+    webhook_url: str
+    notify_events: frozenset[str]
 
-    webhook_url = result.get(FEISHU_WEBHOOK_URL_KEY, "")
 
-    raw_events = result.get(FEISHU_NOTIFY_EVENTS_KEY)
+def _normalize_notify_events(raw_events: str | None) -> list[str]:
     try:
         notify_events = json.loads(raw_events) if raw_events else DEFAULT_NOTIFY_EVENTS
         if not isinstance(notify_events, list):
@@ -42,20 +38,66 @@ def get_feishu_settings(db: Session) -> dict:
     except (json.JSONDecodeError, TypeError):
         notify_events = DEFAULT_NOTIFY_EVENTS
 
+    normalized = [event for event in notify_events if event in ALLOWED_NOTIFY_EVENTS]
+    if notify_events and not normalized:
+        return DEFAULT_NOTIFY_EVENTS
+    return normalized
+
+
+def get_feishu_settings(user: User) -> dict:
+    """Read Feishu notification settings from the current user record."""
+    webhook_url = (user.feishu_webhook_url or "").strip()
+    notify_events = _normalize_notify_events(user.feishu_notify_events_json)
+
     return {"webhook_url": webhook_url, "notify_events": notify_events}
+
+
+def get_feishu_destination_for_user(db: Session, user_id: int) -> FeishuDestination | None:
+    user = db.query(User).filter(User.id == user_id, User.status == "active").first()
+    if user is None:
+        return None
+
+    settings = get_feishu_settings(user)
+    webhook_url = settings["webhook_url"]
+    if not webhook_url:
+        return None
+
+    return FeishuDestination(
+        webhook_url=webhook_url,
+        notify_events=frozenset(settings["notify_events"]),
+    )
+
+
+async def dispatch_notifications(db: Session, user_id: int, notifications: list[NotificationEvent]) -> int:
+    """Send generated notifications to one user's Feishu webhook subscription."""
+    if not notifications:
+        return 0
+
+    destination = get_feishu_destination_for_user(db, user_id)
+    if destination is None:
+        return 0
+
+    deliveries = []
+    for event in notifications:
+        if event.event_type in destination.notify_events:
+            deliveries.append(send_feishu_notification(destination.webhook_url, event))
+
+    if not deliveries:
+        return 0
+
+    await asyncio.gather(*deliveries)
+    return len(deliveries)
 
 
 _CARD_COLORS = {
     "completed": "green",
     "timeout": "orange",
-    "error": "red",
     "project_completed": "green",
 }
 
 _CARD_TITLES = {
     "completed": "任务完成",
     "timeout": "任务超时",
-    "error": "任务报错",
     "project_completed": "项目完成",
 }
 

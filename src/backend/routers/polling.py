@@ -7,6 +7,7 @@ from access import get_owned_project
 from database import get_db
 from models import Project, Task, TaskEvent, User
 from auth import get_current_user
+from services import feishu_service
 from services.polling_service import poll_project
 from services.polling_config_service import get_project_polling_settings
 from schemas import utc_isoformat
@@ -30,12 +31,17 @@ def get_polling_config(project_id: int, db: Session = Depends(get_db), user: Use
 
 
 @router.post("/{project_id}/poll")
-def manual_poll(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def manual_poll(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_owned_project(db, project_id, user)
     if not project.git_repo_url:
         raise HTTPException(status_code=400, detail="Project has no git repo URL")
-    poll_project(db, project)
-    return {"message": "Poll completed", "project_status": project.status}
+    notifications = poll_project(db, project)
+    await feishu_service.dispatch_notifications(db, project.created_by, notifications)
+    return {
+        "message": "Poll completed",
+        "project_status": project.status,
+        "notification_events": [event.event_type for event in notifications],
+    }
 
 
 @router.get("/{project_id}/summary")

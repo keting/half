@@ -314,10 +314,6 @@ async def polling_loop(interval_seconds: int) -> None:
                     if stale_id not in active_ids:
                         next_poll_at.pop(stale_id, None)
 
-                feishu_cfg = feishu_service.get_feishu_settings(db)
-                feishu_webhook_url = feishu_cfg.get("webhook_url", "")
-                feishu_notify_events = set(feishu_cfg.get("notify_events", []))
-
                 for project in projects:
                     scheduled = next_poll_at.get(project.id)
                     if scheduled is not None and scheduled > now:
@@ -330,12 +326,7 @@ async def polling_loop(interval_seconds: int) -> None:
                     except Exception as e:
                         logger.error(f"Error polling project {project.id}: {e}")
                         notifications = []
-                    if feishu_webhook_url and notifications:
-                        for evt in notifications:
-                            if evt.event_type in feishu_notify_events:
-                                asyncio.create_task(
-                                    feishu_service.send_feishu_notification(feishu_webhook_url, evt)
-                                )
+                    await feishu_service.dispatch_notifications(db, project.created_by, notifications)
                     # Re-fetch settings each time so live config changes take effect
                     db.expire_all()
                     refreshed_project = db.query(Project).filter(Project.id == project_id).first()

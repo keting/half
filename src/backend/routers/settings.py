@@ -15,8 +15,6 @@ from services.prompt_settings import (
 )
 from services.feishu_service import (
     get_feishu_settings,
-    FEISHU_WEBHOOK_URL_KEY,
-    FEISHU_NOTIFY_EVENTS_KEY,
     ALLOWED_NOTIFY_EVENTS,
 )
 
@@ -160,19 +158,19 @@ _FEISHU_WEBHOOK_RE = re.compile(
 @router.get("/feishu")
 async def get_feishu_notification_settings(
     db: Session = Depends(get_db),
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
-    """Get Feishu notification settings."""
-    return get_feishu_settings(db)
+    """Get Feishu notification settings for the current user."""
+    return get_feishu_settings(user)
 
 
 @router.put("/feishu")
 async def update_feishu_notification_settings(
     settings_data: dict,
     db: Session = Depends(get_db),
-    _user=Depends(require_admin),
+    user=Depends(get_current_user),
 ):
-    """Update Feishu notification settings (admin only)."""
+    """Update Feishu notification settings for the current user."""
     webhook_url = settings_data.get("webhook_url", "")
     notify_events = settings_data.get("notify_events", [])
 
@@ -192,16 +190,8 @@ async def update_feishu_notification_settings(
             detail=f"Invalid event types: {invalid_events}. Allowed: {sorted(ALLOWED_NOTIFY_EVENTS)}",
         )
 
-    for key, value in [
-        (FEISHU_WEBHOOK_URL_KEY, webhook_url),
-        (FEISHU_NOTIFY_EVENTS_KEY, json.dumps(notify_events)),
-    ]:
-        setting = db.query(GlobalSetting).filter(GlobalSetting.key == key).first()
-        if not setting:
-            setting = GlobalSetting(key=key, value=value)
-            db.add(setting)
-        else:
-            setting.value = value
-
+    user.feishu_webhook_url = webhook_url.strip()
+    user.feishu_notify_events_json = json.dumps(notify_events)
     db.commit()
-    return {"webhook_url": webhook_url, "notify_events": notify_events}
+    db.refresh(user)
+    return get_feishu_settings(user)

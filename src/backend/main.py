@@ -26,11 +26,6 @@ from routers import users as users_router
 from routers import process_templates as process_templates_router
 from services.polling_service import polling_loop
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_LOCATION_GUIDANCE_KEY
-from services.feishu_service import (
-    FEISHU_WEBHOOK_URL_KEY,
-    FEISHU_NOTIFY_EVENTS_KEY,
-    DEFAULT_NOTIFY_EVENTS,
-)
 from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
 
 logging.basicConfig(level=logging.INFO)
@@ -113,6 +108,8 @@ def ensure_schema_updates():
         "users": {
             "role": "TEXT DEFAULT 'user'",
             "status": "TEXT DEFAULT 'active'",
+            "feishu_webhook_url": "TEXT DEFAULT ''",
+            "feishu_notify_events_json": "TEXT DEFAULT '[\"completed\", \"timeout\", \"project_completed\"]'",
             "last_login_at": "DATETIME",
             "last_login_ip": "TEXT",
         },
@@ -162,6 +159,11 @@ def ensure_schema_updates():
         conn.execute(text("UPDATE users SET role = 'admin' WHERE username = 'admin'"))
         conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR TRIM(role) = ''"))
         conn.execute(text("UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''"))
+        conn.execute(text("UPDATE users SET feishu_webhook_url = '' WHERE feishu_webhook_url IS NULL"))
+        conn.execute(text(
+            "UPDATE users SET feishu_notify_events_json = '[\"completed\", \"timeout\", \"project_completed\"]' "
+            "WHERE feishu_notify_events_json IS NULL OR TRIM(feishu_notify_events_json) = ''"
+        ))
         conn.execute(text("UPDATE projects SET planning_mode = 'balanced' WHERE planning_mode IS NULL OR TRIM(planning_mode) = ''"))
 
 
@@ -254,8 +256,6 @@ def seed_global_polling_settings():
             "polling_start_delay_seconds": "0",
             "task_timeout_minutes": "10",
             PLAN_CO_LOCATION_GUIDANCE_KEY: DEFAULT_PLAN_CO_LOCATION_GUIDANCE,
-            FEISHU_WEBHOOK_URL_KEY: "",
-            FEISHU_NOTIFY_EVENTS_KEY: json.dumps(DEFAULT_NOTIFY_EVENTS),
         }
 
         descriptions = {
@@ -265,8 +265,6 @@ def seed_global_polling_settings():
             "polling_start_delay_seconds": "Seconds to delay before starting polling (added to minutes)",
             "task_timeout_minutes": "Default task timeout in minutes",
             PLAN_CO_LOCATION_GUIDANCE_KEY: "Planning prompt guidance for co-located agent assignment",
-            FEISHU_WEBHOOK_URL_KEY: "Feishu custom bot webhook URL for task notifications",
-            FEISHU_NOTIFY_EVENTS_KEY: "JSON list of event types that trigger Feishu notifications",
         }
 
         for key, value in defaults.items():
