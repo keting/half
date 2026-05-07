@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import URLError
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener, urlopen
 
 import pytest
 from fastapi import FastAPI
@@ -166,8 +166,9 @@ def test_get_plans_remains_responsive_during_background_polling(
             f"http://127.0.0.1:{port}/api/projects/2/plans",
             headers=headers,
         )
+        opener = build_opener(ProxyHandler({}))
         try:
-            with urlopen(request, timeout=0.5) as response:
+            with opener.open(request, timeout=0.5) as response:
                 status_code = response.status
                 response.read()
         except (TimeoutError, URLError) as exc:

@@ -50,11 +50,13 @@ export default function ProjectListPage() {
           <Link to="/projects/new" className="btn btn-primary" title="创建一个新的项目并配置目标与 Agent">
             新建项目
           </Link>
-          {isAdmin && (
-            <Link to="/settings" className="btn btn-secondary" title="设置轮询间隔、启动延迟等全局参数">
-              设置
-            </Link>
-          )}
+          <Link
+            to="/settings"
+            className="btn btn-secondary"
+            title={isAdmin ? '设置轮询间隔、启动延迟、Prompt 和个人飞书通知' : '设置个人飞书通知'}
+          >
+            {isAdmin ? '设置' : '通知设置'}
+          </Link>
         </div>
       </div>
 

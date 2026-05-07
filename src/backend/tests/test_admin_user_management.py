@@ -115,10 +115,40 @@ class AdminUserManagementTests(unittest.TestCase):
         headers = self._login_headers("alice", "Alice123")
         agent_catalog = self.client.get("/api/agents/config/types", headers=headers)
         polling_defaults = self.client.get("/api/settings/polling", headers=headers)
+        feishu_settings = self.client.get("/api/settings/feishu", headers=headers)
 
         self.assertEqual(agent_catalog.status_code, 200)
         self.assertEqual(len(agent_catalog.json()), 1)
         self.assertEqual(polling_defaults.status_code, 200)
+        self.assertEqual(feishu_settings.status_code, 200)
+        self.assertEqual(feishu_settings.json()["webhook_url"], "")
+
+    def test_regular_user_manages_only_their_own_feishu_settings(self):
+        alice_headers = self._login_headers("alice", "Alice123")
+        admin_headers = self._login_headers("admin", "Admin123")
+
+        update = self.client.put(
+            "/api/settings/feishu",
+            json={
+                "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/alice-token",
+                "notify_events": ["completed", "timeout"],
+            },
+            headers=alice_headers,
+        )
+        alice_get = self.client.get("/api/settings/feishu", headers=alice_headers)
+        admin_get = self.client.get("/api/settings/feishu", headers=admin_headers)
+
+        self.assertEqual(update.status_code, 200)
+        self.assertEqual(alice_get.status_code, 200)
+        self.assertEqual(admin_get.status_code, 200)
+        self.assertEqual(
+            alice_get.json(),
+            {
+                "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/alice-token",
+                "notify_events": ["completed", "timeout"],
+            },
+        )
+        self.assertEqual(admin_get.json()["webhook_url"], "")
 
     def test_login_records_forwarded_client_ip(self):
         response = self.client.post(

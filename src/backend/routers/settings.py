@@ -1,3 +1,6 @@
+import json
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -9,6 +12,10 @@ from services.prompt_settings import (
     DEFAULT_PLAN_CO_LOCATION_GUIDANCE,
     get_plan_co_location_guidance,
     upsert_plan_co_location_guidance,
+)
+from services.feishu_service import (
+    get_feishu_settings,
+    ALLOWED_NOTIFY_EVENTS,
 )
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -141,3 +148,50 @@ async def update_prompt_settings(
         "co_location_guidance": guidance,
         "default_co_location_guidance": DEFAULT_PLAN_CO_LOCATION_GUIDANCE,
     }
+
+
+_FEISHU_WEBHOOK_RE = re.compile(
+    r'^https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9_-]+$'
+)
+
+
+@router.get("/feishu")
+async def get_feishu_notification_settings(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Get Feishu notification settings for the current user."""
+    return get_feishu_settings(user)
+
+
+@router.put("/feishu")
+async def update_feishu_notification_settings(
+    settings_data: dict,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Update Feishu notification settings for the current user."""
+    webhook_url = settings_data.get("webhook_url", "")
+    notify_events = settings_data.get("notify_events", [])
+
+    if not isinstance(webhook_url, str):
+        raise HTTPException(status_code=400, detail="webhook_url must be a string")
+    if webhook_url and not _FEISHU_WEBHOOK_RE.match(webhook_url):
+        raise HTTPException(
+            status_code=400,
+            detail="webhook_url must match https://open.feishu.cn/open-apis/bot/v2/hook/<token>",
+        )
+    if not isinstance(notify_events, list):
+        raise HTTPException(status_code=400, detail="notify_events must be a list")
+    invalid_events = [e for e in notify_events if e not in ALLOWED_NOTIFY_EVENTS]
+    if invalid_events:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid event types: {invalid_events}. Allowed: {sorted(ALLOWED_NOTIFY_EVENTS)}",
+        )
+
+    user.feishu_webhook_url = webhook_url.strip()
+    user.feishu_notify_events_json = json.dumps(notify_events)
+    db.commit()
+    db.refresh(user)
+    return get_feishu_settings(user)

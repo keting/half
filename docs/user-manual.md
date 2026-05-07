@@ -55,7 +55,7 @@
 2. Click a project card title/description to open project details.
 3. Click "Edit" to modify project information.
 4. Click "Delete" to remove the project (related plans and tasks are removed as well).
-5. Admins can use the "Settings" entry to open global project parameter settings.
+5. All users can open "Notification Settings" to configure personal Feishu notifications; admins can also adjust global project parameters there.
 
 ---
 
@@ -257,17 +257,29 @@
 
 ---
 
-### 2.11 Project Parameter Settings Page (Admin, `/settings`)
+### 2.11 Settings Page (`/settings`)
 
 **Purpose**
 
-- Configure global default project parameters.
+- **All logged-in users**: Configure personal Feishu Webhook notifications.
+- **Admins additionally**: Adjust global project polling parameters and planning prompt settings.
 
 **How to Access**
 
-- Admins can open "Settings" from the project page or navigation entry.
+- All users can open "Notification Settings" from the top-right of the project list page; the entry label shows "Settings" for admins.
 
-**Steps**
+**Steps (Feishu Notifications)**
+
+1. Enter your personal bot Webhook URL in the "Feishu Notifications" section.
+   - URL format: `https://open.feishu.cn/open-apis/bot/v2/hook/<token>`
+   - Leave blank to disable notifications for your account.
+2. Select the event types you want to receive:
+   - **Task Completed** (`completed`): triggered when polling detects a task is done.
+   - **Task Timeout** (`timeout`): triggered when a task exceeds its configured time limit.
+   - **Project Completed** (`project_completed`): triggered when all tasks in a project are done.
+3. Click "Save Settings".
+
+**Steps (Global Parameters — Admins Only)**
 
 1. Configure global polling interval range, startup delay, and default task timeout.
 2. Configure same-machine assignment guidance text for planning prompts.
@@ -275,7 +287,9 @@
 
 **Notes**
 
-- These are global defaults; project values are snapshotted when a project is created.
+- Feishu notifications are **per-account**: each user only receives notifications for projects and tasks they created.
+- Push failures (network errors or invalid Webhook) are logged as warnings and **do not interrupt background polling**.
+- Global polling parameters are defaults; project values are snapshotted at creation and not retroactively affected by later changes.
 
 ![user-manual-project-settings-page](./images/user-manual-project-settings-page.png)
 

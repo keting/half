@@ -109,6 +109,8 @@ def ensure_schema_updates():
         "users": {
             "role": "TEXT DEFAULT 'user'",
             "status": "TEXT DEFAULT 'active'",
+            "feishu_webhook_url": "TEXT DEFAULT ''",
+            "feishu_notify_events_json": "TEXT DEFAULT '[\"completed\", \"timeout\", \"project_completed\"]'",
             "last_login_at": "DATETIME",
             "last_login_ip": "TEXT",
         },
@@ -158,6 +160,11 @@ def ensure_schema_updates():
         conn.execute(text("UPDATE users SET role = 'admin' WHERE username = 'admin'"))
         conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR TRIM(role) = ''"))
         conn.execute(text("UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''"))
+        conn.execute(text("UPDATE users SET feishu_webhook_url = '' WHERE feishu_webhook_url IS NULL"))
+        conn.execute(text(
+            "UPDATE users SET feishu_notify_events_json = '[\"completed\", \"timeout\", \"project_completed\"]' "
+            "WHERE feishu_notify_events_json IS NULL OR TRIM(feishu_notify_events_json) = ''"
+        ))
         conn.execute(text("UPDATE projects SET planning_mode = 'balanced' WHERE planning_mode IS NULL OR TRIM(planning_mode) = ''"))
 
 
