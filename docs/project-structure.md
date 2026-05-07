@@ -149,7 +149,7 @@ frontend/
 │   │   ├── PlanPage.tsx           # /projects/:id/plan 计划生成（双路径）
 │   │   ├── TasksPage.tsx          # /projects/:id/tasks DAG + 任务执行
 │   │   ├── SummaryPage.tsx        # /projects/:id/summary 执行汇总
-│   │   ├── ProjectSettingsPage.tsx # /settings 全局项目参数（仅管理员）
+│   │   ├── ProjectSettingsPage.tsx # /settings 通知设置（所有用户）；全局轮询/Prompt 设置仅管理员可见
 │   │   ├── ProcessTemplatesPage.tsx # /templates/* 模版 CRUD 的统一多视图组件
 │   │   ├── AgentsPage.tsx         # /agents 单列卡片 + 拖拽排序 + 重置倒计时
 │   │   ├── AgentSettingsPage.tsx  # /agents/settings（仅管理员）
