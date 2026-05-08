@@ -226,7 +226,7 @@
 2. 编辑或删除已有 Agent。
 3. 通过拖拽或“自动排序”调整卡片顺序。
 4. 通过状态徽章切换可用状态。
-5. 使用倒计时卡片上的“重置/确认”处理重置窗口。
+5. 对 `chatgpt-pro` Agent，可在卡片上完成 OpenAI OAuth 登录并刷新 Codex 额度。
 
 ![user-manual-agents-page](./images/user-manual-agents-page.png)
 
@@ -350,4 +350,3 @@
 4. HALF 后端轮询检测到 `result.json` 后，任务状态推进为完成，并可在“执行总结”页查看结果
 
 说明：`result.json` 是完成信号文件，应在其他产物准备好后最后落盘并提交。
-

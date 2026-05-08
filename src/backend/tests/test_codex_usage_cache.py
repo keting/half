@@ -15,7 +15,6 @@ from services.codex_usage_cache import (
     CodexUsageCache,
     UsageRefreshTooSoonError,
     _parse_codex_headers,
-    build_callback_redirect_url,
 )
 
 
@@ -54,20 +53,6 @@ def test_oauth_session_is_memory_only_and_clearable():
     cache.clear()
 
     assert cache.status()["authenticated"] is False
-
-
-def test_build_callback_redirect_url_preserves_code_and_state():
-    redirect_url = f"{CODEX_REDIRECT_URI}?code=code-1&state=state-1"
-
-    rewritten = build_callback_redirect_url("http://remote.example:1455/auth/callback", redirect_url)
-
-    assert rewritten == "http://remote.example:1455/auth/callback?code=code-1&state=state-1"
-
-
-def test_build_callback_redirect_url_ignores_invalid_callback_url():
-    redirect_url = f"{CODEX_REDIRECT_URI}?code=code-1&state=state-1"
-
-    assert build_callback_redirect_url("javascript:alert(1)", redirect_url) == redirect_url
 
 
 def test_manual_exchange_accepts_full_callback_url():

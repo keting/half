@@ -254,7 +254,7 @@ HALF 跟踪每个 Agent 的**订阅到期**和**重置窗口**，避免规划把
 | 状态 | 触发/切换方式 |
 |---|---|
 | **available**（可用） | `availability_status = available` 且 `subscription_expires_at > now` |
-| **short_reset_pending**（短期重置后可用） | 用户手动切换；读取 `short_term_reset_at` 显示倒计时 |
+| **short_reset_pending**（短期重置后可用） | 用户手动切换；读取 `short_term_reset_at` 参与状态推导和排序 |
 | **long_reset_pending**（长期重置后可用） | 用户手动切换；读取 `long_term_reset_at` |
 | **unavailable**（不可用） | **派生状态**，不存储；由 `subscription_expires_at <= now` 实时推导 |
 

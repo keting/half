@@ -226,7 +226,7 @@
 2. Edit or delete existing agents.
 3. Reorder cards by drag-and-drop or "Auto Sort".
 4. Switch availability via status badges.
-5. Use "Reset/Confirm" on countdown cards to handle reset windows.
+5. For `chatgpt-pro` agents, log in with OpenAI OAuth and refresh Codex quota from the agent card.
 
 ![user-manual-agents-page](./images/user-manual-agents-page.png)
 

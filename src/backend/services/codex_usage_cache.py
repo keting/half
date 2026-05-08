@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime, timezone, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 
@@ -22,44 +22,13 @@ CODEX_REDIRECT_URI = "http://localhost:1455/auth/callback"
 OAUTH_SESSION_TTL_SECONDS = 30 * 60
 TOKEN_REFRESH_SKEW_SECONDS = 90
 USAGE_REFRESH_COOLDOWN_SECONDS = 10 * 60
-OAUTH_PROXY_ALLOWED_HOSTS = {
-    "auth.openai.com",
-    "auth0.openai.com",
-    "chatgpt.com",
-    "openai.com",
-}
+CODEX_USAGE_PROBE_MODEL = "gpt-5.4"
 
 
 class UsageRefreshTooSoonError(RuntimeError):
     def __init__(self, retry_at: datetime):
         self.retry_at = retry_at
         super().__init__(f"刷新太快，请在 {retry_at.astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')} 后再刷新")
-
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def build_callback_redirect_url(callback_url: str | None, redirect_url: str) -> str:
-    callback_url = (callback_url or "").strip()
-    if not callback_url:
-        return redirect_url
-    parsed_callback = urlparse(callback_url)
-    if parsed_callback.scheme not in {"http", "https"} or not parsed_callback.netloc:
-        return redirect_url
-
-    redirect_query = urlparse(redirect_url).query
-    if not redirect_query:
-        return callback_url
-    separator = "&" if "?" in callback_url else "?"
-    if callback_url.endswith("?") or callback_url.endswith("&"):
-        separator = ""
-    return f"{callback_url}{separator}{redirect_query}"
-
-
-def _state_from_redirect_url(redirect_url: str) -> str:
-    return (parse_qs(urlparse(redirect_url).query).get("state") or [""])[0].strip()
 
 
 def _now() -> datetime:
@@ -222,7 +191,6 @@ class CodexUsageCache:
         user_id: int | None = None,
         agent_id: int | None = None,
         return_url: str | None = None,
-        callback_url: str | None = None,
     ) -> dict[str, str]:
         state = secrets.token_hex(32)
         code_verifier = secrets.token_hex(64)
@@ -253,7 +221,6 @@ class CodexUsageCache:
                 "user_id": user_id,
                 "agent_id": agent_id,
                 "return_url": return_url,
-                "callback_url": callback_url,
             }
             self._prune_sessions_locked()
 
@@ -262,14 +229,6 @@ class CodexUsageCache:
             "auth_url": auth_url,
             "redirect_uri": redirect_uri,
         }
-
-    def get_auth_url_for_session(self, session_id: str) -> str | None:
-        with self._lock:
-            self._prune_sessions_locked()
-            session = self._sessions.get(session_id)
-            if not session:
-                return None
-            return session.get("auth_url")
 
     def exchange_callback(self, code: str, state: str) -> dict[str, Any]:
         session_id = None
@@ -301,13 +260,6 @@ class CodexUsageCache:
             for candidate in self._sessions.values():
                 if secrets.compare_digest(candidate["state"], state):
                     return candidate.get("return_url")
-        return None
-
-    def get_callback_url_for_state(self, state: str) -> str | None:
-        with self._lock:
-            for candidate in self._sessions.values():
-                if secrets.compare_digest(candidate["state"], state):
-                    return candidate.get("callback_url")
         return None
 
     def exchange_manual(self, session_id: str, code_or_callback_url: str, state: str | None = None) -> dict[str, Any]:
@@ -404,7 +356,8 @@ class CodexUsageCache:
             headers["chatgpt-account-id"] = token_info["chatgpt_account_id"]
 
         body = json.dumps({
-            "model": "gpt-5.4",
+            # Lightweight probe model used to trigger Codex quota headers.
+            "model": CODEX_USAGE_PROBE_MODEL,
             "input": [{
                 "role": "user",
                 "content": [{"type": "input_text", "text": "hi"}],
@@ -588,20 +541,6 @@ class CodexOAuthCallbackServer:
                 def do_GET(self):
                     parsed = urlparse(self.path)
                     params = parse_qs(parsed.query)
-                    if parsed.path == "/auth/start":
-                        session_id = params.get("session_id", [""])[0].strip()
-                        auth_url = cache.get_auth_url_for_session(session_id)
-                        if not auth_url:
-                            self._send_html(callback_html(False, "OAuth session not found or expired."), 404)
-                            return
-                        self._proxy_upstream(auth_url)
-                        return
-
-                    if parsed.path == "/auth/proxy":
-                        upstream_url = params.get("url", [""])[0].strip()
-                        self._proxy_upstream(upstream_url)
-                        return
-
                     if parsed.path != "/auth/callback":
                         self._send_html(callback_html(False, "Unknown OAuth callback path."), 404)
                         return
@@ -631,97 +570,6 @@ class CodexOAuthCallbackServer:
                         callback_html(True, f"{account} 已登录。正在返回 HALF 智能体页面。", return_url),
                         200,
                     )
-
-                def do_POST(self):
-                    parsed = urlparse(self.path)
-                    if parsed.path != "/auth/proxy":
-                        self._send_html(callback_html(False, "Unknown OAuth proxy path."), 404)
-                        return
-                    upstream_url = parse_qs(parsed.query).get("url", [""])[0].strip()
-                    self._proxy_upstream(upstream_url)
-
-                def _proxy_upstream(self, upstream_url: str) -> None:
-                    parsed_upstream = urlparse(upstream_url)
-                    if parsed_upstream.scheme != "https" or parsed_upstream.netloc not in OAUTH_PROXY_ALLOWED_HOSTS:
-                        self._send_html(callback_html(False, "Unsupported OAuth proxy target."), 400)
-                        return
-
-                    body = None
-                    if self.command == "POST":
-                        try:
-                            length = int(self.headers.get("Content-Length") or "0")
-                        except ValueError:
-                            length = 0
-                        body = self.rfile.read(length) if length > 0 else b""
-
-                    headers = {
-                        "User-Agent": self.headers.get("User-Agent", CODEX_USER_AGENT),
-                        "Accept": self.headers.get("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
-                        "Accept-Language": self.headers.get("Accept-Language", "en-US,en;q=0.9"),
-                        "Accept-Encoding": "identity",
-                    }
-                    if self.headers.get("Content-Type"):
-                        headers["Content-Type"] = self.headers["Content-Type"]
-                    if self.headers.get("Cookie"):
-                        headers["Cookie"] = self.headers["Cookie"]
-
-                    request = Request(upstream_url, data=body, headers=headers, method=self.command)
-                    opener = build_opener(_NoRedirect)
-                    try:
-                        response = opener.open(request, timeout=30)
-                        status_code = response.status
-                        response_headers = response.headers
-                        payload = response.read()
-                    except HTTPError as err:
-                        status_code = err.code
-                        response_headers = err.headers
-                        payload = err.read()
-                    except URLError as err:
-                        self._send_html(callback_html(False, f"OAuth proxy request failed: {err.reason}"), 502)
-                        return
-
-                    location = response_headers.get("Location")
-                    if location and 300 <= status_code < 400:
-                        next_url = self._resolve_location(upstream_url, location)
-                        if next_url.startswith(CODEX_REDIRECT_URI):
-                            callback_url = cache.get_callback_url_for_state(_state_from_redirect_url(next_url))
-                            rewritten = build_callback_redirect_url(callback_url, next_url)
-                        else:
-                            rewritten = f"/auth/proxy?{urlencode({'url': next_url})}"
-                        self.send_response(status_code)
-                        self.send_header("Location", rewritten)
-                        self.end_headers()
-                        return
-
-                    self.send_response(status_code)
-                    content_type = response_headers.get("Content-Type")
-                    if content_type:
-                        self.send_header("Content-Type", content_type)
-                    for cookie in response_headers.get_all("Set-Cookie", []):
-                        self.send_header("Set-Cookie", self._rewrite_cookie(cookie))
-                    self.send_header("Content-Length", str(len(payload)))
-                    self.end_headers()
-                    self.wfile.write(payload)
-
-                def _resolve_location(self, current_url: str, location: str) -> str:
-                    parsed_location = urlparse(location)
-                    if parsed_location.scheme:
-                        return location
-                    current = urlparse(current_url)
-                    if location.startswith("/"):
-                        return f"{current.scheme}://{current.netloc}{location}"
-                    base_path = current.path.rsplit("/", 1)[0]
-                    return f"{current.scheme}://{current.netloc}{base_path}/{location}"
-
-                def _rewrite_cookie(self, value: str) -> str:
-                    parts = []
-                    for part in value.split(";"):
-                        stripped = part.strip()
-                        lower = stripped.lower()
-                        if lower.startswith("domain=") or lower == "secure":
-                            continue
-                        parts.append(stripped)
-                    return "; ".join(parts)
 
                 def _send_html(self, body: str, status_code: int) -> None:
                     payload = body.encode("utf-8")

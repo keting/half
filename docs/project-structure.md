@@ -153,7 +153,7 @@ frontend/
 │   │   ├── SummaryPage.tsx        # /projects/:id/summary 执行汇总
 │   │   ├── ProjectSettingsPage.tsx # /settings 通知设置（所有用户）；全局轮询/Prompt 设置仅管理员可见
 │   │   ├── ProcessTemplatesPage.tsx # /templates/* 模版 CRUD 的统一多视图组件
-│   │   ├── AgentsPage.tsx         # /agents 单列卡片 + 拖拽排序 + 重置倒计时
+│   │   ├── AgentsPage.tsx         # /agents 单列卡片 + 状态切换 + 拖拽排序 + Codex 额度刷新
 │   │   ├── AgentSettingsPage.tsx  # /agents/settings（仅管理员）
 │   │   └── UserManagementPage.tsx # /admin/users（仅管理员）
 │   ├── components/                # 通用组件
@@ -161,7 +161,6 @@ frontend/
 │   │   ├── PageHeader.tsx
 │   │   ├── SectionCard.tsx        # ui-style.md 里定义的 section card 组件
 │   │   ├── StatusBadge.tsx
-│   │   ├── CountdownChip.tsx      # Agent 倒计时（颜色阈值见 ui-style）
 │   │   ├── ModelBadge.tsx
 │   │   ├── DagView.tsx            # React Flow 包装，用于 Plan 预览和 Tasks 页
 │   │   └── TaskDetailPanel.tsx    # Tasks 页右侧面板（预取 prompt + 原子派发）
@@ -196,7 +195,7 @@ frontend/
 | Tasks 页的派发原子性 / 预取 prompt | `components/TaskDetailPanel.tsx` + `pages/TasksPage.tsx` |
 | Plan 页的流程来源 / 规划模式 / Prompt 生成 | `pages/PlanPage.tsx` + `utils/flowSource.ts` + `utils/planningMode.ts` |
 | 模版 JSON 的 slot 抽取 | `utils/processTemplateRoles.ts` |
-| Agent 倒计时颜色阈值 / 状态徽章 | `components/CountdownChip.tsx` + `components/StatusBadge.tsx` |
+| Agent 状态徽章 | `components/StatusBadge.tsx` |
 | 全局视觉（色板、组件样式） | `styles/` + 遵循 `ui-style.md` |
 
 ### 3.3 构建脚本
