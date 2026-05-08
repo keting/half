@@ -1,6 +1,6 @@
 version: 2
 updates:
-  - package-ecosystem: "pip"
+  - package-ecosystem: "uv"
     directory: "/src/backend"
     schedule:
       interval: "monthly"
@@ -11,7 +11,7 @@ updates:
       - "dependencies"
       - "area:backend"
     ignore:
-      # bcrypt is intentionally pinned in requirements.txt; skip routine version
+      # bcrypt is intentionally pinned in pyproject.toml; skip routine version
       # bumps but still receive security updates (security PRs are a separate
       # update category and are not blocked by version-update ignore rules).
       - dependency-name: "bcrypt"

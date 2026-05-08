@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, extractApiErrorDetail } from '../api/client';
 import { isAdminUser } from '../auth';
 import { Agent, AgentModelConfig, AgentTypeConfig, ModelDefinition } from '../types';
 import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
 // StatusBadge is rendered inline in agent cards for the dropdown interaction
 import ModelBadge from '../components/ModelBadge';
-import CountdownChip from '../components/CountdownChip';
 import { deriveAgentStatus, isSubscriptionExpiringSoon, getAgentModels } from '../utils/agents';
 
 interface AgentModelForm {
@@ -24,28 +23,38 @@ interface AgentForm {
   co_located: boolean;
   is_active: boolean;
   subscription_expires_at: string;
-  short_term_reset_at: string;
-  short_term_reset_timezone: string;
-  short_term_reset_interval_hours: string;
-  long_term_reset_at: string;
-  long_term_reset_timezone: string;
-  long_term_reset_interval_days: string;
-  long_term_reset_mode: string;
+}
+
+interface CodexUsageWindow {
+  label: string;
+  used_percent: number | null;
+  remaining_percent: number | null;
+  reset_after_seconds: number | null;
+  reset_at: string | null;
+  window_minutes: number | null;
+}
+
+interface CodexUsageSnapshot {
+  updated_at: string;
+  windows: {
+    five_hour?: CodexUsageWindow;
+    seven_day?: CodexUsageWindow;
+  };
+}
+
+interface CodexAgentStatus {
+  agent_id: number;
+  authenticated: boolean;
+  email?: string;
+  plan_type?: string;
+  chatgpt_account_id?: string;
+  expires_at?: string;
+  last_usage?: CodexUsageSnapshot | null;
+  last_usage_error?: string;
 }
 
 // Agent types and models are fetched from /api/agent-settings/types
-
-const TIMEZONE_OPTIONS = [
-  { value: 'CST', label: 'CST (UTC+8)', offsetMinutes: 8 * 60 },
-  { value: 'UTC', label: 'UTC (UTC+0)', offsetMinutes: 0 },
-  { value: 'GMT', label: 'GMT (UTC+0)', offsetMinutes: 0 },
-  { value: 'EST', label: 'EST (UTC-5)', offsetMinutes: -5 * 60 },
-  { value: 'EDT', label: 'EDT (UTC-4)', offsetMinutes: -4 * 60 },
-  { value: 'CET', label: 'CET (UTC+1)', offsetMinutes: 60 },
-  { value: 'CEST', label: 'CEST (UTC+2)', offsetMinutes: 120 },
-  { value: 'PST', label: 'PST (UTC-8)', offsetMinutes: -8 * 60 },
-  { value: 'PDT', label: 'PDT (UTC-7)', offsetMinutes: -7 * 60 },
-];
+const CODEX_LOGIN_AGENT_TYPE = 'chatgpt-pro';
 
 function createEmptyModelForm(): AgentModelForm {
   return { model_name: '', custom_model_name: '', capability: '' };
@@ -60,13 +69,6 @@ function createEmptyForm(): AgentForm {
     co_located: false,
     is_active: true,
     subscription_expires_at: '',
-    short_term_reset_at: '',
-    short_term_reset_timezone: 'CST',
-    short_term_reset_interval_hours: '',
-    long_term_reset_at: '',
-    long_term_reset_timezone: 'CST',
-    long_term_reset_interval_days: '',
-    long_term_reset_mode: 'days',
   };
 }
 
@@ -93,12 +95,6 @@ function formatForDateTimeLocal(value: string | null | undefined) {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
-function parseDateTimeLocal(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
-  if (!match) return null;
-  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]), hour: Number(match[4]), minute: Number(match[5]) };
-}
-
 function parseStoredDateTime(value: string | null | undefined) {
   if (!value) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(value);
@@ -106,74 +102,38 @@ function parseStoredDateTime(value: string | null | undefined) {
   return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]), hour: Number(match[4]), minute: Number(match[5]) };
 }
 
-function formatPartsForDateTimeLocal(parts: ReturnType<typeof parseDateTimeLocal>) {
-  if (!parts) return '';
-  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}`;
-}
-
-function formatPartsForPreview(parts: ReturnType<typeof parseDateTimeLocal>) {
-  if (!parts) return '未设置';
-  return `${parts.year}/${parts.month}/${parts.day} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
-}
-
-function convertToBeijingLocalValue(localValue: string, timezoneCode: string) {
-  if (!localValue) return null;
-  const parsed = parseDateTimeLocal(localValue);
-  if (!parsed) return null;
-  const timezone = TIMEZONE_OPTIONS.find((o) => o.value === timezoneCode) || TIMEZONE_OPTIONS[0];
-  const totalMinutes = (parsed.hour * 60 + parsed.minute) - timezone.offsetMinutes + (8 * 60);
-  const shiftedDate = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day, 0, 0));
-  shiftedDate.setUTCMinutes(totalMinutes);
-  return [shiftedDate.getUTCFullYear(), pad2(shiftedDate.getUTCMonth() + 1), pad2(shiftedDate.getUTCDate())].join('-') + `T${pad2(shiftedDate.getUTCHours())}:${pad2(shiftedDate.getUTCMinutes())}`;
-}
-
-function formatBeijingPreview(localValue: string, timezoneCode: string) {
-  return formatPartsForPreview(parseStoredDateTime(convertToBeijingLocalValue(localValue, timezoneCode)));
-}
-
-function formatBeijingStoredForInput(value: string | null | undefined) {
-  return formatPartsForDateTimeLocal(parseStoredDateTime(value));
-}
-
-function beijingPartsToEpoch(parts: ReturnType<typeof parseDateTimeLocal>) {
+function beijingPartsToEpoch(parts: ReturnType<typeof parseStoredDateTime>) {
   if (!parts) return Number.NaN;
   return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour - 8, parts.minute);
-}
-
-function getCurrentBeijingParts() {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
-  });
-  const values = Object.fromEntries(
-    formatter.formatToParts(new Date()).filter((p) => p.type !== 'literal').map((p) => [p.type, Number(p.value)]),
-  );
-  return { year: values.year, month: values.month, day: values.day, hour: values.hour, minute: values.minute };
-}
-
-function formatCountdown(resetTime: string | null | undefined) {
-  if (!resetTime) return { display: '-', tooltip: '', diffMs: Infinity };
-  const parts = parseStoredDateTime(resetTime);
-  const resetEpoch = beijingPartsToEpoch(parts);
-  const nowEpoch = beijingPartsToEpoch(getCurrentBeijingParts());
-  if (Number.isNaN(resetEpoch) || Number.isNaN(nowEpoch)) return { display: '-', tooltip: '', diffMs: Infinity };
-  const diffMs = resetEpoch - nowEpoch;
-  const tooltip = parts ? `${parts.year}/${parts.month}/${parts.day} ${pad2(parts.hour)}:${pad2(parts.minute)}` : '';
-  if (diffMs < 0) return { display: '已过期', tooltip, diffMs };
-  const diffMinutes = Math.floor(diffMs / (1000 * 60));
-  const days = Math.floor(diffMinutes / (24 * 60));
-  const hours = Math.floor((diffMinutes % (24 * 60)) / 60);
-  const minutes = diffMinutes % 60;
-  let display = '';
-  if (days > 0) display = `${days}d ${hours}h ${minutes}m`;
-  else if (hours > 0) display = `${hours}h ${minutes}m`;
-  else display = `${minutes}m`;
-  return { display, tooltip, diffMs };
 }
 
 function formatBeijingDisplay(value: string | null | undefined) {
   const parts = parseStoredDateTime(value);
   if (!parts) return null;
   return `${parts.year}/${pad2(parts.month)}/${pad2(parts.day)} ${pad2(parts.hour)}:${pad2(parts.minute)}`;
+}
+
+function formatPercent(value?: number | null) {
+  return value == null ? '--' : `${value.toFixed(1)}%`;
+}
+
+function formatIsoBeijing(value?: string | null) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value]),
+  );
+  return `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
 export default function AgentsPage() {
@@ -188,10 +148,12 @@ export default function AgentsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [actionAgentId, setActionAgentId] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [statusDropdownAgentId, setStatusDropdownAgentId] = useState<number | null>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [agentTypeConfigs, setAgentTypeConfigs] = useState<AgentTypeConfig[]>([]);
+  const [codexStatuses, setCodexStatuses] = useState<Record<number, CodexAgentStatus>>({});
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
 
@@ -241,13 +203,22 @@ export default function AgentsPage() {
     api.get<AgentTypeConfig[]>('/api/agents/config/types').then(setAgentTypeConfigs).catch(() => {});
   }, []);
 
-  useEffect(() => { fetchAgents(); fetchTypeConfigs(); }, [fetchAgents, fetchTypeConfigs]);
+  const fetchCodexStatuses = useCallback(() => {
+    api.get<CodexAgentStatus[]>('/api/codex-usage/agents/status')
+      .then((items) => {
+        setCodexStatuses(Object.fromEntries(items.map((item) => [item.agent_id, item])));
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { fetchAgents(); fetchTypeConfigs(); fetchCodexStatuses(); }, [fetchAgents, fetchTypeConfigs, fetchCodexStatuses]);
 
   useEffect(() => {
     const ct = window.setInterval(() => setNowTick(Date.now()), 30_000);
     const rt = window.setInterval(() => fetchAgents(), 60_000);
-    return () => { window.clearInterval(ct); window.clearInterval(rt); };
-  }, [fetchAgents]);
+    const st = window.setInterval(() => fetchCodexStatuses(), 60_000);
+    return () => { window.clearInterval(ct); window.clearInterval(rt); window.clearInterval(st); };
+  }, [fetchAgents, fetchCodexStatuses]);
 
   function handleAdd() { setForm(createEmptyForm()); setEditingId(null); setShowForm(true); setError(''); }
 
@@ -264,13 +235,6 @@ export default function AgentsPage() {
       co_located: Boolean(agent.co_located),
       is_active: Boolean(agent.is_active),
       subscription_expires_at: formatForDateTimeLocal(agent.subscription_expires_at),
-      short_term_reset_at: formatBeijingStoredForInput(agent.short_term_reset_at),
-      short_term_reset_timezone: 'CST',
-      short_term_reset_interval_hours: agent.short_term_reset_interval_hours != null ? String(agent.short_term_reset_interval_hours) : '',
-      long_term_reset_at: formatBeijingStoredForInput(agent.long_term_reset_at),
-      long_term_reset_timezone: 'CST',
-      long_term_reset_interval_days: agent.long_term_reset_interval_days != null ? String(agent.long_term_reset_interval_days) : '',
-      long_term_reset_mode: agent.long_term_reset_mode || 'days',
     });
     setEditingId(agent.id);
     setShowForm(true);
@@ -312,11 +276,6 @@ export default function AgentsPage() {
           capability: model.capability,
         })),
         subscription_expires_at: form.subscription_expires_at || null,
-        short_term_reset_at: convertToBeijingLocalValue(form.short_term_reset_at, form.short_term_reset_timezone),
-        short_term_reset_interval_hours: form.short_term_reset_interval_hours.trim() ? Number(form.short_term_reset_interval_hours) : null,
-        long_term_reset_at: convertToBeijingLocalValue(form.long_term_reset_at, form.long_term_reset_timezone),
-        long_term_reset_interval_days: form.long_term_reset_mode === 'days' && form.long_term_reset_interval_days.trim() ? Number(form.long_term_reset_interval_days) : null,
-        long_term_reset_mode: form.long_term_reset_mode,
       };
       if (editingId) await api.put(`/api/agents/${editingId}`, payload);
       else await api.post('/api/agents', payload);
@@ -353,28 +312,6 @@ export default function AgentsPage() {
     }
   }
 
-  async function handleResetAction(agentId: number, mode: 'short' | 'long') {
-    const agent = agents.find((item) => item.id === agentId);
-    if (agent?.can_edit === false) return;
-    setActionAgentId(agentId); setError('');
-    try {
-      const updated = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/reset`);
-      setAgents((prev) => prev.map((a) => a.id === agentId ? updated : a));
-    } catch (err) { setError(`${mode === 'short' ? '短期' : '长期'}重置失败：${err}`); }
-    finally { setActionAgentId(null); }
-  }
-
-  async function handleConfirmAction(agentId: number, mode: 'short' | 'long') {
-    const agent = agents.find((item) => item.id === agentId);
-    if (agent?.can_edit === false) return;
-    setActionAgentId(agentId); setError('');
-    try {
-      const updated = await api.post<Agent>(`/api/agents/${agentId}/${mode === 'short' ? 'short-term-reset' : 'long-term-reset'}/confirm`);
-      setAgents((prev) => prev.map((a) => a.id === agentId ? updated : a));
-    } catch (err) { setError(`确认失败：${err}`); }
-    finally { setActionAgentId(null); }
-  }
-
   async function handleStatusChange(agentId: number, newStatus: string) {
     const agent = agents.find((item) => item.id === agentId);
     if (agent?.can_edit === false) return;
@@ -386,6 +323,88 @@ export default function AgentsPage() {
     } catch (err) {
       setError(`状态更新失败：${err}`);
     }
+  }
+
+  async function handleCodexAuthAction(agent: Agent) {
+    const status = codexStatuses[agent.id];
+    if (!status?.authenticated) {
+      navigate(`/agents/${agent.id}/codex-login`);
+      return;
+    }
+
+    setActionAgentId(agent.id);
+    setError('');
+    setMessage('');
+    try {
+      const usage = await api.post<CodexUsageSnapshot>(`/api/codex-usage/agents/${agent.id}/usage`);
+      setCodexStatuses((current) => ({
+        ...current,
+        [agent.id]: {
+          ...(current[agent.id] || { agent_id: agent.id, authenticated: true }),
+          authenticated: true,
+          last_usage: usage,
+        },
+      }));
+      setMessage(`已刷新 "${agent.name}" 的 Codex 额度`);
+    } catch (err) {
+      setError(extractApiErrorDetail(String(err)) || '刷新 Codex 额度失败');
+    } finally {
+      setActionAgentId(null);
+    }
+  }
+
+  function renderQuotaPanel(agent: Agent, isCodexAgent: boolean, codexStatus?: CodexAgentStatus) {
+    const usage = isCodexAgent ? codexStatus?.last_usage : null;
+    const fiveHour = usage?.windows.five_hour;
+    const sevenDay = usage?.windows.seven_day;
+    const columns = [
+      {
+        title: '5h 额度',
+        items: [
+          { label: '已用额度', value: formatPercent(fiveHour?.used_percent) },
+          { label: '剩余额度', value: formatPercent(fiveHour?.remaining_percent) },
+          { label: '重置时间', value: formatIsoBeijing(fiveHour?.reset_at) },
+        ],
+      },
+      {
+        title: '7天 额度',
+        items: [
+          { label: '已用额度', value: formatPercent(sevenDay?.used_percent) },
+          { label: '剩余额度', value: formatPercent(sevenDay?.remaining_percent) },
+          { label: '重置时间', value: formatIsoBeijing(sevenDay?.reset_at) },
+        ],
+      },
+    ];
+
+    return (
+      <div className="agent-card-quota">
+        {isCodexAgent && (
+          <button
+            className="btn btn-sm btn-codex-auth"
+            onClick={() => handleCodexAuthAction(agent)}
+            disabled={actionAgentId === agent.id}
+          >
+            {actionAgentId === agent.id ? '刷新中' : codexStatus?.authenticated ? '刷新额度' : '登录'}
+          </button>
+        )}
+        <div className="agent-card-quota-grid">
+          {columns.map((column) => (
+            <div className="agent-card-quota-column" key={column.title}>
+              <div className="agent-card-quota-title">{column.title}</div>
+              {column.items.map((item) => (
+                <div className="agent-card-quota-row" key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        {isCodexAgent && codexStatus?.last_usage_error && !usage && (
+          <div className="agent-card-quota-error">{codexStatus.last_usage_error}</div>
+        )}
+      </div>
+    );
   }
 
   const sortedAgents = useMemo(() => {
@@ -605,53 +624,6 @@ export default function AgentsPage() {
               </button>
             </SectionCard>
 
-            <SectionCard title="短期重置策略" description="小时级或短窗口额度恢复周期">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>下次重置时间</label>
-                  <input type="datetime-local" value={form.short_term_reset_at} onChange={(e) => updateField('short_term_reset_at', e.target.value)} />
-                  <select className="tz-select" value={form.short_term_reset_timezone} onChange={(e) => updateField('short_term_reset_timezone', e.target.value)}>
-                    {TIMEZONE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                  <div className="helper-text">北京时间：{formatBeijingPreview(form.short_term_reset_at, form.short_term_reset_timezone)}</div>
-                </div>
-                <div className="form-group">
-                  <label>重置间隔（小时）</label>
-                  <input type="number" min="1" step="1" value={form.short_term_reset_interval_hours} onChange={(e) => updateField('short_term_reset_interval_hours', e.target.value)} placeholder="例如：5" />
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard title="长期重置策略" description="日级、周级、月级或长窗口额度恢复周期">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>下次重置时间</label>
-                  <input type="datetime-local" value={form.long_term_reset_at} onChange={(e) => updateField('long_term_reset_at', e.target.value)} />
-                  <select className="tz-select" value={form.long_term_reset_timezone} onChange={(e) => updateField('long_term_reset_timezone', e.target.value)}>
-                    {TIMEZONE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                  <div className="helper-text">北京时间：{formatBeijingPreview(form.long_term_reset_at, form.long_term_reset_timezone)}</div>
-                </div>
-                <div className="form-group">
-                  <label>重置间隔模式</label>
-                  <select value={form.long_term_reset_mode} onChange={(e) => updateField('long_term_reset_mode', e.target.value)}>
-                    <option value="days">按天</option>
-                    <option value="monthly">{(() => {
-                      const bj = convertToBeijingLocalValue(form.long_term_reset_at, form.long_term_reset_timezone);
-                      const parts = bj ? parseDateTimeLocal(bj) : null;
-                      return parts ? `每月${parts.day}日 ${pad2(parts.hour)}:${pad2(parts.minute)}` : '每月（请先设置下次重置时间）';
-                    })()}</option>
-                  </select>
-                </div>
-                {form.long_term_reset_mode === 'days' && (
-                  <div className="form-group">
-                    <label>重置间隔（天）</label>
-                    <input type="number" min="1" step="1" value={form.long_term_reset_interval_days} onChange={(e) => updateField('long_term_reset_interval_days', e.target.value)} placeholder="例如：7" />
-                  </div>
-                )}
-              </div>
-            </SectionCard>
-
             {error && <div className="error-message">{error}</div>}
 
             <div className="agent-form-footer">
@@ -683,26 +655,16 @@ export default function AgentsPage() {
       </PageHeader>
 
       {error && !showForm && <div className="error-message">{error}</div>}
+      {message && !showForm && <div className="success-message">{message}</div>}
       {showForm && renderForm()}
 
       <div className="agent-card-list">
         {sortedAgents.map((agent) => {
-          const shortTerm = formatCountdown(agent.short_term_reset_at);
-          const longTerm = formatCountdown(agent.long_term_reset_at);
           const derivedStatus = deriveAgentStatus(agent);
           const canEditAgent = agent.can_edit !== false;
           const readonlyTitle = canEditAgent ? undefined : '公共 Agent 仅创建者可维护';
-          const showShortActions = Boolean(canEditAgent && agent.short_term_reset_at && agent.short_term_reset_interval_hours && agent.short_term_reset_needs_confirmation);
-          const showLongActions = Boolean(canEditAgent && agent.long_term_reset_at && (agent.long_term_reset_interval_days || agent.long_term_reset_mode === 'monthly') && agent.long_term_reset_needs_confirmation);
-
-          let shortColor: string | undefined;
-          if (shortTerm.display !== '-' && shortTerm.diffMs >= 0 && shortTerm.diffMs < 3600_000) shortColor = '#ef4444';
-
-          let longColor: string | undefined;
-          if (longTerm.display !== '-' && longTerm.diffMs >= 0) {
-            if (longTerm.diffMs < 86400_000) longColor = '#ef4444';
-            else if (longTerm.diffMs < 172800_000) longColor = '#e89a1d';
-          }
+          const isCodexAgent = (agent.agent_type || '').trim().toLowerCase() === CODEX_LOGIN_AGENT_TYPE;
+          const codexStatus = codexStatuses[agent.id];
 
           const expiryDisplay = formatBeijingDisplay(agent.subscription_expires_at);
           const expiringSoon = isSubscriptionExpiringSoon(agent);
@@ -826,33 +788,7 @@ export default function AgentsPage() {
                 </div>
               )}
 
-              <div className="agent-card-resets">
-                <CountdownChip
-                  label="短期"
-                  display={shortTerm.display}
-                  tooltip={shortTerm.tooltip}
-                  color={shortColor}
-                  interval={agent.short_term_reset_interval_hours != null ? `${agent.short_term_reset_interval_hours}h` : undefined}
-                  showActions={showShortActions}
-                  onReset={() => handleResetAction(agent.id, 'short')}
-                  onConfirm={() => handleConfirmAction(agent.id, 'short')}
-                  disabled={actionAgentId === agent.id || !canEditAgent}
-                />
-                <CountdownChip
-                  label="长期"
-                  display={longTerm.display}
-                  tooltip={longTerm.tooltip}
-                  color={longColor}
-                  interval={agent.long_term_reset_mode === 'monthly' ? (() => {
-                    const p = parseStoredDateTime(agent.long_term_reset_at);
-                    return p ? `每月${p.day}日` : '每月';
-                  })() : agent.long_term_reset_interval_days != null ? `${agent.long_term_reset_interval_days}d` : undefined}
-                  showActions={showLongActions}
-                  onReset={() => handleResetAction(agent.id, 'long')}
-                  onConfirm={() => handleConfirmAction(agent.id, 'long')}
-                  disabled={actionAgentId === agent.id || !canEditAgent}
-                />
-              </div>
+              {renderQuotaPanel(agent, isCodexAgent, codexStatus)}
             </div>
           );
         })}

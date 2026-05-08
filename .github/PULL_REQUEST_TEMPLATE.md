@@ -1,18 +1,38 @@
-## Summary
+## 摘要
 
-Describe the change and why it is needed.
+请说明本 PR 改了什么，以及为什么需要这个改动。
 
 Closes #
 
-## Testing
+相关 Discussion：
 
-- [ ] `cd src/backend && python -m pytest tests/ -v`
+## 范围
+
+- [ ] 本 PR 保持小而聚焦。
+- [ ] 本 PR 没有把无关重构、纯格式化改动或翻译工作混入功能改动。
+- [ ] 公开 API、数据模型、权限、安全边界和部署行为没有变化；如有变化，已
+      在下方说明影响。
+
+## 截图或录屏
+
+如果有 UI 改动，请补充截图或录屏；否则填写 `N/A`。
+
+## 迁移 / 配置影响
+
+请说明环境变量、数据模型、部署或迁移影响；如果没有，请填写 `N/A`。
+
+## 验证
+
+- [ ] `cd src/backend && uv run python -m pytest tests/ -v`
 - [ ] `cd src/frontend && npm test`
 - [ ] `cd src/frontend && npm run build`
 
-## Checklist
+如果有测试没有运行，请说明原因：
 
-- [ ] The change stays scoped and focused.
-- [ ] Related issues are linked when applicable.
-- [ ] Docs were updated where behavior, API shape, or setup changed.
-- [ ] No secrets, private URLs, or local machine paths were introduced.
+## 检查清单
+
+- [ ] 改动范围清晰且聚焦。
+- [ ] 已按需关联相关 Issue。
+- [ ] 已按需关联相关 Discussion。
+- [ ] 如果行为、API 形状或配置发生变化，已同步更新文档。
+- [ ] 没有引入密钥、私有 URL 或个人本机路径。

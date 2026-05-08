@@ -146,6 +146,8 @@ Application code lives under [`src/`](./src). Documentation lives under
 - [`docs/ui-style.md`](./docs/ui-style.md) - UI and interaction principles
 - [`docs/quickstart.md`](./docs/quickstart.md) - step-by-step setup guide with
   troubleshooting
+- [`docs/user-manual.md`](./docs/user-manual.md) - page-oriented user manual
+  (purpose, steps, and screenshots)
 - `docs/roadmap/` - version-specific execution plans (coming)
 - `docs/research/` - research notes for exploratory work (coming)
 - `docs/adr/` - architecture decision records (coming)
@@ -218,16 +220,27 @@ HALF_DEMO_SEED_ENABLED=false
 
 ## Local Development
 
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) before running the backend locally:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 Backend:
 
 ```bash
 cd src/backend
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
 export HALF_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
 export HALF_ADMIN_PASSWORD='<your-strong-password>'
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+> `uv` reads `pyproject.toml` and automatically creates a virtual environment
+> on first run. To install dev dependencies explicitly:
+>
+> ```bash
+> uv sync
+> ```
 
 Frontend:
 
@@ -243,7 +256,7 @@ The frontend uses relative `/api` requests. In local development, Vite proxies
 ## Testing
 
 ```bash
-cd src/backend && python -m pytest tests/ -v
+cd src/backend && uv run pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 
@@ -291,7 +304,36 @@ to report vulnerabilities.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+HALF welcomes many kinds of contributions, not only code:
+
+- Read AI Coding / Coding Agent papers, systems, or technical reports and
+  share roadmap ideas in Discussions.
+- Report bugs, documentation errors, or concrete needs by opening Issues.
+- Use Discussions for exploratory ideas, design tradeoffs, benchmarks, and
+  compliance or security-boundary questions.
+- Claim `status:ready` or `good first issue` Issues and submit Pull Requests.
+- Improve the README, Quick Start, user manuals, FAQ, screenshots, demos, and
+  tests.
+- Contribute workflow templates, handoff prompts, plan DAG cases, or records of
+  agent collaboration failure modes.
+- After becoming familiar with the project, help with Issue triage, PR review,
+  milestones, and roadmap discussions.
+
+First-time contributors can start with this path:
+
+1. Read the README, browse the screenshots, and scan the roadmap.
+2. Run the Demo Project from the Quick Start.
+3. Start with a `good first issue` or a documentation improvement.
+4. For medium or large changes that touch APIs, data models, or new modules,
+   start a Discussion before implementation.
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and
+[`docs/newcomer-path.md`](./docs/newcomer-path.md) for the full guide.
+
+Do **not** open public Issues for vulnerabilities, sensitive information leaks,
+permission bypasses, or permission-model risks. Follow
+[`SECURITY.md`](./SECURITY.md) instead. Community expectations are described in
+[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
 ## Citation
 

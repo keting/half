@@ -4,6 +4,8 @@ import subprocess
 import configparser
 import time
 import threading
+
+_sleep = time.sleep
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -144,7 +146,7 @@ def _retry_git_operation(label: str, fn, *, retries: int = 3) -> tuple[bool, str
                 return False, f"{label} failed: {last_error}"
             delay = 0.5 * (2 ** (attempt - 1))
             logger.warning("%s attempt %s/%s failed: %s; retrying in %.1fs", label, attempt, retries, exc, delay)
-            time.sleep(delay)
+            _sleep(delay)
     return False, f"{label} failed"
 
 
