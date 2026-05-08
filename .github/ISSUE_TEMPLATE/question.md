@@ -1,22 +1,21 @@
 ---
-name: Question
-about: Ask a concrete usage question about HALF
+name: 使用问题
+about: 询问一个具体的 HALF 使用问题
 title: ""
 assignees: []
 ---
 
-For exploratory ideas, design tradeoffs, roadmap proposals, research topics, or
-benchmark / evaluation design, please start a Discussion instead of opening an
-Issue.
+如果是探索性想法、设计方案对比、roadmap 建议、研究话题或 benchmark /
+evaluation 设计，请发起 Discussion，不要创建 Issue。
 
-## Question
+## 问题
 
-Ask your question clearly and directly.
+请清楚、直接地描述你的问题。
 
-## Context
+## 背景
 
-Describe what you are trying to do, including your setup or constraints.
+请描述你正在尝试做什么，包括你的环境、配置或约束。
 
-## What You Already Checked
+## 已经检查过的内容
 
-List related docs, issues, or code paths you already reviewed.
+请列出你已经阅读过的相关文档、Issue 或代码路径。

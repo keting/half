@@ -1,40 +1,41 @@
 ---
-name: Bug report
-about: Report a reproducible defect in HALF
+name: Bug 报告
+about: 报告 HALF 中可复现的缺陷
 title: ""
 assignees: []
 ---
 
-Do not report security issues here. See
-[`SECURITY.md`](https://github.com/keting/half/blob/main/SECURITY.md) for the
-private reporting process.
+请不要在这里报告安全问题。安全漏洞、敏感信息泄露、权限绕过或其他安全风
+险，请按照
+[`SECURITY.zh-CN.md`](https://github.com/keting/half/blob/main/SECURITY.zh-CN.md)
+私下报告。
 
-## Summary
+## 摘要
 
-Describe the problem in one or two sentences.
+请用一两句话描述问题。
 
-## Environment
+## 环境
 
-- Deployment: <!-- local dev / docker compose / other -->
+- 部署方式：<!-- 本地开发 / docker compose / 其他 -->
 - OS:
-- Docker / Docker Compose version:
-- Browser or client:
-- Commit or version:
+- Docker / Docker Compose 版本：
+- 浏览器或客户端：
+- Commit 或版本：
 
-## Steps To Reproduce
+## 复现步骤
 
 1. 
 2. 
 3. 
 
-## Expected Behavior
+## 期望行为
 
-Describe what should have happened.
+请描述你期望发生什么。
 
-## Actual Behavior
+## 实际行为
 
-Describe what happened instead.
+请描述实际发生了什么。
 
-## Logs Or Screenshots
+## 日志或截图
 
-Add any relevant logs, screenshots, or API responses.
+请补充相关日志、截图或 API 响应。
