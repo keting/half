@@ -7,6 +7,7 @@ import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
 // StatusBadge is rendered inline in agent cards for the dropdown interaction
 import ModelBadge from '../components/ModelBadge';
+import CoLocatedFieldLabel from '../components/CoLocatedFieldLabel';
 import { deriveAgentStatus, isSubscriptionExpiringSoon, getAgentModels } from '../utils/agents';
 
 interface AgentModelForm {
@@ -555,13 +556,13 @@ export default function AgentsPage() {
                   <input type="datetime-local" value={form.subscription_expires_at} onChange={(e) => updateField('subscription_expires_at', e.target.value)} />
                 </div>
               </div>
-              <label className="checkbox-field" title="勾选则表示该agent所在的机器与项目部署的机器是同一台">
+              <label className="checkbox-field">
                 <input
                   type="checkbox"
                   checked={form.co_located}
                   onChange={(e) => updateField('co_located', e.target.checked)}
                 />
-                <span>同服务器</span>
+                <CoLocatedFieldLabel />
               </label>
               <label className="checkbox-field" title="取消勾选会停用该 Agent；引用它的项目必须先移除该引用，才能继续编辑或生成新计划">
                 <input

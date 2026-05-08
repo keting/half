@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader';
 import SectionCard from '../components/SectionCard';
 import StatusBadge from '../components/StatusBadge';
 import ModelBadge from '../components/ModelBadge';
+import CoLocatedFieldLabel from '../components/CoLocatedFieldLabel';
 import { deriveAgentStatus, getAgentModels, summarizeAgentCapabilities } from '../utils/agents';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
 
@@ -386,7 +387,6 @@ export default function ProjectNewPage() {
                     {selected && (
                       <label
                         className="agent-select-card-colocation"
-                        title="勾选则表示该agent所在的机器与项目部署的机器是同一台"
                         onClick={(event) => event.stopPropagation()}
                       >
                         <input
@@ -394,7 +394,7 @@ export default function ProjectNewPage() {
                           checked={Boolean(agentCoLocated[agent.id])}
                           onChange={(event) => updateAgentCoLocated(agent.id, event.target.checked)}
                         />
-                        <span>同服务器</span>
+                        <CoLocatedFieldLabel />
                       </label>
                     )}
                   </div>
