@@ -13,6 +13,17 @@ Describe the workflow problem or limitation you are trying to solve.
 
 Describe the behavior you want.
 
+## Acceptance Criteria
+
+List the conditions that would make this feature complete.
+
+- [ ]
+
+## Prior Discussion
+
+Link a related Discussion if this changes public APIs, data models, permissions,
+security boundaries, new modules, or product direction.
+
 ## Why It Matters
 
 Explain the value for users or maintainers.

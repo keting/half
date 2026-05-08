@@ -1,9 +1,13 @@
 ---
 name: Question
-about: Ask a usage or design question about HALF
+about: Ask a concrete usage question about HALF
 title: ""
 assignees: []
 ---
+
+For exploratory ideas, design tradeoffs, roadmap proposals, research topics, or
+benchmark / evaluation design, please start a Discussion instead of opening an
+Issue.
 
 ## Question
 

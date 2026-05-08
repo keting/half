@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Discussions
+    url: https://github.com/keting/half/discussions
+    about: Use Discussions for exploratory ideas, roadmap proposals, research topics, design tradeoffs, and benchmark / evaluation design.
   - name: Security Policy
     url: https://github.com/keting/half/blob/main/SECURITY.md
     about: Do not report security vulnerabilities in public issues. Follow the private reporting process in SECURITY.md.

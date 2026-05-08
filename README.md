@@ -304,7 +304,36 @@ to report vulnerabilities.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+HALF welcomes many kinds of contributions, not only code:
+
+- Read AI Coding / Coding Agent papers, systems, or technical reports and
+  share roadmap ideas in Discussions.
+- Report bugs, documentation errors, or concrete needs by opening Issues.
+- Use Discussions for exploratory ideas, design tradeoffs, benchmarks, and
+  compliance or security-boundary questions.
+- Claim `status:ready` or `good first issue` Issues and submit Pull Requests.
+- Improve the README, Quick Start, user manuals, FAQ, screenshots, demos, and
+  tests.
+- Contribute workflow templates, handoff prompts, plan DAG cases, or records of
+  agent collaboration failure modes.
+- After becoming familiar with the project, help with Issue triage, PR review,
+  milestones, and roadmap discussions.
+
+First-time contributors can start with this path:
+
+1. Read the README, browse the screenshots, and scan the roadmap.
+2. Run the Demo Project from the Quick Start.
+3. Start with a `good first issue` or a documentation improvement.
+4. For medium or large changes that touch APIs, data models, or new modules,
+   start a Discussion before implementation.
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and
+[`docs/newcomer-path.md`](./docs/newcomer-path.md) for the full guide.
+
+Do **not** open public Issues for vulnerabilities, sensitive information leaks,
+permission bypasses, or permission-model risks. Follow
+[`SECURITY.md`](./SECURITY.md) instead. Community expectations are described in
+[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
 ## Citation
 

@@ -278,7 +278,31 @@ HALF 通常以自托管方式部署。用于生产环境时，请保持
 
 ## 贡献
 
-贡献说明请参阅 [`CONTRIBUTING.zh-CN.md`](./CONTRIBUTING.zh-CN.md)。
+HALF 欢迎不同形式的贡献，不限于提交代码：
+
+- 阅读 AI Coding / Coding Agent 论文、系统或技术报告，在 Discussion 提出对
+  roadmap 的启发。
+- 报告 bug、文档错误或明确需求，请创建 Issue。
+- 方向性想法、方案对比、benchmark、合规边界等，请发起 Discussion。
+- 认领 `status:ready` 或 `good first issue` 的 Issue 并提交 PR。
+- 改进 README、Quick Start、User Manual、FAQ、截图、demo 和测试。
+- 贡献 workflow 模板、handoff prompt、plan DAG case，或记录 agent 协作失败
+  模式。
+- 熟悉项目后参与 Issue triage、PR Review、Milestone 与 Roadmap 讨论。
+
+第一次参与建议按这条路径开始：
+
+1. 读 README，浏览产品截图和 ROADMAP（约 15 分钟）。
+2. 按 Quick Start 跑通 Demo Project（约半天）。
+3. 从 `good first issue` 或文档改进提交你的第一个 PR。
+4. 中大型改动（涉及 API、数据模型或新模块）请先开 Discussion 对齐范围。
+
+完整说明请阅读 [`CONTRIBUTING.zh-CN.md`](./CONTRIBUTING.zh-CN.md) 和
+[`docs/newcomer-path.zh-CN.md`](./docs/newcomer-path.zh-CN.md)。
+
+发现安全漏洞、敏感信息泄露、权限绕过或权限模型风险，**不要**创建公开
+Issue，请按 [`SECURITY.zh-CN.md`](./SECURITY.zh-CN.md) 私下报告。社区行为
+规范见 [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)。
 
 ## 引用
 
