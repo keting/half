@@ -402,6 +402,7 @@ body {
   position: relative;
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
 }
 
 .help-tooltip-trigger {
@@ -419,6 +420,7 @@ body {
   line-height: 1;
   cursor: help;
   user-select: none;
+  padding: 0;
 }
 
 .help-tooltip-trigger:focus-visible {
@@ -429,10 +431,11 @@ body {
 
 .help-tooltip-bubble {
   position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
+  left: 50%;
+  top: calc(100% + 8px);
   z-index: 20;
-  width: 240px;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 32px));
   padding: 8px 10px;
   border-radius: 8px;
   background: #0f172a;
@@ -443,15 +446,17 @@ body {
   box-shadow: var(--shadow-md);
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-50%);
+  transform: translateX(-50%) translateY(-4px);
   pointer-events: none;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
+  overflow-wrap: anywhere;
+  transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease;
 }
 
 .help-tooltip:hover .help-tooltip-bubble,
 .help-tooltip:focus-within .help-tooltip-bubble {
   opacity: 1;
   visibility: visible;
+  transform: translateX(-50%) translateY(0);
 }
 
 .form-actions {
