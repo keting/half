@@ -40,6 +40,11 @@ export interface Agent {
   long_term_reset_interval_days: number | null;
   long_term_reset_mode: string;
   long_term_reset_needs_confirmation: boolean;
+  created_by: number | null;
+  owner_role: 'admin' | 'user' | null;
+  is_public: boolean;
+  can_edit: boolean;
+  is_disabled_public: boolean;
 }
 
 export interface ModelDefinition {
@@ -79,6 +84,7 @@ export interface Project {
   task_timeout_minutes?: number | null;
   planning_mode?: string;
   template_inputs?: Record<string, string>;
+  inactive_agent_ids?: number[];
   next_step?: string | {
     action: string;
     message: string;
@@ -162,4 +168,9 @@ export interface TaskEvent {
   event_type: string;
   detail: string | null;
   created_at: string;
+}
+
+export interface FeishuSettings {
+  webhook_url: string;
+  notify_events: string[];
 }

@@ -12,8 +12,15 @@ from services import git_service
 from services.polling_config_service import (
     get_project_polling_settings,
 )
+from services import feishu_service
+from services.feishu_service import NotificationEvent
 
 logger = logging.getLogger("half.poller")
+
+GIT_REPO_ACCESS_ERROR_MESSAGE = (
+    "无法访问 Git 仓库。请检查仓库是否存在、仓库地址是否正确，"
+    "是否有访问该仓库的权限。HALF 会自动重试。"
+)
 
 
 def _normalize_collab_dir(project: Project) -> str:
@@ -81,9 +88,12 @@ def _set_plan_runtime_error(plan: ProjectPlan, now: datetime, message: str, *, n
         plan.status = "needs_attention"
 
 
-def poll_project(db: Session, project: Project) -> None:
+def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
+    """Poll a project for task/plan updates. Returns notification events to dispatch."""
+    pending_notifications: list[NotificationEvent] = []
+
     if not project.git_repo_url:
-        return
+        return pending_notifications
 
     all_tasks = db.query(Task).filter(Task.project_id == project.id).all()
     running_tasks = [task for task in all_tasks if task.status in ("running", "needs_attention")]
@@ -107,23 +117,23 @@ def poll_project(db: Session, project: Project) -> None:
 
     running_plans = db.query(ProjectPlan).filter(
         ProjectPlan.project_id == project.id,
-        ProjectPlan.status == "running",
+        ProjectPlan.status.in_(("running", "needs_attention")),
     ).all()
     sync_status = git_service.ensure_repo_sync(project.id, project.git_repo_url)
     if sync_status.error:
-        sync_message = (
+        technical_sync_message = (
             f"Git sync failed while polling project {project.id}: {sync_status.error}. "
             "HALF will retry automatically; this is not treated as 'result not found'."
         )
-        logger.error(sync_message)
+        logger.error(technical_sync_message)
         for plan in running_plans:
             if _delay_satisfied(plan.dispatched_at):
-                _set_plan_runtime_error(plan, now, sync_message, needs_attention=False)
+                _set_plan_runtime_error(plan, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
         for task in running_tasks:
             if _delay_satisfied(task.dispatched_at):
-                _set_task_runtime_error(db, task, now, sync_message, needs_attention=False)
+                _set_task_runtime_error(db, task, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
         db.commit()
-        return
+        return pending_notifications
 
     sync_warning = None
     if sync_status.warnings:
@@ -193,6 +203,11 @@ def poll_project(db: Session, project: Project) -> None:
                 event_type="completed",
                 detail=f"Result detected at {result_path}",
             ))
+            pending_notifications.append(NotificationEvent(
+                event_type="completed",
+                project_name=project.name,
+                task_name=task.task_name,
+            ))
         elif task.dispatched_at:
             elapsed_minutes = (now - task.dispatched_at.replace(tzinfo=timezone.utc)).total_seconds() / 60
             timeout_limit = get_effective_task_timeout_minutes(db, project, task)
@@ -204,6 +219,12 @@ def poll_project(db: Session, project: Project) -> None:
                     task_id=task.id,
                     event_type="timeout",
                     detail=f"Timeout after {elapsed_minutes:.1f} minutes",
+                ))
+                pending_notifications.append(NotificationEvent(
+                    event_type="timeout",
+                    project_name=project.name,
+                    task_name=task.task_name,
+                    detail=f"超时 {elapsed_minutes:.1f} 分钟",
                 ))
 
         # Check usage.json
@@ -226,11 +247,27 @@ def poll_project(db: Session, project: Project) -> None:
         if all_tasks and all(t.status in ("completed", "abandoned") for t in all_tasks):
             project.status = "completed"
             project.updated_at = now
+            pending_notifications.append(NotificationEvent(
+                event_type="project_completed",
+                project_name=project.name,
+            ))
     elif project.status == "planning":
         if any(plan.status in ("completed", "final") for plan in db.query(ProjectPlan).filter(ProjectPlan.project_id == project.id).all()):
             project.updated_at = now
 
     db.commit()
+    return pending_notifications
+
+
+def _poll_project_in_worker(project_id: int) -> list[NotificationEvent]:
+    db = SessionLocal()
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project is None:
+            return []
+        return poll_project(db, project)
+    finally:
+        db.close()
 
 
 def _compute_next_poll_time(db: Session, project: Project, now: datetime) -> datetime:
@@ -281,15 +318,25 @@ async def polling_loop(interval_seconds: int) -> None:
                     scheduled = next_poll_at.get(project.id)
                     if scheduled is not None and scheduled > now:
                         continue  # Not yet time for this project
+                    project_id = project.id
                     try:
-                        poll_project(db, project)
+                        notifications = await asyncio.get_running_loop().run_in_executor(
+                            None, _poll_project_in_worker, project_id
+                        )
                     except Exception as e:
                         logger.error(f"Error polling project {project.id}: {e}")
+                        notifications = []
+                    await feishu_service.dispatch_notifications(db, project.created_by, notifications)
                     # Re-fetch settings each time so live config changes take effect
-                    next_poll_at[project.id] = _compute_next_poll_time(db, project, now)
+                    db.expire_all()
+                    refreshed_project = db.query(Project).filter(Project.id == project_id).first()
+                    if refreshed_project is None:
+                        next_poll_at.pop(project_id, None)
+                        continue
+                    next_poll_at[project_id] = _compute_next_poll_time(db, refreshed_project, now)
                     logger.debug(
                         "Project %s next poll at %s",
-                        project.id, next_poll_at[project.id].isoformat(),
+                        project_id, next_poll_at[project_id].isoformat(),
                     )
             finally:
                 db.close()

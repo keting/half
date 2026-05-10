@@ -41,17 +41,19 @@ half/
 ```
 backend/
 ├── Dockerfile
-├── requirements.txt               # fastapi, uvicorn, sqlalchemy, pyjwt, passlib[bcrypt], bcrypt, python-multipart, json-repair
+├── pyproject.toml                 # project metadata and dependencies (managed by uv)
+├── uv.lock                        # locked dependency manifest
 ├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
 ├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
-├── access.py                      # get_owned_project / get_owned_agent / get_owned_task 等 owner 级业务隔离工具
+├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
 ├── routers/                       # REST API 路由层
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
+│   ├── codex_usage.py             # /api/codex-usage/*（Codex OAuth 登录、状态与额度刷新）
 │   ├── agent_settings.py          # /api/agent-settings/*（仅管理员）
 │   ├── projects.py                # /api/projects CRUD
 │   ├── plans.py                   # /api/projects/:id/plans/*
@@ -68,6 +70,7 @@ backend/
 │   ├── polling_service.py         # polling_loop / poll_project / get_effective_task_timeout_minutes
 │   ├── polling_config_service.py  # 项目级轮询参数解析
 │   ├── agents.py                  # Agent availability 状态推导、短期/长期重置续推逻辑
+│   ├── codex_usage_cache.py       # Codex OAuth token、账号额度快照与账号级刷新冷却的内存缓存
 │   ├── project_agents.py          # 项目-Agent 绑定校验
 │   └── usage_limits.py            # 用量相关辅助
 ├── middleware/
@@ -148,9 +151,9 @@ frontend/
 │   │   ├── PlanPage.tsx           # /projects/:id/plan 计划生成（双路径）
 │   │   ├── TasksPage.tsx          # /projects/:id/tasks DAG + 任务执行
 │   │   ├── SummaryPage.tsx        # /projects/:id/summary 执行汇总
-│   │   ├── ProjectSettingsPage.tsx # /settings 全局项目参数（仅管理员）
+│   │   ├── ProjectSettingsPage.tsx # /settings 通知设置（所有用户）；全局轮询/Prompt 设置仅管理员可见
 │   │   ├── ProcessTemplatesPage.tsx # /templates/* 模版 CRUD 的统一多视图组件
-│   │   ├── AgentsPage.tsx         # /agents 单列卡片 + 拖拽排序 + 重置倒计时
+│   │   ├── AgentsPage.tsx         # /agents 单列卡片 + 状态切换 + 拖拽排序 + Codex 额度刷新
 │   │   ├── AgentSettingsPage.tsx  # /agents/settings（仅管理员）
 │   │   └── UserManagementPage.tsx # /admin/users（仅管理员）
 │   ├── components/                # 通用组件
@@ -158,7 +161,6 @@ frontend/
 │   │   ├── PageHeader.tsx
 │   │   ├── SectionCard.tsx        # ui-style.md 里定义的 section card 组件
 │   │   ├── StatusBadge.tsx
-│   │   ├── CountdownChip.tsx      # Agent 倒计时（颜色阈值见 ui-style）
 │   │   ├── ModelBadge.tsx
 │   │   ├── DagView.tsx            # React Flow 包装，用于 Plan 预览和 Tasks 页
 │   │   └── TaskDetailPanel.tsx    # Tasks 页右侧面板（预取 prompt + 原子派发）
@@ -193,7 +195,7 @@ frontend/
 | Tasks 页的派发原子性 / 预取 prompt | `components/TaskDetailPanel.tsx` + `pages/TasksPage.tsx` |
 | Plan 页的流程来源 / 规划模式 / Prompt 生成 | `pages/PlanPage.tsx` + `utils/flowSource.ts` + `utils/planningMode.ts` |
 | 模版 JSON 的 slot 抽取 | `utils/processTemplateRoles.ts` |
-| Agent 倒计时颜色阈值 / 状态徽章 | `components/CountdownChip.tsx` + `components/StatusBadge.tsx` |
+| Agent 状态徽章 | `components/StatusBadge.tsx` |
 | 全局视觉（色板、组件样式） | `styles/` + 遵循 `ui-style.md` |
 
 ### 3.3 构建脚本

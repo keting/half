@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security Policy
-    url: https://github.com/keting/half/blob/main/SECURITY.md
-    about: Do not report security vulnerabilities in public issues. Follow the private reporting process in SECURITY.md.
+  - name: Discussions / 讨论区
+    url: https://github.com/keting/half/discussions
+    about: 探索性想法、roadmap 建议、研究话题、设计方案对比、benchmark / evaluation 设计请使用 Discussions。
+  - name: 安全策略
+    url: https://github.com/keting/half/blob/main/SECURITY.zh-CN.md
+    about: 请不要在公开 Issue 中报告安全漏洞；请按照 SECURITY.zh-CN.md 私下报告。

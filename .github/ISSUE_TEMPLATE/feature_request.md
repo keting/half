@@ -1,22 +1,33 @@
 ---
-name: Feature request
-about: Propose a concrete improvement to HALF
+name: 功能需求
+about: 提出一个明确的 HALF 改进需求
 title: ""
 assignees: []
 ---
 
-## Problem
+## 问题
 
-Describe the workflow problem or limitation you are trying to solve.
+请描述你想解决的工作流问题或当前限制。
 
-## Proposed Change
+## 建议改动
 
-Describe the behavior you want.
+请描述你期望的行为。
 
-## Why It Matters
+## 验收标准
 
-Explain the value for users or maintainers.
+请列出什么条件满足后，这个需求可以视为完成。
 
-## Additional Context
+- [ ]
 
-Add mockups, examples, references, or related issues if relevant.
+## 前置 Discussion
+
+如果该需求涉及公开 API、数据模型、权限、安全边界、新模块或产品方向，请
+链接相关 Discussion。
+
+## 为什么重要
+
+请说明这个改动对用户或维护者的价值。
+
+## 补充信息
+
+如有需要，请补充草图、示例、参考资料或相关 Issue。

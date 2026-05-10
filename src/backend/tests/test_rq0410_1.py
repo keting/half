@@ -157,7 +157,12 @@ class RQ04101Tests(unittest.TestCase):
 
         response = self.client.post(
             "/api/projects",
-            json={"name": "Alpha Project", "goal": "Ship it", "agent_ids": [agent_id]},
+            json={
+                "name": "Alpha Project",
+                "goal": "Ship it",
+                "git_repo_url": "https://github.com/keting/half",
+                "agent_ids": [agent_id],
+            },
             headers=headers,
         )
 

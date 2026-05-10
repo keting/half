@@ -18,6 +18,8 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     role = Column(Text, nullable=False, default="user")
     status = Column(Text, nullable=False, default="active")
+    feishu_webhook_url = Column(Text, nullable=False, default="")
+    feishu_notify_events_json = Column(Text, nullable=False, default='["completed", "timeout", "project_completed"]')
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)

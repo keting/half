@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from sqlalchemy import inspect, text
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+load_dotenv()
 
 from config import settings, validate_security_config
 from database import engine, SessionLocal, Base
@@ -22,6 +24,7 @@ from routers import agent_settings as agent_settings_router
 from routers import settings as settings_router
 from routers import users as users_router
 from routers import process_templates as process_templates_router
+from routers import codex_usage as codex_usage_router
 from services.polling_service import polling_loop
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_LOCATION_GUIDANCE_KEY
 from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
@@ -106,6 +109,8 @@ def ensure_schema_updates():
         "users": {
             "role": "TEXT DEFAULT 'user'",
             "status": "TEXT DEFAULT 'active'",
+            "feishu_webhook_url": "TEXT DEFAULT ''",
+            "feishu_notify_events_json": "TEXT DEFAULT '[\"completed\", \"timeout\", \"project_completed\"]'",
             "last_login_at": "DATETIME",
             "last_login_ip": "TEXT",
         },
@@ -155,6 +160,11 @@ def ensure_schema_updates():
         conn.execute(text("UPDATE users SET role = 'admin' WHERE username = 'admin'"))
         conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR TRIM(role) = ''"))
         conn.execute(text("UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''"))
+        conn.execute(text("UPDATE users SET feishu_webhook_url = '' WHERE feishu_webhook_url IS NULL"))
+        conn.execute(text(
+            "UPDATE users SET feishu_notify_events_json = '[\"completed\", \"timeout\", \"project_completed\"]' "
+            "WHERE feishu_notify_events_json IS NULL OR TRIM(feishu_notify_events_json) = ''"
+        ))
         conn.execute(text("UPDATE projects SET planning_mode = 'balanced' WHERE planning_mode IS NULL OR TRIM(planning_mode) = ''"))
 
 
@@ -293,6 +303,10 @@ def repair_unassigned_tasks_from_plan_json():
             project.id: project
             for project in db.query(Project).filter(Project.id.in_([task.project_id for task in tasks])).all()
         }
+        owners_by_id = {
+            owner.id: owner
+            for owner in db.query(User).filter(User.id.in_([project.created_by for project in projects_by_id.values()])).all()
+        }
 
         for task in tasks:
             plan = plans_by_id.get(task.plan_id)
@@ -300,6 +314,9 @@ def repair_unassigned_tasks_from_plan_json():
                 continue
             project = projects_by_id.get(task.project_id)
             if not project:
+                continue
+            owner = owners_by_id.get(project.created_by)
+            if not owner:
                 continue
             try:
                 plan_data = json.loads(plan.plan_json)
@@ -323,7 +340,8 @@ def repair_unassigned_tasks_from_plan_json():
             assignee_agent_id = plans_router._resolve_assignee_agent_id(
                 db,
                 matched_task.get("assignee"),
-                owner_user_id=project.created_by,
+                project,
+                owner,
             )
             if not assignee_agent_id:
                 continue
@@ -438,6 +456,7 @@ app.include_router(settings_router.router)
 app.include_router(users_router.router)
 app.include_router(users_router.audit_router)
 app.include_router(process_templates_router.router)
+app.include_router(codex_usage_router.router)
 
 
 @app.get("/")
