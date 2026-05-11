@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildProjectSubmitPayload,
   getUnavailableAgentSelectionMessage,
   isUnavailableAgentSelectionDisabled,
   triggerAgentCardToggle,
@@ -209,5 +210,42 @@ describe('ProjectNewPage Git repository URL validation', () => {
     'ssh://git.example.com/org/repo.git',
   ])('rejects non-clone or unsafe Git repository URL %s', (url) => {
     expect(validateGitRepoUrl(url)).not.toBeNull();
+  });
+});
+
+describe('ProjectNewPage repository payload', () => {
+  const basePayloadInput = {
+    name: 'demo',
+    goal: 'ship repository split',
+    gitRepoUrl: ' git@github.com:org/app-half.git ',
+    projectRepoUrl: ' git@github.com:org/app.git ',
+    collaborationDir: ' half/project-a ',
+    selectedAgentIds: [1],
+    agentCoLocated: { 1: true },
+    pollingIntervalMin: 15,
+    pollingIntervalMax: 30,
+    pollingStartDelayMinutes: 0,
+    pollingStartDelaySeconds: 0,
+    taskTimeoutMinutes: 10,
+  };
+
+  it('includes project_repo_url when a separate project repository is selected', () => {
+    const payload = buildProjectSubmitPayload({
+      ...basePayloadInput,
+      useSameProjectRepo: false,
+    });
+
+    expect(payload.git_repo_url).toBe('git@github.com:org/app-half.git');
+    expect(payload.project_repo_url).toBe('git@github.com:org/app.git');
+  });
+
+  it('submits null project_repo_url when switching back to the same repository', () => {
+    const payload = buildProjectSubmitPayload({
+      ...basePayloadInput,
+      useSameProjectRepo: true,
+    });
+
+    expect(payload.git_repo_url).toBe('git@github.com:org/app-half.git');
+    expect(payload.project_repo_url).toBeNull();
   });
 });

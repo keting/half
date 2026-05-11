@@ -71,6 +71,7 @@ export interface Project {
   name: string;
   goal: string;
   git_repo_url: string;
+  project_repo_url?: string | null;
   collaboration_dir?: string | null;
   status: string;
   created_by?: number | null;

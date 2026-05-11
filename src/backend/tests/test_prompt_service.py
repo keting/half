@@ -137,8 +137,31 @@ class PromptServiceTests(unittest.TestCase):
         prompt, _ = generate_plan_prompt(project, [agent], "plan-1.json", None, {}, "   ")
         self.assertIn(DEFAULT_PLAN_CO_LOCATION_GUIDANCE, prompt)
 
+    def test_generate_plan_prompt_distinguishes_project_and_collaboration_repos(self):
+        project = Project(
+            name="Demo",
+            goal="需要规划",
+            git_repo_url="https://github.com/org/collaboration",
+            project_repo_url="https://github.com/org/code",
+            collaboration_dir="outputs/proj-1",
+        )
+        agent = Agent(id=3, name="Agent", slug="agent", agent_type="codex")
+
+        prompt, _ = generate_plan_prompt(project, [agent], "outputs/proj-1/plan-1.json", None, {})
+
+        self.assertIn("项目代码仓库地址：https://github.com/org/code", prompt)
+        self.assertIn("HALF 协作仓库地址：https://github.com/org/collaboration", prompt)
+        self.assertIn("HALF 只轮询该协作仓库", prompt)
+        self.assertIn("将计划写入 HALF 协作仓库中的 outputs/proj-1/plan-1.json 文件", prompt)
+
     def test_generate_task_prompt_uses_fixed_task_directories(self):
-        project = Project(id=4, name="Demo", collaboration_dir="outputs/proj-4-f9a125")
+        project = Project(
+            id=4,
+            name="Demo",
+            git_repo_url="https://github.com/org/collaboration",
+            project_repo_url="https://github.com/org/code",
+            collaboration_dir="outputs/proj-4-f9a125",
+        )
         task = Task(
             project_id=4,
             task_code="TASK-002",
@@ -169,9 +192,14 @@ class PromptServiceTests(unittest.TestCase):
         prompt = generate_task_prompt(FakeSession(), project, task)
         self.assertIn("outputs/proj-4-f9a125/TASK-001/", prompt)
         self.assertIn("outputs/proj-4-f9a125/TASK-002/", prompt)
+        self.assertIn("项目代码仓库地址：https://github.com/org/code", prompt)
+        self.assertIn("HALF 协作仓库地址：https://github.com/org/collaboration", prompt)
+        self.assertIn("HALF 只轮询该协作仓库", prompt)
         self.assertIn("result.json.tmp", prompt)
         self.assertIn("原子重命名为 `result.json`", prompt)
         self.assertIn("task_code`、`summary`、`artifacts`", prompt)
+        self.assertIn("只有项目代码仓库的代码修改已经提交并 push 成功后，才允许生成 `result.json`", prompt)
+        self.assertIn("no_code_changes: true", prompt)
 
     def test_generate_task_prompt_includes_project_goal_section(self):
         project = Project(
@@ -209,7 +237,10 @@ class PromptServiceTests(unittest.TestCase):
                 prompt = generate_task_prompt(FakeEmptySession(), project, task)
 
                 self.assertNotIn("## 项目任务介绍", prompt)
-                self.assertIn("你是项目 [Demo] 的执行 Agent。\n\n## 执行前置步骤", prompt)
+                self.assertIn("你是项目 [Demo] 的执行 Agent。\n\n## 仓库约定", prompt)
+                self.assertIn("## 仓库约定", prompt)
+                self.assertIn("## 执行前置步骤", prompt)
+                self.assertLess(prompt.index("## 仓库约定"), prompt.index("## 执行前置步骤"))
                 self.assertNotIn("\n\n\n## 执行前置步骤", prompt)
 
     def test_generate_task_prompt_includes_template_inputs_for_template_plan(self):

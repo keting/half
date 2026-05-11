@@ -37,12 +37,49 @@ export function triggerAgentCardToggleFromKey(key: string, disabled: boolean, on
   return true;
 }
 
+export interface ProjectSubmitPayloadInput {
+  name: string;
+  goal: string;
+  gitRepoUrl: string;
+  projectRepoUrl: string;
+  useSameProjectRepo: boolean;
+  collaborationDir: string;
+  selectedAgentIds: number[];
+  agentCoLocated: Record<number, boolean>;
+  pollingIntervalMin: number | null;
+  pollingIntervalMax: number | null;
+  pollingStartDelayMinutes: number | null;
+  pollingStartDelaySeconds: number | null;
+  taskTimeoutMinutes: number | null;
+}
+
+export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
+  return {
+    name: input.name,
+    goal: input.goal,
+    git_repo_url: input.gitRepoUrl.trim() || null,
+    project_repo_url: input.useSameProjectRepo ? null : (input.projectRepoUrl.trim() || null),
+    collaboration_dir: input.collaborationDir.trim() || null,
+    agent_assignments: input.selectedAgentIds.map((agentId) => ({
+      id: agentId,
+      co_located: Boolean(input.agentCoLocated[agentId]),
+    })),
+    polling_interval_min: input.pollingIntervalMin,
+    polling_interval_max: input.pollingIntervalMax,
+    polling_start_delay_minutes: input.pollingStartDelayMinutes,
+    polling_start_delay_seconds: input.pollingStartDelaySeconds,
+    task_timeout_minutes: input.taskTimeoutMinutes,
+  };
+}
+
 export default function ProjectNewPage() {
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [gitRepoUrl, setGitRepoUrl] = useState('');
+  const [projectRepoUrl, setProjectRepoUrl] = useState('');
+  const [useSameProjectRepo, setUseSameProjectRepo] = useState(true);
   const [collaborationDir, setCollaborationDir] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>([]);
   const [originalAgentIds, setOriginalAgentIds] = useState<number[]>([]);
@@ -60,7 +97,16 @@ export default function ProjectNewPage() {
 
   const hasAgents = agents.length > 0;
   const gitRepoUrlError = validateGitRepoUrl(gitRepoUrl, { required: true });
-  const canSubmit = Boolean(hasAgents && selectedAgentIds.length > 0 && name.trim() && goal.trim() && !gitRepoUrlError && !loading);
+  const projectRepoUrlError = useSameProjectRepo ? null : validateGitRepoUrl(projectRepoUrl, { required: true });
+  const canSubmit = Boolean(
+    hasAgents &&
+    selectedAgentIds.length > 0 &&
+    name.trim() &&
+    goal.trim() &&
+    !gitRepoUrlError &&
+    !projectRepoUrlError &&
+    !loading
+  );
   const pageTitle = isEditMode ? '编辑项目' : '新建项目';
 
   useEffect(() => {
@@ -91,6 +137,8 @@ export default function ProjectNewPage() {
           setName(project.name || '');
           setGoal(project.goal || '');
           setGitRepoUrl(project.git_repo_url || '');
+          setProjectRepoUrl(project.project_repo_url || '');
+          setUseSameProjectRepo(!project.project_repo_url || project.project_repo_url === project.git_repo_url);
           setCollaborationDir(project.collaboration_dir || '');
           setSelectedAgentIds(visibleInitialAgentIds);
           setOriginalAgentIds(visibleInitialAgentIds);
@@ -173,6 +221,7 @@ export default function ProjectNewPage() {
     const unavailableSelectionError = getUnavailableSelectionError(selectedAgentIds);
     if (unavailableSelectionError) { setError(unavailableSelectionError); return; }
     if (gitRepoUrlError) { setError(gitRepoUrlError); return; }
+    if (projectRepoUrlError) { setError(projectRepoUrlError); return; }
     // Polling param validation (mirrors backend rules)
     if (pollingIntervalMin !== null && (pollingIntervalMin < 1 || pollingIntervalMin > 600)) {
       setError('轮询间隔最小值必须在 1-600 秒之间'); return;
@@ -194,21 +243,21 @@ export default function ProjectNewPage() {
     }
     setLoading(true);
     try {
-      const payload = {
+      const payload = buildProjectSubmitPayload({
         name,
         goal,
-        git_repo_url: gitRepoUrl.trim() || null,
-        collaboration_dir: collaborationDir.trim() || null,
-        agent_assignments: selectedAgentIds.map((agentId) => ({
-          id: agentId,
-          co_located: Boolean(agentCoLocated[agentId]),
-        })),
-        polling_interval_min: pollingIntervalMin,
-        polling_interval_max: pollingIntervalMax,
-        polling_start_delay_minutes: pollingStartDelayMinutes,
-        polling_start_delay_seconds: pollingStartDelaySeconds,
-        task_timeout_minutes: taskTimeoutMinutes,
-      };
+        gitRepoUrl,
+        projectRepoUrl,
+        useSameProjectRepo,
+        collaborationDir,
+        selectedAgentIds,
+        agentCoLocated,
+        pollingIntervalMin,
+        pollingIntervalMax,
+        pollingStartDelayMinutes,
+        pollingStartDelaySeconds,
+        taskTimeoutMinutes,
+      });
       const project = isEditMode
         ? await api.put<Project>(`/api/projects/${id}`, payload)
         : await api.post<Project>('/api/projects', payload);
@@ -251,10 +300,10 @@ export default function ProjectNewPage() {
           </div>
         </SectionCard>
 
-        <SectionCard title="仓库配置" description="关联 Git 仓库用于多 Agent 协作">
+        <SectionCard title="仓库配置" description="配置 HALF 轮询协作仓库，以及 Agent 实际修改代码的项目仓库">
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="repo">Git 仓库地址</label>
+              <label htmlFor="repo">HALF 协作仓库地址</label>
               <input
                 id="repo"
                 type="text"
@@ -267,12 +316,38 @@ export default function ProjectNewPage() {
                 aria-describedby={gitRepoUrlError ? 'repo-error' : undefined}
               />
               {gitRepoUrlError && <div id="repo-error" className="helper-text helper-text-error">{gitRepoUrlError}</div>}
+              <div className="helper-text">HALF 会把任务计划和执行结果保存到这里，并根据内容更新任务状态。</div>
             </div>
             <div className="form-group">
               <label htmlFor="collab-dir">协作目录</label>
               <input id="collab-dir" type="text" value={collaborationDir} onChange={(e) => setCollaborationDir(e.target.value)} placeholder="留空则系统自动生成 outputs/proj-<项目id>-<随机串>" className="input-mono" />
             </div>
           </div>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={useSameProjectRepo}
+              onChange={(e) => setUseSameProjectRepo(e.target.checked)}
+            />
+            项目代码仓库与 HALF 协作仓库相同
+          </label>
+          {!useSameProjectRepo && (
+            <div className="form-group project-repo-url-field">
+              <label htmlFor="project-repo">项目代码仓库地址</label>
+              <input
+                id="project-repo"
+                type="text"
+                value={projectRepoUrl}
+                onChange={(e) => setProjectRepoUrl(e.target.value)}
+                placeholder="例如：git@github.com:org/app.git"
+                className="input-mono"
+                required
+                aria-invalid={projectRepoUrlError ? 'true' : 'false'}
+                aria-describedby={projectRepoUrlError ? 'project-repo-error' : undefined}
+              />
+              {projectRepoUrlError && <div id="project-repo-error" className="helper-text helper-text-error">{projectRepoUrlError}</div>}
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard

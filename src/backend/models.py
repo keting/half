@@ -72,6 +72,7 @@ class Project(Base):
     name = Column(Text, nullable=False)
     goal = Column(Text)
     git_repo_url = Column(Text)
+    project_repo_url = Column(Text)
     collaboration_dir = Column(Text)
     status = Column(Text, default="draft")  # draft/planning/executing/completed/abandoned
     agent_ids_json = Column(Text, default="[]")  # JSON array of {id, co_located} agent assignments
