@@ -392,6 +392,10 @@ body {
   width: auto;
 }
 
+.project-repo-url-field {
+  margin-top: 12px;
+}
+
 .checkbox-field-label {
   display: inline-flex;
   align-items: center;

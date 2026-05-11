@@ -14,7 +14,7 @@ coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的协作。
 ## HALF 是什么
 
 - **面向项目的 agent 协调。** 将一组 agent 绑定到项目，生成 DAG 形式的工
-  作计划，分发任务 prompt，并通过轮询项目 Git 仓库跟踪状态。
+  作计划，分发任务 prompt，并通过轮询配置的 Git 协作仓库跟踪状态。
 - **天然的人在回路中。** HALF 不会执行 agent 命令，而是生成人工可直接粘
   贴到 agent UI 的 prompt，并通过仓库结果回写来观察执行产物。
 - **agent 可用性模型。** 跟踪每个 agent 的订阅到期时间、短周期重置窗口和
@@ -165,8 +165,9 @@ docker compose up -d
 1. **浏览 Demo 项目** - 预置的 `(Demo) 修复一个bug` 包含示例任务。查看任务
    看板、DAG 视图和 handoff prompt，了解产品形态。
 2. **创建自己的项目** - 点击"新建项目"并配置：
-   - Git 仓库地址（必填；填写仓库根地址或 clone URL）
-   - 协作目录（用于存放输出的相对路径）
+   - HALF 协作仓库地址（必填；填写仓库根地址或 clone URL）
+   - 项目代码仓库地址（可选；单仓库工作流保持与协作仓库相同即可）
+   - 协作目录（协作仓库内用于存放输出的相对路径）
    - **必须选择至少一个 Agent**（从预置的 demo agents 中选择）
    - 轮询间隔和超时设置
 3. **生成 Plan** - 选择流程模板并填写必填参数，生成任务 DAG。
@@ -180,7 +181,7 @@ docker compose up -d
 首次启动时，HALF 默认会创建一个可浏览的 Demo 项目：
 
 - 项目：`(Demo) 修复一个bug`
-- 仓库：`https://github.com/keting/half.git`
+- HALF 协作仓库：`https://github.com/keting/half.git`
 - 协作目录：`demo/half-demo-collaboration`
 
 这个 Demo 用于首次试用和理解产品形态。它展示了一个已完成任务、两个可执
@@ -190,9 +191,10 @@ docker compose up -d
 使用用户名 `admin` 和 `.env` 中设置的 `HALF_ADMIN_PASSWORD` 登录后，即可
 在项目列表中打开该 Demo 项目。
 
-如果要实际运行自己的流程，请使用你有写权限的仓库，例如自己的仓库或 fork，
-然后手工把生成的 prompt 分发给对应 agent。若希望首次启动时不创建内置
-Demo 项目，可以设置：
+如果要实际运行自己的流程，请使用你有写权限的协作仓库，例如自己的仓库或
+fork，然后手工把生成的 prompt 分发给对应 agent。如果项目代码在另一个仓库，
+创建项目时再单独填写项目代码仓库地址。若希望首次启动时不创建内置 Demo
+项目，可以设置：
 
 ```bash
 HALF_DEMO_SEED_ENABLED=false
@@ -248,14 +250,21 @@ key。如果你需要访问私有仓库，请将 `src/docker-compose.override.ym
 私有仓库建议使用专用 SSH deploy key、credential helper 或后端容器专门配置
 的凭据；不要把 access token 或 password 写进仓库 URL。
 
-创建和编辑项目时必须填写 Git 仓库地址。HALF 接受仓库根地址和 clone URL，
-例如 `https://github.com/org/repo`、`https://github.com/org/repo.git`、
+创建和编辑项目时必须填写 HALF 协作仓库地址。它是 HALF clone 并轮询的仓库，
+用于保存计划、任务产物、`result.json` 和可选用量记录。项目代码仓库地址可
+以单独填写；留空或勾选“与 HALF 协作仓库相同”时，HALF 会把项目代码仓库视为
+同一个仓库。项目代码仓库地址会进入生成的 prompt，但 HALF 轮询时不会 clone
+或校验该仓库。
+
+两个仓库字段都接受仓库根地址和 clone URL，例如
+`https://github.com/org/repo`、`https://github.com/org/repo.git`、
 `ssh://git@github.com/org/repo.git`、`git@github.com:org/repo.git`。GitHub、
 Gitee、Bitbucket、Codeberg 的仓库根地址必须是 `owner/repo` 两段；GitLab
 也接受 `https://gitlab.com/group/subgroup/repo` 这类 subgroup 仓库根地址。
-保存时只做 URL 格式和安全校验，不证明仓库真实存在，也不证明容器已有访问权限。
-不要填 issues、pull、tree、blob、graphs 等仓库内页面 URL，也不要把凭据、
-access token 或 deploy token 内嵌在 URL 的 userinfo、query 或 fragment 中。
+保存时只做 URL 格式和安全校验，不证明仓库真实存在，也不证明容器或 agent
+已有访问权限。不要填 issues、pull、tree、blob、graphs 等仓库内页面 URL，
+也不要把凭据、access token 或 deploy token 内嵌在 URL 的 userinfo、query
+或 fragment 中。
 
 ## 生产部署说明
 

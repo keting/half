@@ -57,6 +57,7 @@ class ProjectCreate(BaseModel):
     name: str
     goal: Optional[str] = None
     git_repo_url: Optional[str] = None
+    project_repo_url: Optional[str] = None
     collaboration_dir: Optional[str] = None
     agent_ids: list[int] = Field(default_factory=list)
     agent_assignments: Optional[list[AgentAssignment]] = None
@@ -73,6 +74,7 @@ class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     goal: Optional[str] = None
     git_repo_url: Optional[str] = None
+    project_repo_url: Optional[str] = None
     collaboration_dir: Optional[str] = None
     status: Optional[str] = None
     agent_ids: Optional[list[int]] = None
@@ -91,6 +93,7 @@ class ProjectResponse(UtcDatetimeModel):
     name: str
     goal: Optional[str]
     git_repo_url: Optional[str]
+    project_repo_url: Optional[str]
     collaboration_dir: Optional[str]
     status: str
     created_by: Optional[int]
@@ -171,6 +174,7 @@ def _build_project_response(db: Session, project: Project, next_step: Optional[s
         'name': project.name,
         'goal': project.goal,
         'git_repo_url': project.git_repo_url,
+        'project_repo_url': getattr(project, 'project_repo_url', None),
         'collaboration_dir': project.collaboration_dir,
         'status': project.status,
         'created_by': project.created_by,
@@ -326,6 +330,17 @@ def _normalize_collab_dir_input(value: Optional[str]) -> Optional[str]:
     return cleaned or None
 
 
+def _normalize_optional_project_repo_url(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not value.strip():
+        return None
+    try:
+        return validate_git_url(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 def _generate_default_collab_dir(db: Session, project_id: int) -> str:
     # Keep numeric project_id for stable routing, and add a short random suffix
     # so default collaboration_dir stays unique even if ids are reused in edge cases.
@@ -404,6 +419,7 @@ def _resolve_polling_snapshot(
 @router.post('', response_model=ProjectResponse, status_code=201)
 def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     body.git_repo_url = _validate_required_git_repo_url(body.git_repo_url)
+    project_repo_url = _normalize_optional_project_repo_url(body.project_repo_url)
     agent_assignments = _project_assignments_from_body(db, body, user)
     _validate_polling_params(
         body.polling_interval_min,
@@ -428,6 +444,7 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
         name=body.name,
         goal=body.goal,
         git_repo_url=body.git_repo_url,
+        project_repo_url=project_repo_url,
         collaboration_dir=user_collab,  # may be None, will be defaulted after flush
         created_by=user.id,
         agent_ids_json=serialize_agent_assignments(agent_assignments),
@@ -477,6 +494,8 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         update_data['git_repo_url'] = _validate_required_git_repo_url(update_data['git_repo_url'])
     elif not project.git_repo_url or not project.git_repo_url.strip():
         raise HTTPException(status_code=400, detail=GIT_REPO_URL_REQUIRED_DETAIL)
+    if 'project_repo_url' in update_data:
+        update_data['project_repo_url'] = _normalize_optional_project_repo_url(update_data['project_repo_url'])
     if 'agent_assignments' in update_data:
         update_data.pop('agent_ids', None)
         update_data['agent_ids_json'] = serialize_agent_assignments(

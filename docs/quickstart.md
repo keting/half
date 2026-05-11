@@ -89,11 +89,13 @@ automatically.
 2. Fill in the form:
    - **Project name**: your project name
    - **Project goal**: what you want to accomplish
-   - **Git repository URL**: required repository root or clone URL, for
-     example `https://github.com/your/repo` or
-     `https://github.com/your/repo.git`
-   - **Collaboration directory**: relative output path, for example
-     `projects/my-project`
+   - **HALF collaboration repository URL**: required repository root or clone
+     URL. HALF saves task plans and execution results here.
+   - **Project code repository URL**: optional. Keep "same as collaboration
+     repository" selected for single-repository workflows; uncheck it when code
+     changes should be committed to a separate repository.
+   - **Collaboration directory**: relative output path inside the collaboration
+     repository, for example `projects/my-project`
    - **Polling interval**: how often HALF checks for task completion
    - **Task timeout**: task timeout in minutes
 3. **Select Agents** (required):
@@ -136,8 +138,9 @@ HALF will:
 2. Find a task with status "待处理" (pending).
 3. Click "复制 Prompt 并派发" to copy the prompt and mark the task as dispatched.
 4. Paste the copied prompt into your agent UI.
-5. The agent works in the Git repository.
-6. HALF polls for `result.json` to detect completion.
+5. The agent works in the project code repository when code changes are needed.
+6. The agent writes task outputs and `result.json` to the HALF collaboration
+   repository. HALF polls that collaboration repository to detect completion.
 
 ## Troubleshooting
 

@@ -23,6 +23,14 @@ def get_plan_mode_guidance(planning_mode: str | None) -> str:
     return PLAN_MODE_GUIDANCE.get((planning_mode or "balanced").strip(), PLAN_MODE_GUIDANCE["balanced"])
 
 
+def _project_repo_url(project: Project) -> str:
+    return (getattr(project, "project_repo_url", None) or project.git_repo_url or "").strip()
+
+
+def _collaboration_repo_url(project: Project) -> str:
+    return (project.git_repo_url or "").strip()
+
+
 def generate_plan_prompt(
     project: Project,
     selected_agents: list[Agent],
@@ -47,6 +55,8 @@ def generate_plan_prompt(
     ) or "- 未指定参与 Agent"
     co_location_guidance_text = normalize_plan_co_location_guidance(co_location_guidance)
     plan_mode_guidance_text = get_plan_mode_guidance(getattr(project, "planning_mode", None))
+    project_repo_url = _project_repo_url(project)
+    collaboration_repo_url = _collaboration_repo_url(project)
 
     prompt = f"""你是项目 [{project.name}] 的执行 Agent。
 
@@ -54,8 +64,11 @@ def generate_plan_prompt(
 {project.goal}
 
 ## 协作约定
-- 项目仓库地址：{project.git_repo_url or '未提供'}
+- 项目代码仓库地址：{project_repo_url or '未提供'}
+- HALF 协作仓库地址：{collaboration_repo_url or '未提供'}
 - 协作目录：{project.collaboration_dir or '仓库根目录'}
+- 代码修改、构建验证和业务文件变更提交到项目代码仓库。
+- `plan-*.json`、任务输出、`result.json`、`usage.json` 必须写入 HALF 协作仓库的协作目录；HALF 只轮询该协作仓库。
 
 ## 本次参与规划的 Agent
 {selected_lines}
@@ -71,8 +84,8 @@ def generate_plan_prompt(
 - plan_name: 计划名称
 - tasks: 任务列表，每个任务包含 task_code, task_name, description, assignee, depends_on, expected_output
 
-将计划写入 {plan_path} 文件。
-完成后执行 git add、git commit、git push。"""
+将计划写入 HALF 协作仓库中的 {plan_path} 文件。
+完成后在 HALF 协作仓库执行 git add、git commit、git push。"""
 
     return prompt, resolved_models
 
@@ -256,6 +269,8 @@ def generate_task_prompt(
     task_dir = f"{collab}/{task.task_code}" if collab else task.task_code
     goal_text = (project.goal or "").strip()
     template_inputs_section = _build_template_inputs_section(db, project, task)
+    project_repo_url = _project_repo_url(project)
+    collaboration_repo_url = _collaboration_repo_url(project)
 
     depends_on = json.loads(task.depends_on_json) if task.depends_on_json else []
     predecessor_lines = ""
@@ -280,10 +295,16 @@ def generate_task_prompt(
     sections = [f"你是项目 [{project.name}] 的执行 Agent。"]
     if goal_text:
         sections.append(f"## 项目任务介绍\n{goal_text}")
+    sections.append(f"""## 仓库约定
+- 项目代码仓库地址：{project_repo_url or '未提供'}
+- HALF 协作仓库地址：{collaboration_repo_url or '未提供'}
+- 协作目录：{project.collaboration_dir or '仓库根目录'}
+- 代码修改、构建验证和业务文件变更提交到项目代码仓库。
+- 任务产出、`result.json`、`usage.json` 写入 HALF 协作仓库的协作目录；HALF 只轮询该协作仓库。""")
     if template_inputs_section:
         sections.append(template_inputs_section)
     sections.append(f"""## 执行前置步骤（必须先做）
-1. 在开始本任务前，必须先在项目仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。
+1. 在开始本任务前，必须先在项目代码仓库目录执行 `git pull`；若 HALF 协作仓库与项目代码仓库不同，也必须在 HALF 协作仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。
 2. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。
 
 ## 任务信息
@@ -295,11 +316,15 @@ def generate_task_prompt(
 {predecessor_lines}
 
 ## 输出要求
-1. 将所有产出文件写入目录：{task_dir}/
+1. 将所有协作产出文件写入 HALF 协作仓库目录：{task_dir}/
 2. 所有产出文件写完后，最后生成 `result.json`，它是完成哨兵，不是中间过程文件
 3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
 4. `result.json` 至少包含：`task_code`、`summary`、`artifacts`，其中 `task_code` 必须为 `{task.task_code}`
 5. 后续任务默认从前序任务目录及其中的 `result.json` 读取成果，不要依赖旧的单文件输出路径约定
-6. 完成后执行 git add、git commit、git push""")
+6. 代码修改在项目代码仓库执行 git add、git commit、git push；协作产物在 HALF 协作仓库执行 git add、git commit、git push。
+
+## 完成哨兵约束
+- 只有项目代码仓库的代码修改已经提交并 push 成功后，才允许生成 `result.json`。
+- 如果本任务没有代码改动，必须在报告和 `result.json` 中明确说明 `no_code_changes: true` 以及验证依据；不得只生成 `result.json` 冒充完成。""")
 
     return "\n\n".join(sections)

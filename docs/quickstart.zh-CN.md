@@ -87,9 +87,9 @@ docker compose ps
 2. 填写表单：
    - **项目名称**：你的项目名称
    - **项目目标**：你想完成的描述
-   - **Git 仓库地址**：必填的仓库根地址或 clone URL，如
-     `https://github.com/your/repo` 或 `https://github.com/your/repo.git`
-   - **协作目录**：输出的相对路径，如 `projects/my-project`
+   - **HALF 协作仓库地址**：必填的仓库根地址或 clone URL。HALF 会把任务计划和执行结果保存到这里。
+   - **项目代码仓库地址**：可选。单仓库工作流保持“与 HALF 协作仓库相同”；代码改动需要提交到另一个仓库时再取消勾选并填写。
+   - **协作目录**：协作仓库内的输出相对路径，如 `projects/my-project`
    - **轮询间隔**：检查任务完成的频率
    - **任务超时**：任务超时时间（分钟）
 3. **选择 Agent**（必需）：
@@ -131,8 +131,8 @@ HALF 将：
 2. 找到状态为"待处理"的任务。
 3. 点击"复制 Prompt 并派发"，复制提示并将任务标记为已派发。
 4. 将已复制的提示粘贴到你的 Agent UI。
-5. Agent 在 Git 仓库中工作。
-6. HALF 轮询 `result.json` 以检测完成。
+5. 如需修改代码，Agent 在项目代码仓库中工作。
+6. Agent 将任务产物和 `result.json` 写入 HALF 协作仓库；HALF 轮询该协作仓库以检测完成。
 
 ## 故障排除
 

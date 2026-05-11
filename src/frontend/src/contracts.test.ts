@@ -64,6 +64,7 @@ describe('contracts helpers', () => {
       name: 'Demo',
       goal: 'Goal',
       git_repo_url: 'git@github.com:org/repo.git',
+      project_repo_url: 'git@github.com:org/code.git',
       collaboration_dir: 'tasks/shared',
       planning_mode: 'quality',
       status: 'draft',
@@ -72,6 +73,7 @@ describe('contracts helpers', () => {
     };
 
     expect(project.collaboration_dir).toBe('tasks/shared');
+    expect(project.project_repo_url).toBe('git@github.com:org/code.git');
     expect(project.planning_mode).toBe('quality');
   });
 
