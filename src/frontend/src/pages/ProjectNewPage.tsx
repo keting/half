@@ -37,6 +37,41 @@ export function triggerAgentCardToggleFromKey(key: string, disabled: boolean, on
   return true;
 }
 
+export interface ProjectSubmitPayloadInput {
+  name: string;
+  goal: string;
+  gitRepoUrl: string;
+  projectRepoUrl: string;
+  useSameProjectRepo: boolean;
+  collaborationDir: string;
+  selectedAgentIds: number[];
+  agentCoLocated: Record<number, boolean>;
+  pollingIntervalMin: number | null;
+  pollingIntervalMax: number | null;
+  pollingStartDelayMinutes: number | null;
+  pollingStartDelaySeconds: number | null;
+  taskTimeoutMinutes: number | null;
+}
+
+export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
+  return {
+    name: input.name,
+    goal: input.goal,
+    git_repo_url: input.gitRepoUrl.trim() || null,
+    project_repo_url: input.useSameProjectRepo ? null : (input.projectRepoUrl.trim() || null),
+    collaboration_dir: input.collaborationDir.trim() || null,
+    agent_assignments: input.selectedAgentIds.map((agentId) => ({
+      id: agentId,
+      co_located: Boolean(input.agentCoLocated[agentId]),
+    })),
+    polling_interval_min: input.pollingIntervalMin,
+    polling_interval_max: input.pollingIntervalMax,
+    polling_start_delay_minutes: input.pollingStartDelayMinutes,
+    polling_start_delay_seconds: input.pollingStartDelaySeconds,
+    task_timeout_minutes: input.taskTimeoutMinutes,
+  };
+}
+
 export default function ProjectNewPage() {
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
@@ -208,22 +243,21 @@ export default function ProjectNewPage() {
     }
     setLoading(true);
     try {
-      const payload = {
+      const payload = buildProjectSubmitPayload({
         name,
         goal,
-        git_repo_url: gitRepoUrl.trim() || null,
-        project_repo_url: useSameProjectRepo ? null : (projectRepoUrl.trim() || null),
-        collaboration_dir: collaborationDir.trim() || null,
-        agent_assignments: selectedAgentIds.map((agentId) => ({
-          id: agentId,
-          co_located: Boolean(agentCoLocated[agentId]),
-        })),
-        polling_interval_min: pollingIntervalMin,
-        polling_interval_max: pollingIntervalMax,
-        polling_start_delay_minutes: pollingStartDelayMinutes,
-        polling_start_delay_seconds: pollingStartDelaySeconds,
-        task_timeout_minutes: taskTimeoutMinutes,
-      };
+        gitRepoUrl,
+        projectRepoUrl,
+        useSameProjectRepo,
+        collaborationDir,
+        selectedAgentIds,
+        agentCoLocated,
+        pollingIntervalMin,
+        pollingIntervalMax,
+        pollingStartDelayMinutes,
+        pollingStartDelaySeconds,
+        taskTimeoutMinutes,
+      });
       const project = isEditMode
         ? await api.put<Project>(`/api/projects/${id}`, payload)
         : await api.post<Project>('/api/projects', payload);

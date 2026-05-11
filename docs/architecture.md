@@ -7,7 +7,7 @@
 
 ## 一、系统定位
 
-HALF（Human-AI Loop Framework）是一个人机协同多智能体任务管理平台。它面向同时使用多个 AI coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的研究者和团队，通过纯人工触发的方式协调任务编排、prompt 分发、状态跟踪和结果归档：系统生成 prompt，负责人手工粘贴到 agent 执行，agent 把产物写回项目 git 仓库，HALF 后台轮询 git 仓库识别完成。整个闭环不调用 agent 平台的非公开接口，不做接口逆向。
+HALF（Human-AI Loop Framework）是一个人机协同多智能体任务管理平台。它面向同时使用多个 AI coding agent（Claude Code、Codex、Copilot、GLM、Kimi 等）的研究者和团队，通过纯人工触发的方式协调任务编排、prompt 分发、状态跟踪和结果归档：系统生成 prompt，负责人手工粘贴到 agent 执行，agent 根据 prompt 修改项目代码仓库，并把计划、任务结果等协作产物写回 HALF 协作仓库，HALF 后台只轮询协作仓库识别完成。整个闭环不调用 agent 平台的非公开接口，不做接口逆向。
 
 ---
 
