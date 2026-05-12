@@ -53,7 +53,6 @@ body,
 
 .sidebar {
   width: 240px;
-  height: 100vh;
   background: var(--color-sidebar);
   color: var(--color-sidebar-text);
   display: flex;
@@ -132,7 +131,6 @@ body,
 
 .main-content {
   flex: 1;
-  height: 100vh;
   overflow-y: auto;
   min-width: 0;
 }
@@ -1229,26 +1227,71 @@ body,
   color: #7f1d1d;
   font-size: 13px;
 }
-.missing-pred-banner strong { display: block; margin-bottom: 4px; color: #b91c1c; }
-.missing-pred-banner ul { margin: 8px 0; padding-left: 18px; }
-.missing-pred-banner .missing-path { color: #991b1b; font-family: monospace; }
-.missing-pred-banner .btn-sm { font-size: 12px; padding: 4px 10px; }
+
+.missing-pred-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #b91c1c;
+}
+
+.missing-pred-banner ul {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.missing-pred-banner .missing-path {
+  color: #991b1b;
+  font-family: monospace;
+}
+
+.missing-pred-banner .btn-sm {
+  font-size: 12px;
+  padding: 4px 10px;
+}
 
 .modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,0.45);
-  display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   z-index: 1000;
 }
+
 .modal {
-  background: #fff; border-radius: 8px;
-  padding: 24px; max-width: 540px; width: 90%;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 540px;
+  width: 90%;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
 }
-.modal h4 { margin: 0 0 12px; font-size: 16px; color: #b91c1c; }
-.modal-missing-list { margin: 8px 0 12px; padding-left: 20px; font-size: 13px; }
-.modal-missing-list code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; }
-.modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+.modal h4 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: #b91c1c;
+}
+
+.modal-missing-list {
+  margin: 8px 0 12px;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.modal-missing-list code {
+  background: #f1f5f9;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
 
 .change-password-modal {
   max-width: 460px;
@@ -1978,7 +2021,7 @@ body,
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.15));
+  box-shadow: var(--shadow-lg, 0 4px 12px rgba(0, 0, 0, 0.15));
   min-width: 160px;
   overflow: hidden;
 }
@@ -2219,7 +2262,7 @@ body,
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg, 0 4px 12px rgba(0,0,0,0.15));
+  box-shadow: var(--shadow-lg, 0 4px 12px rgba(0, 0, 0, 0.15));
   max-height: 200px;
   overflow-y: auto;
 }
