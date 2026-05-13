@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -69,6 +70,36 @@ class PollingServiceTests(unittest.TestCase):
         db.refresh(task)
         return project, task
 
+    def _valid_result_json(self, task_code: str = "TASK-001") -> str:
+        return json.dumps({
+            "task_code": task_code,
+            "summary": "Task completed.",
+            "artifacts": [f"outputs/proj-7-7b145d/{task_code}/report.md"],
+        })
+
+    def _poll_running_task_with_result_content(self, content: str) -> tuple[Task, list[TaskEvent]]:
+        project, task = self._seed_running_task("outputs/proj-7-7b145d/TASK-001/result.json")
+        with patch(
+            "services.polling_service.git_service.ensure_repo_sync",
+            return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
+        ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=content,
+        ), patch(
+            "services.polling_service.git_service.file_exists",
+            return_value=False,
+        ):
+            poll_project(self.SessionLocal(), project)
+
+        verify_db = self.SessionLocal()
+        self.addCleanup(verify_db.close)
+        refreshed = verify_db.query(Task).filter(Task.id == task.id).first()
+        error_events = verify_db.query(TaskEvent).filter(
+            TaskEvent.task_id == task.id,
+            TaskEvent.event_type == "error",
+        ).all()
+        return refreshed, error_events
+
     def _seed_running_plan(self, *, dispatched_minutes_ago: int) -> tuple[Project, ProjectPlan]:
         db = self.SessionLocal()
         self.addCleanup(db.close)
@@ -92,7 +123,7 @@ class PollingServiceTests(unittest.TestCase):
         db.refresh(plan)
         return project, plan
 
-    def test_poll_project_marks_markdown_output_as_completed_when_file_exists(self):
+    def test_poll_project_marks_task_completed_when_valid_result_json_exists(self):
         project, task = self._seed_running_task("outputs/proj-7-7b145d/TASK-001/requirements.md")
         result_path = "outputs/proj-7-7b145d/TASK-001/result.json"
 
@@ -100,8 +131,11 @@ class PollingServiceTests(unittest.TestCase):
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
         ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=self._valid_result_json(),
+        ), patch(
             "services.polling_service.git_service.file_exists",
-            side_effect=lambda project_id, relative_path, git_repo_url=None, prefer_remote=False: relative_path == result_path,
+            return_value=False,
         ):
             poll_project(self.SessionLocal(), project)
 
@@ -112,12 +146,77 @@ class PollingServiceTests(unittest.TestCase):
         self.assertEqual(refreshed.result_file_path, result_path)
         self.assertIsNotNone(refreshed.completed_at)
 
+    def test_poll_project_rejects_malformed_result_json(self):
+        refreshed, error_events = self._poll_running_task_with_result_content("{not-json")
+
+        self.assertEqual(refreshed.status, "needs_attention")
+        self.assertIsNone(refreshed.result_file_path)
+        self.assertIn("Invalid result.json at outputs/proj-7-7b145d/TASK-001/result.json", refreshed.last_error)
+        self.assertIn("malformed JSON", refreshed.last_error)
+        self.assertEqual(len(error_events), 1)
+        self.assertEqual(error_events[0].detail, refreshed.last_error)
+
+    def test_poll_project_rejects_result_json_missing_required_fields(self):
+        content = json.dumps({"task_code": "TASK-001", "summary": "done"})
+
+        refreshed, error_events = self._poll_running_task_with_result_content(content)
+
+        self.assertEqual(refreshed.status, "needs_attention")
+        self.assertIsNone(refreshed.result_file_path)
+        self.assertIn("missing required fields: artifacts", refreshed.last_error)
+        self.assertEqual(len(error_events), 1)
+
+    def test_poll_project_rejects_result_json_with_mismatched_task_code(self):
+        content = json.dumps({
+            "task_code": "TASK-002",
+            "summary": "done",
+            "artifacts": ["outputs/proj-7-7b145d/TASK-001/report.md"],
+        })
+
+        refreshed, error_events = self._poll_running_task_with_result_content(content)
+
+        self.assertEqual(refreshed.status, "needs_attention")
+        self.assertIsNone(refreshed.result_file_path)
+        self.assertIn("task_code must equal TASK-001, got TASK-002", refreshed.last_error)
+        self.assertEqual(len(error_events), 1)
+
+    def test_poll_project_rejects_result_json_with_invalid_artifacts_type(self):
+        content = json.dumps({
+            "task_code": "TASK-001",
+            "summary": "done",
+            "artifacts": "outputs/proj-7-7b145d/TASK-001/report.md",
+        })
+
+        refreshed, error_events = self._poll_running_task_with_result_content(content)
+
+        self.assertEqual(refreshed.status, "needs_attention")
+        self.assertIsNone(refreshed.result_file_path)
+        self.assertIn("artifacts must be an array", refreshed.last_error)
+        self.assertEqual(len(error_events), 1)
+
+    def test_poll_project_rejects_result_json_with_invalid_artifact_path(self):
+        content = json.dumps({
+            "task_code": "TASK-001",
+            "summary": "done",
+            "artifacts": ["../outside.md"],
+        })
+
+        refreshed, error_events = self._poll_running_task_with_result_content(content)
+
+        self.assertEqual(refreshed.status, "needs_attention")
+        self.assertIsNone(refreshed.result_file_path)
+        self.assertIn("artifacts[0] must not escape the repository root", refreshed.last_error)
+        self.assertEqual(len(error_events), 1)
+
     def test_poll_project_times_out_when_fixed_result_json_is_missing(self):
         project, task = self._seed_running_task("outputs/proj-7-7b145d/TASK-001/result.json")
 
         with patch(
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
+        ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=None,
         ), patch(
             "services.polling_service.git_service.file_exists",
             return_value=False,
@@ -145,6 +244,9 @@ class PollingServiceTests(unittest.TestCase):
         with patch(
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
+        ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=None,
         ), patch(
             "services.polling_service.git_service.file_exists",
             return_value=False,
@@ -195,8 +297,11 @@ class PollingServiceTests(unittest.TestCase):
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
         ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=self._valid_result_json(),
+        ), patch(
             "services.polling_service.git_service.file_exists",
-            side_effect=lambda project_id, relative_path, git_repo_url=None, prefer_remote=False: relative_path == result_path,
+            return_value=False,
         ):
             poll_project(self.SessionLocal(), project)
 
@@ -220,12 +325,16 @@ class PollingServiceTests(unittest.TestCase):
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
         ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=self._valid_result_json(),
+        ) as mock_read_file, patch(
             "services.polling_service.git_service.file_exists",
-            side_effect=lambda project_id, relative_path, git_repo_url=None, prefer_remote=False: relative_path == result_path,
-        ) as mock_exists:
+            return_value=False,
+        ):
             poll_project(self.SessionLocal(), project)
 
-        self.assertTrue(mock_exists.called)
+        mock_read_file.assert_called()
+        self.assertEqual(mock_read_file.call_args.args[1], result_path)
         verify_db = self.SessionLocal()
         self.addCleanup(verify_db.close)
         refreshed = verify_db.query(Task).filter(Task.id == task.id).first()
@@ -237,8 +346,11 @@ class PollingServiceTests(unittest.TestCase):
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
         ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=self._valid_result_json(),
+        ), patch(
             "services.polling_service.git_service.file_exists",
-            return_value=True,
+            return_value=False,
         ):
             project, task = self._seed_running_task(
                 "outputs/proj-7-7b145d/TASK-001/result.json",
@@ -294,8 +406,11 @@ class PollingServiceTests(unittest.TestCase):
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
         ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=self._valid_result_json("TASK-XYZ"),
+        ), patch(
             "services.polling_service.git_service.file_exists",
-            side_effect=lambda project_id, relative_path, git_repo_url=None, prefer_remote=False: relative_path == "TASK-XYZ/result.json",
+            return_value=False,
         ):
             poll_project(self.SessionLocal(), project)
 
@@ -324,6 +439,9 @@ class PollingServiceTests(unittest.TestCase):
         with patch(
             "services.polling_service.git_service.ensure_repo_sync",
             return_value=RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
+        ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=None,
         ), patch(
             "services.polling_service.git_service.file_exists",
             return_value=False,
@@ -376,6 +494,9 @@ class PollingServiceTests(unittest.TestCase):
                 warnings=["git pull --ff-only failed: working tree contains unstaged changes"],
             ),
         ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=None,
+        ), patch(
             "services.polling_service.git_service.file_exists",
             return_value=False,
         ):
@@ -404,6 +525,9 @@ class PollingServiceTests(unittest.TestCase):
                 remote_ready=True,
                 warnings=["git pull --ff-only failed: working tree contains unstaged changes"],
             ),
+        ), patch(
+            "services.polling_service.git_service.read_file",
+            return_value=None,
         ), patch(
             "services.polling_service.git_service.file_exists",
             return_value=False,

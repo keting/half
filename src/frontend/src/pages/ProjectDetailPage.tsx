@@ -108,6 +108,8 @@ export default function ProjectDetailPage() {
 
   const summary = project.task_summary;
   const repoUrlError = validateGitRepoUrl(project.git_repo_url);
+  const projectRepoUrl = project.project_repo_url || project.git_repo_url;
+  const projectRepoUrlError = validateGitRepoUrl(projectRepoUrl);
   const nextStepText = getNextStepText(project.next_step);
   const nextStepAction = getNextStepAction(project.next_step);
   const readinessMap = new Map(predecessorStatuses.map((status) => [status.task_id, status]));
@@ -168,10 +170,17 @@ export default function ProjectDetailPage() {
               <p>{project.goal || '未填写项目目标'}</p>
             </div>
             <div className="project-console-meta-row">
-              <span className="project-console-label">仓库地址</span>
+              <span className="project-console-label">HALF 协作仓库</span>
               <div>
                 <p className="project-console-code">{project.git_repo_url || '-'}</p>
                 {repoUrlError && <div className="helper-text helper-text-error">{repoUrlError}</div>}
+              </div>
+            </div>
+            <div className="project-console-meta-row">
+              <span className="project-console-label">项目代码仓库</span>
+              <div>
+                <p className="project-console-code">{projectRepoUrl || '-'}</p>
+                {projectRepoUrlError && <div className="helper-text helper-text-error">{projectRepoUrlError}</div>}
               </div>
             </div>
             <div className="project-console-meta-row">

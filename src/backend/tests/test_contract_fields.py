@@ -39,6 +39,9 @@ class ContractFieldTests(unittest.TestCase):
     def test_project_contracts_expose_collaboration_dir(self):
         self.assertIn('collaboration_dir', ProjectCreate.model_fields)
         self.assertIn('collaboration_dir', ProjectResponse.model_fields)
+        self.assertIn('project_repo_url', ProjectCreate.model_fields)
+        self.assertIn('project_repo_url', ProjectUpdate.model_fields)
+        self.assertIn('project_repo_url', ProjectResponse.model_fields)
         self.assertIn('task_timeout_minutes', ProjectCreate.model_fields)
         self.assertIn('task_timeout_minutes', ProjectResponse.model_fields)
         self.assertIn('agent_assignments', ProjectCreate.model_fields)

@@ -74,7 +74,13 @@
 **Steps**
 
 1. Fill in project name and project goal.
-2. Fill in Git repository URL and collaboration directory (leave empty to use default directory strategy). For private repositories, complete GitHub access setup first (SSH key or token) by following `quickstart.md`.
+2. Fill in the HALF collaboration repository URL and collaboration directory
+   (leave the directory empty to use the default directory strategy). Keep the
+   project code repository the same as the collaboration repository for
+   single-repository workflows, or provide a separate project code repository
+   when code changes should be committed elsewhere. For private repositories,
+   complete GitHub access setup first (SSH key or token) by following
+   `quickstart.md`.
 3. Set polling parameters (polling interval, startup delay, task timeout).
 4. Select at least one available agent.
 5. Optionally mark selected agents as "same server".
@@ -96,7 +102,9 @@
 
 **Steps**
 
-1. On the edit page, update project name, project goal, repository URL, and collaboration directory as needed.
+1. On the edit page, update project name, project goal, HALF collaboration
+   repository URL, project code repository URL, and collaboration directory as
+   needed.
 2. Adjust polling parameters and agent assignment settings as needed.
 3. Click "Update Project" to submit changes.
 
@@ -347,6 +355,6 @@ To move a task from "running" to "completed", the agent should follow this minim
 1. Write task artifacts into: `<collaboration_dir>/<task_code>/`
 2. After all artifacts are ready, write (and commit) `<collaboration_dir>/<task_code>/result.json` as the completion sentinel
 3. Run `git add`, `git commit`, and `git push`
-4. After HALF polling detects `result.json`, task status moves to completed and the result is visible on the Summary page
+4. After HALF polling detects and validates `result.json`, task status moves to completed and the result is visible on the Summary page. Invalid JSON, missing required fields, a mismatched `task_code`, or invalid artifact paths keep the task in `needs_attention` with the reason shown in `last_error`.
 
 Note: `result.json` is the completion signal file and should be written and committed last.

@@ -252,8 +252,16 @@ def test_poll_project_returns_completed_notification_event(session_local, seeded
         lambda *args, **kwargs: RepoSyncStatus(repo_dir="/tmp/repo", fetched=True, pulled=True, remote_ready=True),
     )
     monkeypatch.setattr(
+        "services.polling_service.git_service.read_file",
+        lambda project_id, relative_path, git_repo_url=None, prefer_remote=False: json.dumps({
+            "task_code": "TASK-001",
+            "summary": "done",
+            "artifacts": ["outputs/proj-7-7b145d/TASK-001/report.md"],
+        }) if relative_path == "outputs/proj-7-7b145d/TASK-001/result.json" else None,
+    )
+    monkeypatch.setattr(
         "services.polling_service.git_service.file_exists",
-        lambda project_id, relative_path, git_repo_url=None, prefer_remote=False: relative_path == "outputs/proj-7-7b145d/TASK-001/result.json",
+        lambda *args, **kwargs: False,
     )
 
     notifications = poll_project(session_local(), project)
@@ -275,6 +283,10 @@ def test_poll_project_returns_timeout_notification_event(session_local, seeded_p
     monkeypatch.setattr(
         "services.polling_service.git_service.file_exists",
         lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "services.polling_service.git_service.read_file",
+        lambda *args, **kwargs: None,
     )
 
     notifications = poll_project(session_local(), project)
