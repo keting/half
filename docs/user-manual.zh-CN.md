@@ -347,6 +347,6 @@
 1. 将任务产物写入目录：`<collaboration_dir>/<task_code>/`
 2. 所有产物写完后，最后写入（并提交）`<collaboration_dir>/<task_code>/result.json` 作为完成哨兵
 3. 将本次变更 `git add`、`git commit`、`git push`
-4. HALF 后端轮询检测到 `result.json` 后，任务状态推进为完成，并可在“执行总结”页查看结果
+4. HALF 后端轮询检测并校验通过 `result.json` 后，任务状态推进为完成，并可在“执行总结”页查看结果。若 JSON 非法、缺少必填字段、`task_code` 不匹配或产物路径非法，任务会保持或进入 `needs_attention`，具体原因显示在 `last_error`。
 
 说明：`result.json` 是完成信号文件，应在其他产物准备好后最后落盘并提交。

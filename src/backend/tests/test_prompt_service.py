@@ -198,6 +198,7 @@ class PromptServiceTests(unittest.TestCase):
         self.assertIn("result.json.tmp", prompt)
         self.assertIn("原子重命名为 `result.json`", prompt)
         self.assertIn("task_code`、`summary`、`artifacts`", prompt)
+        self.assertIn("仓库根相对路径字符串数组", prompt)
         self.assertIn("只有项目代码仓库的代码修改已经提交并 push 成功后，才允许生成 `result.json`", prompt)
         self.assertIn("no_code_changes: true", prompt)
 
