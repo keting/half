@@ -372,7 +372,7 @@ export default function PlanPage() {
     } finally {
       setActionLoading('');
     }
-  }, [fetchPageData, id, navigate, plans]);
+  }, [currentPlanId, fetchPageData, id, navigate]);
 
   useEffect(() => {
     if (!latestPlan || isAutoFinalizing) return;
