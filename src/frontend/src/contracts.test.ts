@@ -13,16 +13,6 @@ describe('contracts helpers', () => {
     expect(getNextStepAction('Review and finalize plan')).toBe('');
   });
 
-  it('selects the latest plan id when multiple completed plans exist', () => {
-    const plans = [
-      { id: 4, is_selected: false, status: 'completed' } as any,
-      { id: 5, is_selected: false, status: 'completed' } as any,
-      { id: 6, is_selected: false, status: 'completed' } as any,
-    ];
-    const latestPlan = [...plans].reverse()[0] || null;
-    expect(latestPlan?.id).toBe(6);
-  });
-
   it('uses clipboard api when available', async () => {
     const clipboard = { writeText: vi.fn(async () => {}) };
     await expect(copyText('prompt-body', clipboard)).resolves.toBe(true);
