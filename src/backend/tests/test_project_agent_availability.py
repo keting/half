@@ -206,6 +206,39 @@ class ProjectAgentAvailabilityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["git_repo_url"], "https://github.com/beautyarbutin/1")
 
+    def test_create_project_accepts_separate_project_repo_url(self):
+        response = self.client.post(
+            "/api/projects",
+            json={
+                "name": "split-repo-project",
+                "goal": "x",
+                "git_repo_url": "https://github.com/org/collaboration",
+                "project_repo_url": "https://github.com/org/code",
+                "agent_ids": [self.available_agent_id],
+            },
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["git_repo_url"], "https://github.com/org/collaboration")
+        self.assertEqual(response.json()["project_repo_url"], "https://github.com/org/code")
+
+    def test_create_project_rejects_invalid_project_repo_url(self):
+        response = self.client.post(
+            "/api/projects",
+            json={
+                "name": "bad-code-repo-project",
+                "goal": "x",
+                "git_repo_url": "https://github.com/org/collaboration",
+                "project_repo_url": "https://www.baidu.com/",
+                "agent_ids": [self.available_agent_id],
+            },
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Git 仓库地址必须", response.json()["detail"])
+
     def test_create_project_allows_short_reset_pending_agent(self):
         response = self.client.post(
             "/api/projects",
@@ -251,6 +284,25 @@ class ProjectAgentAvailabilityTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Git 仓库地址必须", response.json()["detail"])
+
+    def test_update_project_can_set_and_clear_project_repo_url(self):
+        response = self.client.put(
+            f"/api/projects/{self.project_id}",
+            json={"project_repo_url": "https://github.com/org/code"},
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["project_repo_url"], "https://github.com/org/code")
+
+        response = self.client.put(
+            f"/api/projects/{self.project_id}",
+            json={"project_repo_url": None},
+            headers=self._headers(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["project_repo_url"])
 
     def test_update_project_rejects_clearing_repo_url(self):
         response = self.client.put(

@@ -116,6 +116,7 @@ def ensure_schema_updates():
         },
         "projects": {
             "collaboration_dir": "TEXT",
+            "project_repo_url": "TEXT",
             "polling_interval_min": "INTEGER",
             "polling_interval_max": "INTEGER",
             "polling_start_delay_minutes": "INTEGER",

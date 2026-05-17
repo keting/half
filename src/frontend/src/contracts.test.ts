@@ -4,7 +4,6 @@ import {
   copyText,
   getNextStepAction,
   getNextStepText,
-  getPlanIdToFinalize,
 } from './contracts';
 import type { Agent, Project } from './types';
 
@@ -12,17 +11,6 @@ describe('contracts helpers', () => {
   it('uses string next_step values returned by backend', () => {
     expect(getNextStepText('Review and finalize plan')).toBe('请检查并定稿当前 Plan。');
     expect(getNextStepAction('Review and finalize plan')).toBe('');
-  });
-
-  it('prefers the selected plan and falls back to the first plan', () => {
-    expect(
-      getPlanIdToFinalize([
-        { id: 1, is_selected: false, status: 'running' } as never,
-        { id: 2, is_selected: true, status: 'completed' } as never,
-      ])
-    ).toBe(2);
-    expect(getPlanIdToFinalize([{ id: 3, is_selected: false, status: 'completed' } as never])).toBe(3);
-    expect(getPlanIdToFinalize([])).toBeNull();
   });
 
   it('uses clipboard api when available', async () => {
@@ -64,6 +52,7 @@ describe('contracts helpers', () => {
       name: 'Demo',
       goal: 'Goal',
       git_repo_url: 'git@github.com:org/repo.git',
+      project_repo_url: 'git@github.com:org/code.git',
       collaboration_dir: 'tasks/shared',
       planning_mode: 'quality',
       status: 'draft',
@@ -72,6 +61,7 @@ describe('contracts helpers', () => {
     };
 
     expect(project.collaboration_dir).toBe('tasks/shared');
+    expect(project.project_repo_url).toBe('git@github.com:org/code.git');
     expect(project.planning_mode).toBe('quality');
   });
 

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { copyText, getPlanIdToFinalize } from '../contracts';
+import { copyText } from '../contracts';
 import { Agent, Plan, ProcessTemplate, Project } from '../types';
 import { getAgentModels } from '../utils/agents';
 import { applyTemplatePlan, filterTemplateInputs, getMissingTemplateInputs } from '../utils/applyTemplatePlan';
@@ -349,16 +349,14 @@ export default function PlanPage() {
   }
 
   const handleFinalize = useCallback(async (navigateAfterFinalize: boolean) => {
-    const completedPlans = plans.filter((plan) => (plan.status === 'completed' || plan.status === 'final') && plan.plan_json);
-    const planId = getPlanIdToFinalize(completedPlans);
-    if (!planId) {
+    if (!currentPlanId) {
       setError('当前还没有可确认的规划结果。');
       return;
     }
     setActionLoading('finalize');
     setError('');
     try {
-      await api.post(`/api/projects/${id}/plans/finalize`, { plan_id: planId });
+      await api.post(`/api/projects/${id}/plans/finalize`, { plan_id: currentPlanId });
       if (navigateAfterFinalize) {
         navigate(`/projects/${id}/tasks`);
       } else {
@@ -374,7 +372,7 @@ export default function PlanPage() {
     } finally {
       setActionLoading('');
     }
-  }, [fetchPageData, id, navigate, plans]);
+  }, [currentPlanId, fetchPageData, id, navigate]);
 
   useEffect(() => {
     if (!latestPlan || isAutoFinalizing) return;

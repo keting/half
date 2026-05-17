@@ -16,10 +16,10 @@ A task management console for teams orchestrating multiple AI coding agents
 
 - **Project-scoped agent coordination.** Bind a set of agents to a project,
   generate DAG-shaped work plans, dispatch task prompts, and track status by
-  polling the project's Git repository.
+  polling a configured Git collaboration repository.
 - **Human-in-the-loop by design.** HALF does not execute agent commands. It
   produces prompts for a human operator to paste into the agent's UI, and
-  watches the repository for the resulting outputs.
+  watches the collaboration repository for the resulting outputs.
 - **Agent availability model.** Track per-agent subscription expiry,
   short-term reset windows, and long-term reset windows so planners do not
   dispatch work to an unavailable agent.
@@ -182,8 +182,10 @@ After logging in:
    pre-loaded with sample tasks. Review it to understand the task board, DAG
    view, and handoff prompts.
 2. **Create Your Own Project** - Click "新建项目" and configure:
-   - Git repository URL (required; use the repository root or clone URL)
-   - Collaboration directory (relative path for outputs)
+   - HALF collaboration repository URL (required; repository root or clone URL)
+   - Project code repository URL (optional; leave it the same as the
+     collaboration repository for single-repository workflows)
+   - Collaboration directory (relative path inside the collaboration repository)
    - **At least one Agent must be selected** from the pre-seeded demo agents
    - Polling intervals and timeout settings
 3. **Generate a Plan** - Select a process template and provide required inputs
@@ -199,7 +201,7 @@ troubleshooting.
 On first startup, HALF seeds a browsable demo project by default:
 
 - Project: `(Demo) 修复一个bug`
-- Repository: `https://github.com/keting/half.git`
+- HALF collaboration repository: `https://github.com/keting/half.git`
 - Collaboration directory: `demo/half-demo-collaboration`
 
 The demo is for first-time exploration. It shows one completed task, two ready
@@ -210,9 +212,11 @@ task queue, and handoff prompts.
 Log in with username `admin` and the `HALF_ADMIN_PASSWORD` value you set in
 `.env`, then open the demo project from the project list.
 
-To run your own workflow, use a repository you can write to, such as your own
-repository or a fork, then dispatch the generated prompts to your agents
-manually. To start without the built-in demo project, set:
+To run your own workflow, use a collaboration repository you can write to, such
+as your own repository or a fork, then dispatch the generated prompts to your
+agents manually. If your code lives in a separate repository, configure it as
+the project code repository during project creation. To start without the
+built-in demo project, set:
 
 ```bash
 HALF_DEMO_SEED_ENABLED=false
@@ -270,16 +274,24 @@ For private repositories, use a dedicated SSH deploy key, credential helper, or
 backend-managed credentials; do not put access tokens or passwords in the
 repository URL.
 
-Project creation and editing require a Git repository URL. HALF accepts
-repository roots and clone URLs such as `https://github.com/org/repo`,
-`https://github.com/org/repo.git`, `ssh://git@github.com/org/repo.git`, and
-`git@github.com:org/repo.git`. On GitHub, Gitee, Bitbucket, and Codeberg,
-root URLs must be exactly `owner/repo`; GitLab subgroup root URLs such as
+Project creation and editing require a HALF collaboration repository URL. This
+is the repository HALF clones and polls for plans, task outputs, `result.json`,
+and optional usage records. A separate project code repository URL can also be
+provided; when omitted, HALF treats the project code repository as the same
+repository as the collaboration repository. HALF passes the project code
+repository to generated prompts, but does not clone or verify it during polling.
+
+Both repository fields accept repository roots and clone URLs such as
+`https://github.com/org/repo`, `https://github.com/org/repo.git`,
+`ssh://git@github.com/org/repo.git`, and `git@github.com:org/repo.git`. On
+GitHub, Gitee, Bitbucket, and Codeberg, root URLs must be exactly
+`owner/repo`; GitLab subgroup root URLs such as
 `https://gitlab.com/group/subgroup/repo` are also accepted. Save-time validation
 checks URL shape and safety only; it does not prove that the repository exists
-or that the container has access. Do not enter issues, pull request, tree, blob,
-graphs, or other repository-internal page URLs, and do not embed credentials,
-access tokens, or deploy tokens in the URL's userinfo, query, or fragment.
+or that the container or agents have access. Do not enter issues, pull request,
+tree, blob, graphs, or other repository-internal page URLs, and do not embed
+credentials, access tokens, or deploy tokens in the URL's userinfo, query, or
+fragment.
 
 ## Production Deployment Notes
 
