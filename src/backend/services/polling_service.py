@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import random
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from services.polling_config_service import (
 )
 from services import feishu_service
 from services.feishu_service import NotificationEvent
+from validators.result_json import validate_result_json_content
 
 logger = logging.getLogger("half.poller")
 
@@ -43,18 +45,35 @@ def _task_usage_path(project: Project, task: Task) -> str:
     return f"{task.task_code}/usage.json"
 
 
-def _detect_task_result(project: Project, task: Task) -> tuple[bool, str | None]:
-    """Detect task completion via a fixed sentinel file."""
+@dataclass(frozen=True)
+class TaskResultDetection:
+    found: bool
+    path: str
+    validation_error: str | None = None
+
+
+def _detect_task_result(project: Project, task: Task) -> TaskResultDetection:
+    """Read and validate the fixed result.json sentinel file."""
     base = _normalize_collab_dir(project)
     result_path = f"{base}/{task.task_code}/result.json" if base else f"{task.task_code}/result.json"
-    if git_service.file_exists(
+    content = git_service.read_file(
         project.id,
         result_path,
         git_repo_url=project.git_repo_url,
         prefer_remote=True,
-    ):
-        return True, result_path
-    return False, result_path
+    )
+    if content is None:
+        return TaskResultDetection(found=False, path=result_path)
+
+    validation = validate_result_json_content(content, task.task_code)
+    if validation.error:
+        return TaskResultDetection(
+            found=True,
+            path=result_path,
+            validation_error=f"Invalid result.json at {result_path}: {validation.error}",
+        )
+
+    return TaskResultDetection(found=True, path=result_path)
 
 
 def get_effective_task_timeout_minutes(db: Session, project: Project, task: Task) -> int:
@@ -70,15 +89,18 @@ def get_effective_task_timeout_minutes(db: Session, project: Project, task: Task
 
 
 def _set_task_runtime_error(db: Session, task: Task, now: datetime, message: str, *, needs_attention: bool) -> None:
+    should_record_event = task.last_error != message
     task.last_error = message
     task.updated_at = now
-    if needs_attention:
+    if needs_attention and task.status != "needs_attention":
         task.status = "needs_attention"
-    db.add(TaskEvent(
-        task_id=task.id,
-        event_type="error",
-        detail=message,
-    ))
+        should_record_event = True
+    if should_record_event:
+        db.add(TaskEvent(
+            task_id=task.id,
+            event_type="error",
+            detail=message,
+        ))
 
 
 def _set_plan_runtime_error(plan: ProjectPlan, now: datetime, message: str, *, needs_attention: bool) -> None:
@@ -190,9 +212,12 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
                 project.id, task.task_code, delay_seconds,
             )
             continue
-        result_detected, result_path = _detect_task_result(project, task)
+        result = _detect_task_result(project, task)
+        result_path = result.path
 
-        if result_detected:
+        if result.found and result.validation_error:
+            _set_task_runtime_error(db, task, now, result.validation_error, needs_attention=True)
+        elif result.found:
             task.status = "completed"
             task.completed_at = now
             task.result_file_path = result_path
@@ -201,7 +226,7 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
             db.add(TaskEvent(
                 task_id=task.id,
                 event_type="completed",
-                detail=f"Result detected at {result_path}",
+                detail=f"Result validated at {result_path}",
             ))
             pending_notifications.append(NotificationEvent(
                 event_type="completed",

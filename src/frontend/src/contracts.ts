@@ -53,10 +53,6 @@ export function getNextStepAction(nextStep: NextStepValue): string {
   return NEXT_STEP_ACTION_MAP[action] ?? action;
 }
 
-export function getPlanIdToFinalize(plans: Plan[]): number | null {
-  const selectedPlan = plans.find((plan) => plan.is_selected) ?? plans.find((plan) => plan.status === 'completed') ?? plans[0];
-  return selectedPlan ? selectedPlan.id : null;
-}
 
 interface ClipboardLike {
   writeText(text: string): Promise<void>;

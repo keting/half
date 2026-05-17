@@ -2,10 +2,6 @@
   "task_code": "T1_DEV",
   "summary": "Demo task completed. No real bug fix was required; generated task artifacts for downstream workflow consumption.",
   "artifacts": [
-    {
-      "path": "demo/half-demo-collaboration/T1_DEV/report.md",
-      "type": "report",
-      "description": "Development and local deployment verification report for the demo workflow task."
-    }
+    "demo/half-demo-collaboration/T1_DEV/report.md"
   ]
 }

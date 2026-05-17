@@ -319,7 +319,7 @@ def generate_task_prompt(
 1. 将所有协作产出文件写入 HALF 协作仓库目录：{task_dir}/
 2. 所有产出文件写完后，最后生成 `result.json`，它是完成哨兵，不是中间过程文件
 3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
-4. `result.json` 至少包含：`task_code`、`summary`、`artifacts`，其中 `task_code` 必须为 `{task.task_code}`
+4. `result.json` 必须是合法 JSON 对象，包含 `task_code`、`summary`、`artifacts`；`task_code` 必须为 `{task.task_code}`，`summary` 必须为非空字符串，`artifacts` 必须是仓库根相对路径字符串数组，不得使用绝对路径、反斜杠或 `..` 越界路径
 5. 后续任务默认从前序任务目录及其中的 `result.json` 读取成果，不要依赖旧的单文件输出路径约定
 6. 代码修改在项目代码仓库执行 git add、git commit、git push；协作产物在 HALF 协作仓库执行 git add、git commit、git push。
 

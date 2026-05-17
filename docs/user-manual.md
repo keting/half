@@ -355,6 +355,6 @@ To move a task from "running" to "completed", the agent should follow this minim
 1. Write task artifacts into: `<collaboration_dir>/<task_code>/`
 2. After all artifacts are ready, write (and commit) `<collaboration_dir>/<task_code>/result.json` as the completion sentinel
 3. Run `git add`, `git commit`, and `git push`
-4. After HALF polling detects `result.json`, task status moves to completed and the result is visible on the Summary page
+4. After HALF polling detects and validates `result.json`, task status moves to completed and the result is visible on the Summary page. Invalid JSON, missing required fields, a mismatched `task_code`, or invalid artifact paths keep the task in `needs_attention` with the reason shown in `last_error`.
 
 Note: `result.json` is the completion signal file and should be written and committed last.
