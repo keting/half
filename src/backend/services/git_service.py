@@ -127,8 +127,21 @@ def fetch_repo(project_id: int) -> str:
     return repo_dir
 
 
+def _git_exception_detail(exc: Exception) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        details: list[str] = []
+        for stream_value in (exc.stderr, exc.stdout):
+            if isinstance(stream_value, str) and stream_value.strip():
+                details.append(stream_value.strip())
+        if details:
+            return " | ".join(details)
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return f"command timed out after {exc.timeout} seconds"
+    return str(exc)
+
+
 def _is_retryable_git_error(exc: Exception) -> bool:
-    message = str(exc).lower()
+    message = _git_exception_detail(exc).lower()
     if isinstance(exc, subprocess.TimeoutExpired):
         return True
     return any(marker in message for marker in _RETRYABLE_GIT_ERROR_MARKERS)
@@ -141,11 +154,11 @@ def _retry_git_operation(label: str, fn, *, retries: int = 3) -> tuple[bool, str
             fn()
             return True, None
         except Exception as exc:
-            last_error = str(exc)
+            last_error = _git_exception_detail(exc)
             if attempt >= retries or not _is_retryable_git_error(exc):
                 return False, f"{label} failed: {last_error}"
             delay = 0.5 * (2 ** (attempt - 1))
-            logger.warning("%s attempt %s/%s failed: %s; retrying in %.1fs", label, attempt, retries, exc, delay)
+            logger.warning("%s attempt %s/%s failed: %s; retrying in %.1fs", label, attempt, retries, last_error, delay)
             _sleep(delay)
     return False, f"{label} failed"
 

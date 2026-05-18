@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tempfile
 import threading
@@ -207,6 +208,27 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
         self.assertTrue(status.used_cache)
         mock_fetch.assert_not_called()
         mock_pull.assert_not_called()
+
+    def test_ensure_repo_sync_reports_git_stderr_for_clone_failure(self):
+        git_error = subprocess.CalledProcessError(
+            128,
+            ["git", "clone", "git@github.com:example-org/example-repo.git", "/tmp/repo"],
+            stderr=(
+                "git@github.com: Permission denied (publickey).\n"
+                "fatal: Could not read from remote repository.\n"
+            ),
+        )
+
+        with patch("services.git_service.os.path.exists", return_value=False), patch(
+            "services.git_service.clone_repo",
+            side_effect=git_error,
+        ):
+            status = git_service.ensure_repo_sync(3, "git@github.com:example-org/example-repo.git")
+
+        self.assertIsNone(status.repo_dir)
+        self.assertFalse(status.remote_ready)
+        self.assertIn("Permission denied (publickey)", status.error)
+        self.assertIn("Could not read from remote repository", status.error)
 
     def test_ensure_repo_sync_serializes_concurrent_calls_per_project(self):
         release_fetch = threading.Event()
