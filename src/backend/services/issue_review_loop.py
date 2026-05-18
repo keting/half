@@ -303,7 +303,9 @@ def get_issue_review_flow_state(db: Session, project: Project) -> dict[str, Any]
     both_reviews_submitted = all(item.get("status") == "submitted" for item in reviews.values())
     derived_phase = str(flow_state.get("phase") or "")
 
-    if both_reviews_submitted:
+    task_005_state = effective.get("TASK-005")
+
+    if both_reviews_submitted and task_005_state not in {"completed", "approved", "abandoned"}:
         effective["TASK-003"] = "frozen"
         effective["TASK-004"] = "frozen"
         effective["TASK-005"] = "unlocked"

@@ -174,6 +174,22 @@ class IssueReviewLoopTests(unittest.TestCase):
         self.assertEqual(state["effective_task_states"]["TASK-003"], "needs_attention")
         self.assertIn("head_commit", state["errors"][0])
 
+    def test_completed_decision_task_stays_completed_after_reviews_exist(self):
+        flow = self._flow_state()
+        flow["phase"] = "completed"
+        flow["task_states"]["TASK-005"] = "completed"
+        files = {
+            "outputs/proj-10/flow-state.json": json.dumps(flow),
+            "outputs/proj-10/TASK-003/reviews/round-001/review.json": json.dumps(self._review(True)),
+            "outputs/proj-10/TASK-004/reviews/round-001/review.json": json.dumps(self._review(True)),
+        }
+
+        with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
+            state = get_issue_review_flow_state(self.db, self.project)
+
+        self.assertEqual(state["derived_phase"], "completed")
+        self.assertEqual(state["effective_task_states"]["TASK-005"], "completed")
+
     def test_dispatch_uses_loop_business_state_instead_of_db_predecessors(self):
         flow = self._flow_state()
         flow["task_states"]["TASK-003"] = "frozen"
