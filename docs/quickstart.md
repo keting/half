@@ -198,12 +198,32 @@ HALF_DEMO_SEED_ENABLED=true docker compose up -d
 
 ### Git Repository Access Fails
 
-For private repositories, copy `src/docker-compose.override.yml.example` to
-`src/docker-compose.override.yml` and mount a dedicated deploy key. Do not mount
-your whole `~/.ssh` directory into the container.
-Use a dedicated SSH deploy key, credential helper, or backend-managed
-credentials for private repository access. Do not put access tokens or passwords
-in the repository URL.
+The backend container cannot use credentials from your host machine unless you
+explicitly provide them to the container. If a repository works on the host but
+fails in HALF, test from inside the backend container or review the container
+credential mounts.
+
+For public GitHub repositories, prefer HTTPS URLs such as
+`https://github.com/org/repo.git` when anonymous read-only access is enough. SSH
+URLs such as `git@github.com:org/repo.git` still require an SSH key and
+`known_hosts` inside the backend container, even for public repositories.
+Private repositories require credentials with repository access for either SSH
+or HTTPS.
+
+For Docker SSH access, copy `src/docker-compose.override.yml.example` to
+`src/docker-compose.override.yml` and mount a dedicated deploy key plus
+`known_hosts`. Do not mount your whole `~/.ssh` directory into the container.
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/half_deploy_key -C half-backend
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+```
+
+Add `~/.ssh/half_deploy_key.pub` to the target repository as a deploy key, then
+uncomment and adjust the volume lines in `src/docker-compose.override.yml`.
+For private HTTPS access, use a credential helper or another container-side Git
+credential setup to provide a token. Do not put access tokens or passwords in
+the repository URL.
 
 HALF accepts repository roots and clone URLs such as
 `https://github.com/org/repo`, `https://github.com/org/repo.git`,

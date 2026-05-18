@@ -18,7 +18,11 @@ from models import Project, Task, ProjectPlan, TaskEvent
 from services.git_service import RepoSyncStatus
 from services.polling_service import (
     GIT_REPO_ACCESS_ERROR_MESSAGE,
+    GIT_REPO_NETWORK_ERROR_MESSAGE,
+    GIT_REPO_NOT_FOUND_ERROR_MESSAGE,
+    GIT_REPO_SSH_PUBLICKEY_ERROR_MESSAGE,
     _task_usage_path,
+    format_git_repo_access_error,
     get_effective_task_timeout_minutes,
     poll_project,
 )
@@ -475,8 +479,61 @@ class PollingServiceTests(unittest.TestCase):
         self.addCleanup(verify_db.close)
         refreshed = verify_db.query(Task).filter(Task.id == task.id).first()
         self.assertEqual(refreshed.status, "running")
-        self.assertEqual(refreshed.last_error, GIT_REPO_ACCESS_ERROR_MESSAGE)
+        self.assertEqual(refreshed.last_error, GIT_REPO_NETWORK_ERROR_MESSAGE)
         self.assertNotIn("Timeout: result not found", refreshed.last_error)
+
+    def test_poll_project_records_specific_ssh_publickey_sync_failure(self):
+        project, task = self._seed_running_task("outputs/proj-7-7b145d/TASK-001/result.json")
+
+        with patch(
+            "services.polling_service.git_service.ensure_repo_sync",
+            return_value=RepoSyncStatus(
+                repo_dir=None,
+                remote_ready=False,
+                error=(
+                    "git clone failed: git@github.com: Permission denied (publickey).\n"
+                    "fatal: Could not read from remote repository."
+                ),
+            ),
+        ):
+            poll_project(self.SessionLocal(), project)
+
+        verify_db = self.SessionLocal()
+        self.addCleanup(verify_db.close)
+        refreshed = verify_db.query(Task).filter(Task.id == task.id).first()
+        self.assertEqual(refreshed.status, "running")
+        self.assertEqual(refreshed.last_error, GIT_REPO_SSH_PUBLICKEY_ERROR_MESSAGE)
+        self.assertIn("SSH key", refreshed.last_error)
+
+    def test_format_git_repo_access_error_classifies_common_git_failures(self):
+        self.assertEqual(
+            format_git_repo_access_error("remote: Repository not found."),
+            GIT_REPO_NOT_FOUND_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            format_git_repo_access_error("fatal: Authentication failed for 'https://github.com/org/repo.git/'"),
+            GIT_REPO_NOT_FOUND_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            format_git_repo_access_error("fatal: could not read Username for 'https://github.com': No such device or address"),
+            GIT_REPO_NOT_FOUND_ERROR_MESSAGE,
+        )
+        self.assertIn("仓库地址是否正确", GIT_REPO_NOT_FOUND_ERROR_MESSAGE)
+        self.assertIn("仓库是否存在", GIT_REPO_NOT_FOUND_ERROR_MESSAGE)
+        self.assertIn("后端容器是否具备访问权限", GIT_REPO_NOT_FOUND_ERROR_MESSAGE)
+        self.assertIn("public HTTPS 仓库通常可匿名只读", GIT_REPO_NOT_FOUND_ERROR_MESSAGE)
+        self.assertEqual(
+            format_git_repo_access_error("Host key verification failed."),
+            GIT_REPO_SSH_PUBLICKEY_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            format_git_repo_access_error("ssh: Could not resolve hostname github.com: Temporary failure in name resolution"),
+            GIT_REPO_NETWORK_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            format_git_repo_access_error("fatal: ambiguous git failure"),
+            GIT_REPO_ACCESS_ERROR_MESSAGE,
+        )
 
     def test_poll_project_logs_git_sync_warning_without_recording_error(self):
         project, task = self._seed_running_task(

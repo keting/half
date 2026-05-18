@@ -245,11 +245,27 @@ cd src/frontend && npm test && npm run build
 
 ## 容器内访问 Git
 
-默认情况下，后端容器无法访问私有 Git 仓库。HALF 不会默认挂载宿主机 SSH
-key。如果你需要访问私有仓库，请将 `src/docker-compose.override.yml.example`
-复制为 `src/docker-compose.override.yml`，并挂载专用 deploy key。
-私有仓库建议使用专用 SSH deploy key、credential helper 或后端容器专门配置
-的凭据；不要把 access token 或 password 写进仓库 URL。
+默认情况下，后端容器不能直接使用宿主机上的 Git 凭据。宿主机能 clone
+某个仓库，不代表后端容器也能 clone。
+
+只需要匿名只读访问 GitHub public 仓库时，优先使用 HTTPS 地址，例如
+`https://github.com/org/repo.git`。`git@github.com:org/repo.git` 这类 SSH
+地址即使访问 public 仓库，也要求后端运行环境配置 SSH key 和 `known_hosts`。
+private 仓库无论使用 SSH 还是 HTTPS，都需要具备目标仓库权限的凭据。
+
+Docker 部署需要 SSH 访问时，请将 `src/docker-compose.override.yml.example`
+复制为 `src/docker-compose.override.yml`，并只挂载专用 deploy key 和
+`known_hosts` 到后端容器。不要将整个 `~/.ssh` 目录挂载到容器中。典型流程：
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/half_deploy_key -C half-backend
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+```
+
+将 `~/.ssh/half_deploy_key.pub` 添加到目标仓库的 deploy key 后，再取消注释并
+调整 `src/docker-compose.override.yml` 中的私钥、公钥和 `known_hosts` 挂载。
+private 仓库如果使用 HTTPS，建议通过容器侧 Git credential 配置或
+credential helper 提供 token；不要把 access token 或 password 写进仓库 URL。
 
 创建和编辑项目时必须填写 HALF 协作仓库地址。它是 HALF clone 并轮询的仓库，
 用于保存计划、任务产物、`result.json` 和可选用量记录。项目代码仓库地址可

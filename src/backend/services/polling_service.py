@@ -23,6 +23,50 @@ GIT_REPO_ACCESS_ERROR_MESSAGE = (
     "无法访问 Git 仓库。请检查仓库是否存在、仓库地址是否正确，"
     "是否有访问该仓库的权限。HALF 会自动重试。"
 )
+GIT_REPO_SSH_PUBLICKEY_ERROR_MESSAGE = (
+    "无法通过 SSH 访问 Git 仓库：后端运行环境缺少可用 SSH key，"
+    "或该 key 没有目标仓库权限。Docker 部署时需要把 deploy key 和 known_hosts "
+    "显式挂载到后端容器；如果是 public 仓库，也可以改用 HTTPS 地址。HALF 会自动重试。"
+)
+GIT_REPO_NOT_FOUND_ERROR_MESSAGE = (
+    "无法确认 Git 仓库可访问。请检查仓库地址是否正确、仓库是否存在，"
+    "以及后端容器是否具备访问权限。public HTTPS 仓库通常可匿名只读；"
+    "private 仓库需要配置 SSH key、token 或 credential helper。"
+    "HALF 会自动重试。"
+)
+GIT_REPO_NETWORK_ERROR_MESSAGE = (
+    "无法连接 Git 仓库。请检查后端容器的网络、DNS、代理配置，以及目标 Git 服务是否可达。"
+    "HALF 会自动重试。"
+)
+
+
+def format_git_repo_access_error(error: str | None) -> str:
+    message = (error or "").lower()
+    if "permission denied (publickey" in message or "host key verification failed" in message:
+        return GIT_REPO_SSH_PUBLICKEY_ERROR_MESSAGE
+    if (
+        "repository not found" in message
+        or "not found" in message and "repository" in message
+        or "authentication failed" in message
+        or "could not read username" in message
+    ):
+        return GIT_REPO_NOT_FOUND_ERROR_MESSAGE
+    network_markers = (
+        "could not resolve host",
+        "connection timed out",
+        "operation timed out",
+        "network is unreachable",
+        "connection reset",
+        "connection refused",
+        "failed to connect",
+        "could not resolve hostname",
+        "remote end hung up unexpectedly",
+        "tls handshake timeout",
+        "temporary failure in name resolution",
+    )
+    if any(marker in message for marker in network_markers):
+        return GIT_REPO_NETWORK_ERROR_MESSAGE
+    return GIT_REPO_ACCESS_ERROR_MESSAGE
 
 
 def _normalize_collab_dir(project: Project) -> str:
@@ -143,17 +187,19 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
     ).all()
     sync_status = git_service.ensure_repo_sync(project.id, project.git_repo_url)
     if sync_status.error:
+        user_sync_message = format_git_repo_access_error(sync_status.error)
         technical_sync_message = (
             f"Git sync failed while polling project {project.id}: {sync_status.error}. "
+            f"User-facing message: {user_sync_message} "
             "HALF will retry automatically; this is not treated as 'result not found'."
         )
         logger.error(technical_sync_message)
         for plan in running_plans:
             if _delay_satisfied(plan.dispatched_at):
-                _set_plan_runtime_error(plan, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
+                _set_plan_runtime_error(plan, now, user_sync_message, needs_attention=False)
         for task in running_tasks:
             if _delay_satisfied(task.dispatched_at):
-                _set_task_runtime_error(db, task, now, GIT_REPO_ACCESS_ERROR_MESSAGE, needs_attention=False)
+                _set_task_runtime_error(db, task, now, user_sync_message, needs_attention=False)
         db.commit()
         return pending_notifications
 

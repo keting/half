@@ -266,13 +266,31 @@ cd src/frontend && npm test && npm run build
 
 ## Git Access From The Container
 
-Out of the box, the backend container cannot reach private Git repositories.
-HALF does not mount host SSH keys by default. If you need private repository
-access, copy `src/docker-compose.override.yml.example` to
-`src/docker-compose.override.yml` and mount a dedicated deploy key.
-For private repositories, use a dedicated SSH deploy key, credential helper, or
-backend-managed credentials; do not put access tokens or passwords in the
-repository URL.
+Out of the box, the backend container cannot use credentials from your host
+machine. Being able to clone a repository on the host does not mean the backend
+container can clone it.
+
+Use HTTPS URLs for public GitHub repositories when you only need anonymous
+read-only access, for example `https://github.com/org/repo.git`. SSH URLs such
+as `git@github.com:org/repo.git` always require an SSH authentication setup in
+the backend runtime, even when the repository is public. Private repositories
+require credentials with repository access whether you use SSH or HTTPS.
+
+For Docker deployments that need SSH access, copy
+`src/docker-compose.override.yml.example` to `src/docker-compose.override.yml`
+and mount only a dedicated deploy key plus `known_hosts` into the backend
+container. Do not mount your whole `~/.ssh` directory. A typical setup is:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/half_deploy_key -C half-backend
+ssh-keyscan github.com >> ~/.ssh/known_hosts
+```
+
+Add `~/.ssh/half_deploy_key.pub` to the target repository as a deploy key, then
+uncomment and adjust the key and `known_hosts` volume lines in
+`src/docker-compose.override.yml`. For private HTTPS access, use a credential
+helper or another container-side Git credential setup to provide a token; do
+not put access tokens or passwords in the repository URL.
 
 Project creation and editing require a HALF collaboration repository URL. This
 is the repository HALF clones and polls for plans, task outputs, `result.json`,

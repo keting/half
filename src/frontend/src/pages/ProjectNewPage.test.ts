@@ -8,7 +8,11 @@ import {
   triggerAgentCardToggleFromKey,
 } from './ProjectNewPage';
 import type { Agent } from '../types';
-import { GIT_REPO_URL_ERROR, GIT_REPO_URL_REQUIRED_ERROR, validateGitRepoUrl } from '../utils/gitRepoUrl';
+import {
+  GIT_REPO_URL_ERROR,
+  GIT_REPO_URL_REQUIRED_ERROR,
+  validateGitRepoUrl,
+} from '../utils/gitRepoUrl';
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
