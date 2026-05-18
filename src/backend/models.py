@@ -81,6 +81,7 @@ class Project(Base):
     polling_start_delay_minutes = Column(Integer, nullable=True)  # NULL means use global default
     polling_start_delay_seconds = Column(Integer, nullable=True)  # NULL means use global default
     task_timeout_minutes = Column(Integer, nullable=True)
+    default_max_review_rounds = Column(Integer, nullable=False, default=3)
     planning_mode = Column(Text, default="balanced")
     template_inputs_json = Column(Text, default="{}")
     created_by = Column(Integer, ForeignKey("users.id"))

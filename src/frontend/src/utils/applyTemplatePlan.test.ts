@@ -111,6 +111,45 @@ describe('applyTemplatePlan', () => {
     });
   });
 
+  it('does not submit removed issue-review branch inputs', async () => {
+    const api = createApi();
+    const requiredInputs = [
+      { key: 'issue_url', label: 'Issue URL', required: true, sensitive: false },
+      { key: 'review_prompt', label: '评审提示词', required: true, sensitive: false },
+      { key: 'test_command', label: '测试命令', required: false, sensitive: false },
+      { key: 'max_review_rounds', label: '最大评审轮次', required: true, sensitive: false },
+    ];
+
+    await applyTemplatePlan({
+      api,
+      projectId: 8,
+      templateId: 5,
+      planningBrief: '实现 issue',
+      slotAgentIds: { 'agent-1': 1, 'agent-2': 2, 'agent-3': 3 },
+      templateMappingComplete: true,
+      requiredInputs,
+      templateInputs: {
+        issue_url: 'https://github.com/org/repo/issues/1',
+        review_prompt: '严格评审',
+        test_command: 'npm test',
+        max_review_rounds: '3',
+        base_branch: 'develop',
+        work_branch_name: 'custom-work',
+        pr_target_branch: 'release',
+      },
+    });
+
+    expect(api.put).toHaveBeenCalledWith('/api/projects/8', {
+      goal: '实现 issue',
+      template_inputs: {
+        issue_url: 'https://github.com/org/repo/issues/1',
+        review_prompt: '严格评审',
+        test_command: 'npm test',
+        max_review_rounds: '3',
+      },
+    });
+  });
+
   it('does not apply the template when saving goal fails', async () => {
     const api: TemplateApplyApi = {
       put: vi.fn(async () => {

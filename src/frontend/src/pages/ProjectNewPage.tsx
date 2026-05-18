@@ -51,6 +51,7 @@ export interface ProjectSubmitPayloadInput {
   pollingStartDelayMinutes: number | null;
   pollingStartDelaySeconds: number | null;
   taskTimeoutMinutes: number | null;
+  defaultMaxReviewRounds: number;
 }
 
 export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
@@ -69,6 +70,7 @@ export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
     polling_start_delay_minutes: input.pollingStartDelayMinutes,
     polling_start_delay_seconds: input.pollingStartDelaySeconds,
     task_timeout_minutes: input.taskTimeoutMinutes,
+    default_max_review_rounds: input.defaultMaxReviewRounds,
   };
 }
 
@@ -90,6 +92,7 @@ export default function ProjectNewPage() {
   const [pollingStartDelayMinutes, setPollingStartDelayMinutes] = useState<number | null>(null);
   const [pollingStartDelaySeconds, setPollingStartDelaySeconds] = useState<number | null>(null);
   const [taskTimeoutMinutes, setTaskTimeoutMinutes] = useState<number | null>(10);
+  const [defaultMaxReviewRounds, setDefaultMaxReviewRounds] = useState(3);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState('');
@@ -148,6 +151,7 @@ export default function ProjectNewPage() {
           setPollingStartDelayMinutes(project.polling_start_delay_minutes ?? null);
           setPollingStartDelaySeconds(project.polling_start_delay_seconds ?? null);
           setTaskTimeoutMinutes(project.task_timeout_minutes ?? globalPolling?.task_timeout_minutes ?? 10);
+          setDefaultMaxReviewRounds(project.default_max_review_rounds ?? 3);
         } else if (globalPolling) {
           setOriginalAgentIds([]);
           // Prefill from global defaults so the user starts with the
@@ -157,9 +161,11 @@ export default function ProjectNewPage() {
           setPollingStartDelayMinutes(globalPolling.polling_start_delay_minutes);
           setPollingStartDelaySeconds(globalPolling.polling_start_delay_seconds);
           setTaskTimeoutMinutes(globalPolling.task_timeout_minutes);
+          setDefaultMaxReviewRounds(3);
         } else {
           setOriginalAgentIds([]);
           setTaskTimeoutMinutes(10);
+          setDefaultMaxReviewRounds(3);
         }
       } catch (err) {
         setError(`加载失败：${err}`);
@@ -241,6 +247,9 @@ export default function ProjectNewPage() {
     if (taskTimeoutMinutes === null || taskTimeoutMinutes < 1 || taskTimeoutMinutes > 120) {
       setError('Task 超时时间必须在 1-120 分钟之间'); return;
     }
+    if (defaultMaxReviewRounds < 1 || defaultMaxReviewRounds > 20) {
+      setError('默认最大评审轮次必须在 1-20 之间'); return;
+    }
     setLoading(true);
     try {
       const payload = buildProjectSubmitPayload({
@@ -257,6 +266,7 @@ export default function ProjectNewPage() {
         pollingStartDelayMinutes,
         pollingStartDelaySeconds,
         taskTimeoutMinutes,
+        defaultMaxReviewRounds,
       });
       const project = isEditMode
         ? await api.put<Project>(`/api/projects/${id}`, payload)
@@ -418,6 +428,19 @@ export default function ProjectNewPage() {
                 onChange={(e) => setTaskTimeoutMinutes(e.target.value === '' ? null : parseInt(e.target.value))}
                 placeholder="请输入 1-120 分钟"
               />
+            </div>
+            <div className="form-group">
+              <label htmlFor="default-review-rounds">默认最大评审轮次</label>
+              <input
+                id="default-review-rounds"
+                type="number"
+                min="1"
+                max="20"
+                value={defaultMaxReviewRounds}
+                onChange={(e) => setDefaultMaxReviewRounds(parseInt(e.target.value) || 3)}
+                placeholder="默认 3"
+              />
+              <div className="helper-text">Issue 编码评审循环模板会默认使用该值。</div>
             </div>
           </div>
         </SectionCard>

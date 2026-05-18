@@ -239,7 +239,16 @@ export default function PlanPage() {
     const template = templates.find((item) => item.id === templateId) || null;
     setSelectedTemplateId(templateId);
     setSlotAgentIds(Object.fromEntries((template?.agent_slots || []).map((slot) => [slot, null])));
-    setTemplateInputs((current) => filterTemplateInputs(template?.required_inputs || [], current));
+    setTemplateInputs((current) => {
+      const next = filterTemplateInputs(template?.required_inputs || [], current);
+      if (
+        (template?.required_inputs || []).some((input) => input.key === 'max_review_rounds')
+        && !String(next.max_review_rounds || '').trim()
+      ) {
+        next.max_review_rounds = String(project?.default_max_review_rounds || 3);
+      }
+      return next;
+    });
   }
 
   function updateSlotAgent(slot: string, agentIdValue: string) {

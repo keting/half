@@ -17,6 +17,12 @@ const STATUS_COLORS: Record<string, string> = {
   completed: '#22c55e',
   needs_attention: '#ef4444',
   abandoned: '#64748b',
+  frozen: '#94a3b8',
+  unlocked: '#eab308',
+  waiting_review: '#3b82f6',
+  waiting_decision: '#3b82f6',
+  needs_fix: '#ef4444',
+  approved: '#22c55e',
 };
 
 const STATUS_BACKGROUNDS: Record<string, string> = {
@@ -26,6 +32,12 @@ const STATUS_BACKGROUNDS: Record<string, string> = {
   completed: '#ecfdf5',
   needs_attention: '#fef2f2',
   abandoned: '#e2e8f0',
+  frozen: '#f1f5f9',
+  unlocked: '#fef9c3',
+  waiting_review: '#eff6ff',
+  waiting_decision: '#eff6ff',
+  needs_fix: '#fef2f2',
+  approved: '#ecfdf5',
 };
 
 interface Props {
@@ -33,6 +45,7 @@ interface Props {
   selectedTaskId?: number | null;
   onSelectTask: (taskId: number) => void;
   missingPredecessorIds?: Set<number>;
+  showIssueReviewLoopEdge?: boolean;
 }
 
 function computeLayout(tasks: Task[]): Map<string, { x: number; y: number }> {
@@ -90,6 +103,11 @@ function computeLayout(tasks: Task[]): Map<string, { x: number; y: number }> {
 }
 
 function getVisualStatus(task: Task, tasks: Task[]): string {
+  const businessStatus = (task as Task & { business_status?: string | null }).business_status;
+  if (businessStatus) {
+    return businessStatus;
+  }
+
   if (task.status !== 'pending') {
     return task.status;
   }
@@ -113,7 +131,7 @@ function getVisualStatus(task: Task, tasks: Task[]): string {
   return isReady ? 'pending_ready' : 'pending_blocked';
 }
 
-export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPredecessorIds }: Props) {
+export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPredecessorIds, showIssueReviewLoopEdge }: Props) {
   const { initialNodes, initialEdges } = useMemo(() => {
     const positions = computeLayout(tasks);
 
@@ -180,8 +198,22 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
       });
     });
 
+    if (showIssueReviewLoopEdge) {
+      const decisionTask = tasks.find((task) => task.task_code === 'TASK-005');
+      const codingTask = tasks.find((task) => task.task_code === 'TASK-002');
+      if (decisionTask && codingTask) {
+        edges.push({
+          id: `${decisionTask.id}-${codingTask.id}-review-loop`,
+          source: String(decisionTask.id),
+          target: String(codingTask.id),
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { stroke: '#ef4444', strokeDasharray: '6 4' },
+        });
+      }
+    }
+
     return { initialNodes: nodes, initialEdges: edges };
-  }, [tasks, selectedTaskId, missingPredecessorIds]);
+  }, [tasks, selectedTaskId, missingPredecessorIds, showIssueReviewLoopEdge]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {

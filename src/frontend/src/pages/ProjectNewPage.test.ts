@@ -227,6 +227,7 @@ describe('ProjectNewPage repository payload', () => {
     pollingStartDelayMinutes: 0,
     pollingStartDelaySeconds: 0,
     taskTimeoutMinutes: 10,
+    defaultMaxReviewRounds: 3,
   };
 
   it('includes project_repo_url when a separate project repository is selected', () => {
@@ -237,6 +238,7 @@ describe('ProjectNewPage repository payload', () => {
 
     expect(payload.git_repo_url).toBe('git@github.com:org/app-half.git');
     expect(payload.project_repo_url).toBe('git@github.com:org/app.git');
+    expect(payload.default_max_review_rounds).toBe(3);
   });
 
   it('submits null project_repo_url when switching back to the same repository', () => {

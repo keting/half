@@ -15,6 +15,7 @@ from routers.plans import finalize_plan_record
 from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
 from services.project_agents import agent_ids_from_assignments_json
+from services.issue_review_loop import FLOW_TYPE
 
 router = APIRouter(prefix="/api/process-templates", tags=["process_templates"])
 
@@ -499,6 +500,17 @@ def apply_template(
     applied_data = json.loads(json.dumps(data, ensure_ascii=False))
     for task in applied_data["tasks"]:
         task["assignee"] = slot_to_slug[task["assignee"]]
+
+    if applied_data.get("flow_type") == FLOW_TYPE:
+        try:
+            template_inputs = json.loads(project.template_inputs_json or "{}")
+        except json.JSONDecodeError:
+            template_inputs = {}
+        if not isinstance(template_inputs, dict):
+            template_inputs = {}
+        if not str(template_inputs.get("max_review_rounds") or "").strip():
+            template_inputs["max_review_rounds"] = str(getattr(project, "default_max_review_rounds", None) or 3)
+            project.template_inputs_json = json.dumps(template_inputs, ensure_ascii=False)
 
     now = datetime.now(timezone.utc)
     db.query(ProjectPlan).filter(
