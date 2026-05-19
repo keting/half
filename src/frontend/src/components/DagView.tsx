@@ -4,11 +4,38 @@ import ReactFlow, {
   Controls,
   Node,
   Edge,
+  Handle,
   Position,
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Task } from '../types';
+
+const EDGE_COLOR = '#94a3b8';
+
+const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+  width: 1,
+  height: 1,
+  minWidth: 1,
+  minHeight: 1,
+  opacity: 0,
+  border: 0,
+  pointerEvents: 'none',
+};
+
+function TaskNode({ data }: { data: { label: React.ReactNode } }) {
+  return (
+    <>
+      <Handle id="top-target" type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} />
+      <Handle id="bottom-target" type="target" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} />
+      <Handle id="top-source" type="source" position={Position.Top} style={HIDDEN_HANDLE_STYLE} />
+      <Handle id="bottom-source" type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} />
+      {data.label}
+    </>
+  );
+}
+
+const nodeTypes = { task: TaskNode };
 
 const STATUS_COLORS: Record<string, string> = {
   pending_blocked: '#94a3b8',
@@ -144,6 +171,7 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
 
       return {
         id: String(task.id),
+        type: 'task',
         position: pos,
         data: {
           label: (
@@ -191,8 +219,10 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
             id: `${depTask.id}-${task.id}`,
             source: String(depTask.id),
             target: String(task.id),
-            markerEnd: { type: MarkerType.ArrowClosed },
-            style: { stroke: '#94a3b8' },
+            sourceHandle: 'bottom-source',
+            targetHandle: 'top-target',
+            markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR },
+            style: { stroke: EDGE_COLOR },
           });
         }
       });
@@ -206,8 +236,10 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
           id: `${decisionTask.id}-${codingTask.id}-review-loop`,
           source: String(decisionTask.id),
           target: String(codingTask.id),
-          markerEnd: { type: MarkerType.ArrowClosed },
-          style: { stroke: '#ef4444', strokeDasharray: '6 4' },
+          sourceHandle: 'top-source',
+          targetHandle: 'bottom-target',
+          markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR },
+          style: { stroke: EDGE_COLOR, strokeDasharray: '6 4' },
         });
       }
     }
@@ -227,6 +259,7 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
       <ReactFlow
         nodes={initialNodes}
         edges={initialEdges}
+        nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
         fitView
         fitViewOptions={{ padding: 0.2 }}
