@@ -101,28 +101,30 @@ def ensure_issue_review_loop_template(db: Session, admin) -> None:
     )
     required_inputs_json = json.dumps(issue_review_loop_required_inputs(), ensure_ascii=False)
     template_json = json.dumps(issue_review_loop_template_json(), ensure_ascii=False)
+    desired = {
+        "description": "输入 issue URL 后，固定使用编码、双评审、决策 5 个 Task 完成编码评审闭环。",
+        "prompt_source_text": "MVP 内置模板：固定 5 个 Task，运行状态由协作仓库 flow-state.json 与当前轮次产物派生。",
+        "agent_count": 3,
+        "agent_slots_json": agent_slots_json,
+        "agent_roles_description_json": agent_roles_description_json,
+        "required_inputs_json": required_inputs_json,
+        "template_json": template_json,
+    }
     if existing is not None:
-        existing.description = "输入 issue URL 后，固定使用编码、双评审、决策 5 个 Task 完成编码评审闭环。"
-        existing.prompt_source_text = "MVP 内置模板：固定 5 个 Task，运行状态由协作仓库 flow-state.json 与当前轮次产物派生。"
-        existing.agent_count = 3
-        existing.agent_slots_json = agent_slots_json
-        existing.agent_roles_description_json = agent_roles_description_json
-        existing.required_inputs_json = required_inputs_json
-        existing.template_json = template_json
-        existing.updated_by = admin.id
-        existing.updated_at = now
-        db.commit()
+        changed = False
+        for key, value in desired.items():
+            if getattr(existing, key) != value:
+                setattr(existing, key, value)
+                changed = True
+        if changed:
+            existing.updated_by = admin.id
+            existing.updated_at = now
+            db.commit()
         return
 
     template = ProcessTemplate(
         name=TEMPLATE_NAME,
-        description="输入 issue URL 后，固定使用编码、双评审、决策 5 个 Task 完成编码评审闭环。",
-        prompt_source_text="MVP 内置模板：固定 5 个 Task，运行状态由协作仓库 flow-state.json 与当前轮次产物派生。",
-        agent_count=3,
-        agent_slots_json=agent_slots_json,
-        agent_roles_description_json=agent_roles_description_json,
-        required_inputs_json=required_inputs_json,
-        template_json=template_json,
+        **desired,
         created_by=admin.id,
         updated_by=admin.id,
         created_at=now,
@@ -183,6 +185,26 @@ def _review_path(project: Project, task_code: str, current_round: int) -> str:
     base = _collab_dir(project)
     path = f"{task_code}/reviews/{_round_dir(current_round)}/review.json"
     return f"{base}/{path}" if base else path
+
+
+def _decision_path(project: Project, current_round: int) -> str:
+    base = _collab_dir(project)
+    path = f"TASK-005/decisions/{_round_dir(current_round)}/decision.json"
+    return f"{base}/{path}" if base else path
+
+
+def _branch_path(project: Project, current_round: int) -> str:
+    base = _collab_dir(project)
+    path = f"TASK-002/rounds/{_round_dir(current_round)}/branch.json"
+    return f"{base}/{path}" if base else path
+
+
+def get_issue_review_branch_path(project: Project, current_round: int) -> str:
+    return _branch_path(project, current_round)
+
+
+def get_issue_review_decision_path(project: Project, current_round: int) -> str:
+    return _decision_path(project, current_round)
 
 
 def _empty_response(enabled: bool) -> dict[str, Any]:
@@ -255,6 +277,56 @@ def _validate_review(
     return {"status": "submitted", "approve_merge": approve_merge, "review_path": path}
 
 
+def _validate_decision(
+    project: Project,
+    flow_state: dict[str, Any],
+    errors: list[str],
+) -> dict[str, Any]:
+    current_round = flow_state.get("current_round")
+    if not isinstance(current_round, int):
+        return {"status": "pending", "decision_path": None}
+
+    path = _decision_path(project, current_round)
+    content = git_service.read_file(
+        project.id,
+        path,
+        git_repo_url=project.git_repo_url,
+        prefer_remote=True,
+    )
+    if content is None:
+        return {"status": "pending", "decision_path": path}
+
+    try:
+        decision = json.loads(content)
+    except json.JSONDecodeError:
+        errors.append(f"TASK-005 decision.json is not valid JSON: {path}")
+        return {"status": "needs_attention", "decision_path": path}
+
+    if not isinstance(decision, dict):
+        errors.append(f"TASK-005 decision.json must be an object: {path}")
+        return {"status": "needs_attention", "decision_path": path}
+
+    for key, expected in (
+        ("round", flow_state.get("current_round")),
+        ("round_id", flow_state.get("round_id")),
+    ):
+        if decision.get(key) != expected:
+            errors.append(f"TASK-005 decision.json {key} does not match current flow-state: {path}")
+            return {"status": "needs_attention", "decision_path": path}
+
+    for key in ("work_branch", "head_commit"):
+        if key in decision and decision.get(key) != flow_state.get(key):
+            errors.append(f"TASK-005 decision.json {key} does not match current flow-state: {path}")
+            return {"status": "needs_attention", "decision_path": path}
+
+    return {
+        "status": "submitted",
+        "decision_path": path,
+        "approved": decision.get("approved") if type(decision.get("approved")) is bool else None,
+        "next_action": decision.get("next_action") if isinstance(decision.get("next_action"), str) else None,
+    }
+
+
 def get_issue_review_flow_state(db: Session, project: Project) -> dict[str, Any]:
     if not project_uses_issue_review_loop(db, project):
         return _empty_response(enabled=False)
@@ -300,12 +372,20 @@ def get_issue_review_flow_state(db: Session, project: Project) -> dict[str, Any]
         "TASK-003": _validate_review(project, "TASK-003", flow_state, errors),
         "TASK-004": _validate_review(project, "TASK-004", flow_state, errors),
     }
+    decision = _validate_decision(project, flow_state, errors)
     both_reviews_submitted = all(item.get("status") == "submitted" for item in reviews.values())
     derived_phase = str(flow_state.get("phase") or "")
 
     task_005_state = effective.get("TASK-005")
+    task_002_state = effective.get("TASK-002")
+    can_derive_decision_unlock = (
+        both_reviews_submitted
+        and derived_phase in {"awaiting_review", "reviewing", "awaiting_decision"}
+        and task_002_state == "waiting_review"
+        and task_005_state not in {"completed", "approved", "abandoned", "running"}
+    )
 
-    if both_reviews_submitted and task_005_state not in {"completed", "approved", "abandoned"}:
+    if can_derive_decision_unlock:
         effective["TASK-003"] = "frozen"
         effective["TASK-004"] = "frozen"
         effective["TASK-005"] = "unlocked"
@@ -328,7 +408,7 @@ def get_issue_review_flow_state(db: Session, project: Project) -> dict[str, Any]
         "task_states": task_states,
         "effective_task_states": effective,
         "reviews": reviews,
-        "decision": flow_state.get("decision") if isinstance(flow_state.get("decision"), dict) else {},
+        "decision": decision,
         "pr": flow_state.get("pr") if isinstance(flow_state.get("pr"), dict) else {},
         "errors": errors,
     })

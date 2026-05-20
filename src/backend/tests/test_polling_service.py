@@ -237,16 +237,18 @@ class PollingServiceTests(unittest.TestCase):
 
     def test_poll_project_marks_loop_task_002_completed_when_awaiting_review(self):
         project, task = self._seed_issue_review_loop_task("TASK-002")
+        branch_path = "outputs/proj-71-loop/TASK-002/rounds/round-001/branch.json"
         files = {
             "outputs/proj-71-loop/TASK-002/result.json": None,
             "outputs/proj-71-loop/flow-state.json": json.dumps(self._loop_flow_state("waiting_review")),
+            branch_path: json.dumps({"work_branch": "issue-123", "head_commit": "abc123"}),
         }
 
         refreshed = self._poll_loop_task_with_files(project, files)
 
         self.assertEqual(refreshed.id, task.id)
         self.assertEqual(refreshed.status, "completed")
-        self.assertEqual(refreshed.result_file_path, "outputs/proj-71-loop/TASK-002/result.json")
+        self.assertEqual(refreshed.result_file_path, branch_path)
         self.assertIsNotNone(refreshed.completed_at)
 
     def test_poll_project_does_not_complete_loop_task_002_while_still_unlocked(self):
@@ -276,6 +278,30 @@ class PollingServiceTests(unittest.TestCase):
         self.assertEqual(refreshed.id, task.id)
         self.assertEqual(refreshed.status, "completed")
         self.assertEqual(refreshed.result_file_path, review_path)
+        self.assertIsNotNone(refreshed.completed_at)
+
+    def test_poll_project_marks_loop_decision_task_completed_when_decision_submitted(self):
+        project, task = self._seed_issue_review_loop_task("TASK-005")
+        flow = self._loop_flow_state("needs_fix")
+        flow["phase"] = "needs_fix"
+        flow["task_states"]["TASK-005"] = "frozen"
+        decision_path = "outputs/proj-71-loop/TASK-005/decisions/round-001/decision.json"
+        files = {
+            "outputs/proj-71-loop/TASK-005/result.json": None,
+            "outputs/proj-71-loop/flow-state.json": json.dumps(flow),
+            decision_path: json.dumps({
+                "round": 1,
+                "round_id": "round-001-abc123",
+                "approved": False,
+                "next_action": "fix",
+            }),
+        }
+
+        refreshed = self._poll_loop_task_with_files(project, files)
+
+        self.assertEqual(refreshed.id, task.id)
+        self.assertEqual(refreshed.status, "completed")
+        self.assertEqual(refreshed.result_file_path, decision_path)
         self.assertIsNotNone(refreshed.completed_at)
 
     def test_poll_project_does_not_complete_loop_review_task_when_review_mismatches_flow_state(self):

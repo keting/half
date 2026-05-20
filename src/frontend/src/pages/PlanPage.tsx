@@ -5,6 +5,7 @@ import { copyText } from '../contracts';
 import { Agent, Plan, ProcessTemplate, Project } from '../types';
 import { getAgentModels } from '../utils/agents';
 import { applyTemplatePlan, filterTemplateInputs, getMissingTemplateInputs } from '../utils/applyTemplatePlan';
+import { DEFAULT_MAX_REVIEW_ROUNDS } from '../constants';
 import { FlowSource, buildPlanSourcePrefKey, resolveFlowSourcePreference } from '../utils/flowSource';
 import { DEFAULT_PLANNING_MODE, PLANNING_MODE_OPTIONS, PlanningMode, getPlanningModeMeta, normalizePlanningMode } from '../utils/planningMode';
 
@@ -245,7 +246,7 @@ export default function PlanPage() {
         (template?.required_inputs || []).some((input) => input.key === 'max_review_rounds')
         && !String(next.max_review_rounds || '').trim()
       ) {
-        next.max_review_rounds = String(project?.default_max_review_rounds || 3);
+        next.max_review_rounds = String(project?.default_max_review_rounds || DEFAULT_MAX_REVIEW_ROUNDS);
       }
       return next;
     });

@@ -9,6 +9,7 @@ import ModelBadge from '../components/ModelBadge';
 import CoLocatedFieldLabel from '../components/CoLocatedFieldLabel';
 import { deriveAgentStatus, getAgentModels, summarizeAgentCapabilities } from '../utils/agents';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
+import { DEFAULT_MAX_REVIEW_ROUNDS } from '../constants';
 
 const UNAVAILABLE_AGENT_DETAIL = 'Some selected agents are unavailable';
 
@@ -92,7 +93,7 @@ export default function ProjectNewPage() {
   const [pollingStartDelayMinutes, setPollingStartDelayMinutes] = useState<number | null>(null);
   const [pollingStartDelaySeconds, setPollingStartDelaySeconds] = useState<number | null>(null);
   const [taskTimeoutMinutes, setTaskTimeoutMinutes] = useState<number | null>(10);
-  const [defaultMaxReviewRounds, setDefaultMaxReviewRounds] = useState(3);
+  const [defaultMaxReviewRounds, setDefaultMaxReviewRounds] = useState(DEFAULT_MAX_REVIEW_ROUNDS);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState('');
@@ -151,7 +152,7 @@ export default function ProjectNewPage() {
           setPollingStartDelayMinutes(project.polling_start_delay_minutes ?? null);
           setPollingStartDelaySeconds(project.polling_start_delay_seconds ?? null);
           setTaskTimeoutMinutes(project.task_timeout_minutes ?? globalPolling?.task_timeout_minutes ?? 10);
-          setDefaultMaxReviewRounds(project.default_max_review_rounds ?? 3);
+          setDefaultMaxReviewRounds(project.default_max_review_rounds ?? DEFAULT_MAX_REVIEW_ROUNDS);
         } else if (globalPolling) {
           setOriginalAgentIds([]);
           // Prefill from global defaults so the user starts with the
@@ -161,11 +162,11 @@ export default function ProjectNewPage() {
           setPollingStartDelayMinutes(globalPolling.polling_start_delay_minutes);
           setPollingStartDelaySeconds(globalPolling.polling_start_delay_seconds);
           setTaskTimeoutMinutes(globalPolling.task_timeout_minutes);
-          setDefaultMaxReviewRounds(3);
+          setDefaultMaxReviewRounds(DEFAULT_MAX_REVIEW_ROUNDS);
         } else {
           setOriginalAgentIds([]);
           setTaskTimeoutMinutes(10);
-          setDefaultMaxReviewRounds(3);
+          setDefaultMaxReviewRounds(DEFAULT_MAX_REVIEW_ROUNDS);
         }
       } catch (err) {
         setError(`加载失败：${err}`);
@@ -437,8 +438,8 @@ export default function ProjectNewPage() {
                 min="1"
                 max="20"
                 value={defaultMaxReviewRounds}
-                onChange={(e) => setDefaultMaxReviewRounds(parseInt(e.target.value) || 3)}
-                placeholder="默认 3"
+                onChange={(e) => setDefaultMaxReviewRounds(parseInt(e.target.value) || DEFAULT_MAX_REVIEW_ROUNDS)}
+                placeholder={`默认 ${DEFAULT_MAX_REVIEW_ROUNDS}`}
               />
               <div className="helper-text">Issue 编码评审循环模板会默认使用该值。</div>
             </div>

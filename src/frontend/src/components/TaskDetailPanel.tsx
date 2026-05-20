@@ -44,7 +44,10 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
   );
   const businessState = flowState?.enabled ? (flowState.effective_task_states?.[task.task_code] || 'frozen') : null;
   const businessDispatchable = businessState === 'unlocked' || businessState === 'needs_fix';
-  const canOperate = flowState?.enabled ? businessDispatchable : blockedPredecessors.length === 0;
+  const loopTaskRunning = Boolean(flowState?.enabled && task.status === 'running');
+  const canLoopRedispatch = Boolean(flowState?.enabled && businessDispatchable && task.status === 'running');
+  const canOperate = flowState?.enabled ? (businessDispatchable && !loopTaskRunning) : blockedPredecessors.length === 0;
+  const canPreparePrompt = flowState?.enabled ? (businessDispatchable || canLoopRedispatch) : blockedPredecessors.length === 0;
   const canEdit = !flowState?.enabled && task.status === 'pending' && canOperate;
 
   useEffect(() => {
@@ -109,7 +112,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
   useEffect(() => {
     setCachedPrompt(null);
     setPromptError(null);
-    if (!canOperate) return undefined;
+    if (!canPreparePrompt) return undefined;
     if (hasDraftChanges) return undefined;
     if (flowState?.enabled) {
       if (!businessDispatchable) return undefined;
@@ -133,10 +136,11 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
     return () => {
       cancelled = true;
     };
-  }, [task.id, task.status, task.task_name, task.description, task.expected_output_path, canOperate, hasDraftChanges, flowState?.enabled, businessDispatchable]);
+  }, [task.id, task.status, task.task_name, task.description, task.expected_output_path, canPreparePrompt, hasDraftChanges, flowState?.enabled, businessDispatchable]);
 
   async function performDispatch(action: 'dispatch' | 'redispatch') {
-    if (!canOperate) {
+    const actionAllowed = action === 'redispatch' && flowState?.enabled ? canLoopRedispatch : canOperate;
+    if (!actionAllowed) {
       alert(`前序任务尚未全部完成，无法派发：${blockedPredecessors.map((taskItem) => taskItem.task_code).join(', ')}`);
       return;
     }
@@ -356,7 +360,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
       )}
 
       <div className="detail-actions">
-        {((flowState?.enabled && businessDispatchable) || (!flowState?.enabled && (task.status === 'pending' || task.status === 'needs_attention'))) && (
+        {((flowState?.enabled && businessDispatchable && task.status !== 'running') || (!flowState?.enabled && (task.status === 'pending' || task.status === 'needs_attention'))) && (
           <div className="copy-prompt-row">
             <button
               className="btn btn-primary"
@@ -379,7 +383,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
           </div>
         )}
 
-        {!canOperate && (flowState?.enabled || task.status === 'pending' || task.status === 'needs_attention') && (
+        {!canOperate && !canLoopRedispatch && (flowState?.enabled || task.status === 'pending' || task.status === 'needs_attention') && (
           <div className="helper-text helper-text-error">
             {flowState?.enabled
               ? `当前流程业务状态为 ${businessState || 'unknown'}，不能复制 Prompt 或派发。`
@@ -387,7 +391,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
           </div>
         )}
 
-        {!flowState?.enabled && (task.status === 'running' || task.status === 'needs_attention') && (
+        {((flowState?.enabled && canLoopRedispatch) || (!flowState?.enabled && (task.status === 'running' || task.status === 'needs_attention'))) && (
           <button
             className="btn btn-secondary"
             onClick={handleRedispatch}

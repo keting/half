@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from access import get_owned_project, load_usable_agents
 from auth import get_current_user
+from config import DEFAULT_MAX_REVIEW_ROUNDS
 from database import get_db
 from models import Agent, ProcessTemplate, ProjectPlan, User
 from routers.plans import finalize_plan_record
@@ -509,7 +510,9 @@ def apply_template(
         if not isinstance(template_inputs, dict):
             template_inputs = {}
         if not str(template_inputs.get("max_review_rounds") or "").strip():
-            template_inputs["max_review_rounds"] = str(getattr(project, "default_max_review_rounds", None) or 3)
+            template_inputs["max_review_rounds"] = str(
+                getattr(project, "default_max_review_rounds", None) or DEFAULT_MAX_REVIEW_ROUNDS
+            )
             project.template_inputs_json = json.dumps(template_inputs, ensure_ascii=False)
 
     now = datetime.now(timezone.utc)

@@ -14,7 +14,7 @@ if str(BACKEND_DIR) not in sys.path:
 from auth import hash_password
 from database import Base
 from models import ProcessTemplate, Project, ProjectPlan, Task, User
-from routers.tasks import TaskDispatchRequest, dispatch_task
+from routers.tasks import TaskDispatchRequest, dispatch_task, redispatch_task
 from services.issue_review_loop import (
     FLOW_TYPE,
     TEMPLATE_NAME,
@@ -133,6 +133,21 @@ class IssueReviewLoopTests(unittest.TestCase):
         self.assertEqual(template.agent_count, 3)
         self.assertEqual(template.updated_by, self.user.id)
 
+    def test_ensure_builtin_template_does_not_touch_unchanged_template(self):
+        ensure_issue_review_loop_template(self.db, self.user)
+        template = self.db.query(ProcessTemplate).filter(ProcessTemplate.name == TEMPLATE_NAME).one()
+        original_updated_at = template.updated_at
+        original_updated_by = template.updated_by
+        other_admin = User(id=2, username="admin2", password_hash=hash_password("Admin234"))
+        self.db.add(other_admin)
+        self.db.commit()
+
+        ensure_issue_review_loop_template(self.db, other_admin)
+        self.db.refresh(template)
+
+        self.assertEqual(template.updated_at, original_updated_at)
+        self.assertEqual(template.updated_by, original_updated_by)
+
     def test_missing_flow_state_only_unlocks_task_001(self):
         with patch("services.issue_review_loop.git_service.read_file", return_value=None):
             state = get_issue_review_flow_state(self.db, self.project)
@@ -190,6 +205,24 @@ class IssueReviewLoopTests(unittest.TestCase):
         self.assertEqual(state["derived_phase"], "completed")
         self.assertEqual(state["effective_task_states"]["TASK-005"], "completed")
 
+    def test_needs_fix_does_not_reunlock_decision_task_from_old_reviews(self):
+        flow = self._flow_state()
+        flow["phase"] = "needs_fix"
+        flow["task_states"]["TASK-002"] = "needs_fix"
+        flow["task_states"]["TASK-005"] = "frozen"
+        files = {
+            "outputs/proj-10/flow-state.json": json.dumps(flow),
+            "outputs/proj-10/TASK-003/reviews/round-001/review.json": json.dumps(self._review(False)),
+            "outputs/proj-10/TASK-004/reviews/round-001/review.json": json.dumps(self._review(True)),
+        }
+
+        with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
+            state = get_issue_review_flow_state(self.db, self.project)
+
+        self.assertEqual(state["derived_phase"], "needs_fix")
+        self.assertEqual(state["effective_task_states"]["TASK-002"], "needs_fix")
+        self.assertEqual(state["effective_task_states"]["TASK-005"], "frozen")
+
     def test_dispatch_uses_loop_business_state_instead_of_db_predecessors(self):
         flow = self._flow_state()
         flow["task_states"]["TASK-003"] = "frozen"
@@ -205,6 +238,24 @@ class IssueReviewLoopTests(unittest.TestCase):
         files["outputs/proj-10/flow-state.json"] = json.dumps(flow)
         with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
             updated = dispatch_task(task_3.id, TaskDispatchRequest(), self.db, self.user)
+
+        self.assertEqual(updated.status, "running")
+
+    def test_running_loop_task_requires_redispatch(self):
+        flow = self._flow_state()
+        flow["task_states"]["TASK-003"] = "unlocked"
+        files = {"outputs/proj-10/flow-state.json": json.dumps(flow)}
+        task_3 = self.tasks[2]
+        task_3.status = "running"
+        self.db.commit()
+
+        with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
+            with self.assertRaises(Exception) as ctx:
+                dispatch_task(task_3.id, TaskDispatchRequest(), self.db, self.user)
+        self.assertIn("Cannot dispatch running task", str(ctx.exception))
+
+        with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
+            updated = redispatch_task(task_3.id, TaskDispatchRequest(), self.db, self.user)
 
         self.assertEqual(updated.status, "running")
 

@@ -6,6 +6,8 @@ import sys
 
 logger = logging.getLogger("half.config")
 
+DEFAULT_MAX_REVIEW_ROUNDS = 3
+
 
 _DEFAULT_INSECURE_SECRETS = {
     "example-insecure-secret-placeholder",

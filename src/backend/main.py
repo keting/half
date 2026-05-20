@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 load_dotenv()
 
-from config import settings, validate_security_config
+from config import DEFAULT_MAX_REVIEW_ROUNDS, settings, validate_security_config
 from database import engine, SessionLocal, Base
 from models import Agent, User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Project, ProjectPlan, Task, GlobalSetting, ProcessTemplate
 from auth import hash_password
@@ -123,7 +123,7 @@ def ensure_schema_updates():
             "polling_start_delay_minutes": "INTEGER",
             "polling_start_delay_seconds": "INTEGER",
             "task_timeout_minutes": "INTEGER",
-            "default_max_review_rounds": "INTEGER DEFAULT 3",
+            "default_max_review_rounds": f"INTEGER DEFAULT {DEFAULT_MAX_REVIEW_ROUNDS}",
             "planning_mode": "TEXT DEFAULT 'balanced'",
             "template_inputs_json": "TEXT DEFAULT '{}'",
         },

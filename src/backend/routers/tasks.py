@@ -73,9 +73,11 @@ def _load_task_project(db: Session, task: Task) -> Project:
     return project
 
 
-def _validate_loop_dispatch_state(db: Session, task: Task, project: Project) -> bool:
+def _validate_loop_dispatch_state(db: Session, task: Task, project: Project, *, action: str) -> bool:
     if not project_uses_issue_review_loop(db, project):
         return False
+    if action == "dispatch" and task.status == "running":
+        raise HTTPException(status_code=400, detail=f"Cannot dispatch running task in issue review loop: {task.task_code}")
     business_state = get_effective_business_state(db, project, task.task_code)
     if not is_business_dispatch_allowed(business_state):
         raise HTTPException(
@@ -373,7 +375,7 @@ def dispatch_task(
 ):
     task = get_owned_task(db, task_id, user)
     project = _load_task_project(db, task)
-    is_loop_dispatch = _validate_loop_dispatch_state(db, task, project)
+    is_loop_dispatch = _validate_loop_dispatch_state(db, task, project, action="dispatch")
     if not is_loop_dispatch and task.status not in ("pending", "needs_attention"):
         raise HTTPException(status_code=400, detail=f"Cannot dispatch task in status: {task.status}")
 
@@ -468,7 +470,7 @@ def redispatch_task(
 ):
     task = get_owned_task(db, task_id, user)
     project = _load_task_project(db, task)
-    is_loop_dispatch = _validate_loop_dispatch_state(db, task, project)
+    is_loop_dispatch = _validate_loop_dispatch_state(db, task, project, action="redispatch")
     if not is_loop_dispatch and task.status not in ("needs_attention", "running", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot redispatch task in status: {task.status}")
 

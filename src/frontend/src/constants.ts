@@ -1,0 +1,1 @@
+export const DEFAULT_MAX_REVIEW_ROUNDS = 3;

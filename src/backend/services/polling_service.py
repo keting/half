@@ -16,11 +16,16 @@ from services.polling_config_service import (
 from services import feishu_service
 from services.feishu_service import NotificationEvent
 from validators.result_json import validate_result_json_content
-from services.issue_review_loop import get_issue_review_flow_state, project_uses_issue_review_loop
+from services.issue_review_loop import (
+    get_issue_review_branch_path,
+    get_issue_review_decision_path,
+    get_issue_review_flow_state,
+    project_uses_issue_review_loop,
+)
 
 logger = logging.getLogger("half.poller")
 
-ISSUE_REVIEW_LOOP_INTERMEDIATE_TASK_CODES = {"TASK-002", "TASK-003", "TASK-004"}
+ISSUE_REVIEW_LOOP_INTERMEDIATE_TASK_CODES = {"TASK-002", "TASK-003", "TASK-004", "TASK-005"}
 
 GIT_REPO_ACCESS_ERROR_MESSAGE = (
     "无法访问 Git 仓库。请检查仓库是否存在、仓库地址是否正确，"
@@ -299,18 +304,72 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
                 if isinstance(issue_review_flow_state, dict)
                 else {}
             )
+            effective_task_states = (
+                issue_review_flow_state.get("effective_task_states", {})
+                if isinstance(issue_review_flow_state, dict)
+                else {}
+            )
             reviews = (
                 issue_review_flow_state.get("reviews", {})
                 if isinstance(issue_review_flow_state, dict)
                 else {}
             )
+            decision = (
+                issue_review_flow_state.get("decision", {})
+                if isinstance(issue_review_flow_state, dict)
+                else {}
+            )
             flow_result_path = ""
             if task.task_code == "TASK-002" and task_states.get("TASK-002") in ("waiting_review", "approved"):
-                flow_result_path = result_path
+                current_round = (
+                    issue_review_flow_state.get("current_round")
+                    if isinstance(issue_review_flow_state, dict)
+                    else None
+                )
+                if isinstance(current_round, int):
+                    branch_path = get_issue_review_branch_path(project, current_round)
+                    if git_service.read_file(
+                        project.id,
+                        branch_path,
+                        git_repo_url=project.git_repo_url,
+                        prefer_remote=True,
+                    ) is not None:
+                        flow_result_path = branch_path
+                if not flow_result_path:
+                    base = _normalize_collab_dir(project)
+                    flow_state_path = f"{base}/flow-state.json" if base else "flow-state.json"
+                    if git_service.read_file(
+                        project.id,
+                        flow_state_path,
+                        git_repo_url=project.git_repo_url,
+                        prefer_remote=True,
+                    ) is not None:
+                        flow_result_path = flow_state_path
             elif task.task_code in ("TASK-003", "TASK-004"):
                 review_state = reviews.get(task.task_code)
                 if isinstance(review_state, dict) and review_state.get("status") == "submitted":
                     flow_result_path = str(review_state.get("review_path") or result_path)
+            elif task.task_code == "TASK-005":
+                current_round = (
+                    issue_review_flow_state.get("current_round")
+                    if isinstance(issue_review_flow_state, dict)
+                    else None
+                )
+                terminal_phase = (
+                    issue_review_flow_state.get("derived_phase") or issue_review_flow_state.get("phase")
+                    if isinstance(issue_review_flow_state, dict)
+                    else None
+                )
+                if (
+                    isinstance(current_round, int)
+                    and isinstance(decision, dict)
+                    and decision.get("status") == "submitted"
+                    and (
+                        terminal_phase in {"needs_fix", "approved", "completed", "needs_attention"}
+                        or effective_task_states.get("TASK-005") in {"completed", "needs_attention"}
+                    )
+                ):
+                    flow_result_path = str(decision.get("decision_path") or get_issue_review_decision_path(project, current_round))
 
             if flow_result_path:
                 _mark_task_completed(

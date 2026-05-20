@@ -8,6 +8,7 @@ import {
   triggerAgentCardToggleFromKey,
 } from './ProjectNewPage';
 import type { Agent } from '../types';
+import { DEFAULT_MAX_REVIEW_ROUNDS } from '../constants';
 import {
   GIT_REPO_URL_ERROR,
   GIT_REPO_URL_REQUIRED_ERROR,
@@ -231,7 +232,7 @@ describe('ProjectNewPage repository payload', () => {
     pollingStartDelayMinutes: 0,
     pollingStartDelaySeconds: 0,
     taskTimeoutMinutes: 10,
-    defaultMaxReviewRounds: 3,
+    defaultMaxReviewRounds: DEFAULT_MAX_REVIEW_ROUNDS,
   };
 
   it('includes project_repo_url when a separate project repository is selected', () => {
@@ -242,7 +243,7 @@ describe('ProjectNewPage repository payload', () => {
 
     expect(payload.git_repo_url).toBe('git@github.com:org/app-half.git');
     expect(payload.project_repo_url).toBe('git@github.com:org/app.git');
-    expect(payload.default_max_review_rounds).toBe(3);
+    expect(payload.default_max_review_rounds).toBe(DEFAULT_MAX_REVIEW_ROUNDS);
   });
 
   it('submits null project_repo_url when switching back to the same repository', () => {

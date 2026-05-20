@@ -17,7 +17,7 @@
 ## 2. 目标
 
 1. 在流程模板中新增“Issue 编码与双 Agent 评审循环”模板。
-2. 支持用户在应用模板时填写 issue URL、目标分支策略、评审提示词等必要输入。
+2. 支持用户在应用模板时填写 issue URL、评审提示词、测试命令、最大评审轮次等必要输入。
 3. 由编码 Agent 从用户给定的 issue URL 拉取需求，完成编码、测试、推送到项目仓库新分支。
 4. 由两个评审 Agent 并行从项目仓库新分支拉取代码，执行评审并把评审结果提交到 HALF 协作仓库。
 5. 流程固定使用 5 个 Task，Task 作为角色槽位复用；实际轮次和业务状态记录在 HALF 协作仓库的 `flow-state.json` 和轮次产物文件中。
@@ -51,17 +51,16 @@
 
 ## 5. 模板输入
 
-应用模板时必须填写以下输入：
+应用模板时支持以下输入：
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
 | `issue_url` | 是 | 待实现 issue 的 URL。Agent 需要从该 URL 获取需求内容。 |
-| `base_branch` | 是 | 新功能分支的基准分支，例如 `main` 或 `develop`。 |
-| `work_branch_name` | 否 | 项目仓库中的工作分支名。为空时由编码 Agent 根据 issue 编号和时间生成。 |
 | `review_prompt` | 是 | 两个评审 Agent 使用的评审提示词或评审维度。 |
 | `test_command` | 否 | 建议执行的测试命令。为空时编码 Agent 根据项目约定自行判断。 |
 | `max_review_rounds` | 是 | 最大评审循环次数，默认 3。达到上限仍未通过时进入人工处理。 |
-| `pr_target_branch` | 否 | PR 目标分支。为空时默认等于 `base_branch`。 |
+
+当前版本不提供分支输入项：项目代码仓库固定以 `main` 作为基准分支，工作分支名由编码 Agent 根据 issue 编号和时间自动生成，PR 目标分支固定为 `main`。
 
 项目必须配置：
 
@@ -77,7 +76,7 @@
 2. 用户进入 Plan 页，选择“使用模板生成流程”。
 3. 用户选择“Issue 编码与双 Agent 评审循环”模板。
 4. 用户完成三个角色槽位映射。
-5. 用户填写 `issue_url`、`base_branch`、`review_prompt`、`max_review_rounds` 等模板输入。
+5. 用户填写 `issue_url`、`review_prompt`、`max_review_rounds`，并可选填写 `test_command`。
 6. HALF 生成任务流程并进入任务执行页。
 7. 项目负责人派发 `TASK-001`，由编码 Agent 拉取 issue、理解需求、生成执行计划，并初始化 `flow-state.json`。
 8. `TASK-001` 完成后，前端根据 `flow-state.json` 解锁 `TASK-002`。
@@ -464,7 +463,7 @@ TASK-005 决策
 
 1. 开始前同步 HALF 协作仓库和项目代码仓库。
 2. 从 `issue_url` 获取 issue 内容，并在产物中记录 issue 摘要。
-3. 从 `base_branch` 创建或更新 `work_branch`。
+3. 固定以项目代码仓库 `main` 分支作为基准分支，并由 Agent 根据 issue 编号和时间自动生成工作分支名。
 4. 完成代码修改和必要测试。
 5. 执行 `test_command`；若为空，则根据项目约定选择合理测试命令。
 6. 只有测试通过且代码已经 push 到项目仓库后，才允许写入本轮 `branch.json` 并把 `flow-state.json` 更新为 `awaiting_review`。
@@ -496,7 +495,7 @@ TASK-005 决策
 1. 开始前读取 `flow-state.json`；如果 `TASK-005` 不是 `unlocked`，必须停止并说明原因。
 2. 只读取 `TASK-003` / `TASK-004` 当前轮次目录下的两份 `review.json`；若任一评审文件缺失、非法或锚点不匹配，必须停止并说明原因。
 3. 若任一评审不同意合并，写入 `decision.json` / `decision.md`，更新 `flow-state.json` 为 `needs_fix`，解锁 `TASK-002`，冻结 `TASK-003` / `TASK-004` / `TASK-005`。
-4. 若两个评审都同意合并，先把 `TASK-002` 标记为 `approved`，再提交 PR，写入 `pr.json` / `pr.md`，最后把流程标记为 `completed`。
+4. 若两个评审都同意合并，先把 `TASK-002` 标记为 `approved`，再以 `main` 作为目标分支提交 PR，写入 `pr.json` / `pr.md`，最后把流程标记为 `completed`。
 5. 若达到 `max_review_rounds` 且仍未通过，写入人工处理报告，将流程标记为 `needs_attention`。
 
 ---
@@ -588,7 +587,7 @@ GET /api/projects/:id/flow-state
 ### 12.1 MVP 必需能力
 
 1. 允许新增一个 `agent_count = 3` 的流程模板。
-2. 模板支持声明 `issue_url`、`base_branch`、`review_prompt`、`test_command`、`max_review_rounds`、`pr_target_branch` 等 `required_inputs`。
+2. 模板支持声明 `issue_url`、`review_prompt`、`test_command`、`max_review_rounds` 等 `required_inputs`；当前版本不声明分支相关输入。
 3. 任务 prompt 中能注入模板输入。
 4. 模板固定生成 5 个 Task，并在任务描述中明确每个 Task 的角色槽位语义。
 5. 后端能读取 `<collaboration_dir>/flow-state.json` 并提供给前端。
@@ -641,10 +640,10 @@ GET /api/projects/:id/flow-state
 
 1. 用户可以在流程模板列表中看到“Issue 编码与双 Agent 评审循环”模板。
 2. 模板要求 3 个 Agent，并能完成 `agent-1`、`agent-2`、`agent-3` 的角色映射。
-3. 用户应用模板时必须填写 `issue_url`、`base_branch`、`review_prompt` 和 `max_review_rounds`。
+3. 用户应用模板时必须填写 `issue_url`、`review_prompt` 和 `max_review_rounds`，可选填写 `test_command`。
 4. 应用模板后固定生成 `TASK-001` 到 `TASK-005` 五个 Task。
 5. `TASK-001` prompt 中包含 issue URL，并要求生成计划和初始化 `flow-state.json`。
-6. `TASK-002` prompt 中包含项目代码仓库、基准分支、工作分支策略、测试要求和 `flow-state.json` 更新规则。
+6. `TASK-002` prompt 中包含项目代码仓库、固定 `main` 基准分支、自动工作分支策略、测试要求和 `flow-state.json` 更新规则。
 7. `TASK-002` 完成编码后，前端能显示 `TASK-002 = waiting_review`，并解锁两个评审任务。
 8. 两个评审任务 prompt 中包含同一工作分支、同一 commit、同一评审提示词，并要求输出 `approve_merge`。
 9. 两个评审结果都提交后，后端能派生 `TASK-005 = unlocked`，前端能显示该状态，并冻结 `TASK-003` / `TASK-004`。
@@ -660,8 +659,7 @@ GET /api/projects/:id/flow-state
 
 ## 16. 待确认问题
 
-1. `max_review_rounds` 的默认值是否固定为 3。
-2. PR 创建方式是否只通过编码 Agent 在其环境中执行，还是未来由 HALF 提供 Git 平台集成。
-3. 评审意见是否需要在 HALF 前端做结构化展示，还是 MVP 仅展示产物文件路径。
-4. 是否需要为不同项目预置多套 `review_prompt` 模板。
-5. `flow-state.json` 是否需要支持人工修正操作，以及该操作是否仅限管理员。
+1. PR 创建方式是否只通过编码 Agent 在其环境中执行，还是未来由 HALF 提供 Git 平台集成。
+2. 评审意见是否需要在 HALF 前端做结构化展示，还是 MVP 仅展示产物文件路径。
+3. 是否需要为不同项目预置多套 `review_prompt` 模板。
+4. `flow-state.json` 是否需要支持人工修正操作，以及该操作是否仅限管理员。

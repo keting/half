@@ -12,6 +12,7 @@ from database import get_db
 from models import Agent, Project, ProjectPlan, Task, TaskEvent, User
 from auth import get_current_user
 from schemas import UtcDatetimeModel
+from config import DEFAULT_MAX_REVIEW_ROUNDS
 from services.polling_config_service import get_global_polling_settings
 from services.git_service import validate_git_url
 from services.project_agents import (
@@ -67,7 +68,7 @@ class ProjectCreate(BaseModel):
     polling_start_delay_minutes: Optional[int] = None  # None = use global default
     polling_start_delay_seconds: Optional[int] = None  # None = use global default
     task_timeout_minutes: Optional[int] = None
-    default_max_review_rounds: Optional[int] = 3
+    default_max_review_rounds: Optional[int] = DEFAULT_MAX_REVIEW_ROUNDS
     planning_mode: str = DEFAULT_PLANNING_MODE
     template_inputs: Optional[object] = None
 
@@ -191,7 +192,7 @@ def _build_project_response(db: Session, project: Project, next_step: Optional[s
         'polling_start_delay_minutes': project.polling_start_delay_minutes,
         'polling_start_delay_seconds': project.polling_start_delay_seconds,
         'task_timeout_minutes': project.task_timeout_minutes,
-        'default_max_review_rounds': getattr(project, 'default_max_review_rounds', None) or 3,
+        'default_max_review_rounds': getattr(project, 'default_max_review_rounds', None) or DEFAULT_MAX_REVIEW_ROUNDS,
         'planning_mode': _normalize_planning_mode(getattr(project, 'planning_mode', None)),
         'template_inputs': _parse_template_inputs_json(getattr(project, 'template_inputs_json', None)),
         'inactive_agent_ids': _inactive_project_agent_ids(db, project),
@@ -391,7 +392,7 @@ def _validate_polling_params(
 
 def _validate_default_max_review_rounds(value: Optional[int]) -> int:
     if value is None:
-        return 3
+        return DEFAULT_MAX_REVIEW_ROUNDS
     if value < 1 or value > 20:
         raise HTTPException(status_code=400, detail="default_max_review_rounds must be 1-20")
     return value
