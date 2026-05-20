@@ -31,6 +31,27 @@ describe('applyTemplatePlan', () => {
       .toEqual([requiredInputs[1]]);
   });
 
+  it('uses required input defaults when values were not initialized', () => {
+    const requiredInputs = [
+      { key: 'review_prompt', label: '评审提示词', required: true, sensitive: false, default_value: '内置评审提示词' },
+      { key: 'issue_url', label: 'Issue URL', required: true, sensitive: false },
+    ];
+
+    expect(filterTemplateInputs(requiredInputs, {
+      issue_url: 'https://github.com/org/repo/issues/1',
+    })).toEqual({
+      review_prompt: '内置评审提示词',
+      issue_url: 'https://github.com/org/repo/issues/1',
+    });
+    expect(getMissingTemplateInputs(requiredInputs, {
+      issue_url: 'https://github.com/org/repo/issues/1',
+    })).toEqual([]);
+    expect(getMissingTemplateInputs(requiredInputs, {
+      review_prompt: '',
+      issue_url: 'https://github.com/org/repo/issues/1',
+    })).toEqual([requiredInputs[0]]);
+  });
+
   it('rejects an empty planning brief before any request', async () => {
     const api = createApi();
 

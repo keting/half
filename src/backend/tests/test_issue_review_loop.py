@@ -16,6 +16,7 @@ from database import Base
 from models import ProcessTemplate, Project, ProjectPlan, Task, User
 from routers.tasks import TaskDispatchRequest, dispatch_task, redispatch_task
 from services.issue_review_loop import (
+    DEFAULT_REVIEW_PROMPT,
     FLOW_TYPE,
     TEMPLATE_NAME,
     ensure_issue_review_loop_template,
@@ -110,6 +111,8 @@ class IssueReviewLoopTests(unittest.TestCase):
         self.assertNotIn("work_branch_name", keys)
         self.assertNotIn("pr_target_branch", keys)
         self.assertEqual(keys, {"issue_url", "review_prompt", "test_command", "max_review_rounds"})
+        review_prompt = next(item for item in issue_review_loop_required_inputs() if item["key"] == "review_prompt")
+        self.assertEqual(review_prompt["default_value"], DEFAULT_REVIEW_PROMPT)
 
     def test_ensure_builtin_template_refreshes_existing_branch_inputs(self):
         old_required_inputs = [
@@ -140,6 +143,9 @@ class IssueReviewLoopTests(unittest.TestCase):
         self.assertNotIn("base_branch", keys)
         self.assertNotIn("work_branch_name", keys)
         self.assertNotIn("pr_target_branch", keys)
+        required_inputs = json.loads(template.required_inputs_json)
+        review_prompt = next(item for item in required_inputs if item["key"] == "review_prompt")
+        self.assertEqual(review_prompt["default_value"], DEFAULT_REVIEW_PROMPT)
         self.assertEqual(template.agent_count, 3)
         self.assertEqual(template.updated_by, self.user.id)
 

@@ -126,6 +126,7 @@ export interface TemplateRequiredInput {
   label: string;
   required: boolean;
   sensitive: boolean;
+  default_value?: string;
 }
 
 export interface ProcessTemplate {
