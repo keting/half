@@ -264,6 +264,8 @@ def generate_task_prompt(
     project: Project,
     task: Task,
     include_usage: bool = False,  # kept for API compat, no longer used
+    task_branch: str | None = None,
+    default_branch: str | None = None,
 ) -> str:
     collab = (project.collaboration_dir or "").strip("/")
     task_dir = f"{collab}/{task.task_code}" if collab else task.task_code
@@ -292,6 +294,43 @@ def generate_task_prompt(
     else:
         predecessor_lines = "无前序任务输出"
 
+    # Build the code-repo push instruction depending on whether we're in a worktree.
+    if task_branch and default_branch:
+        code_push_instruction = (
+            f"代码修改完成后，在项目代码仓库目录依次执行：\n"
+            f"  1. `git add .` 并 `git commit`\n"
+            f"  2. `git fetch origin`\n"
+            f"  3. `git rebase origin/{default_branch}`（如有冲突请智能解决后执行 `git rebase --continue`）\n"
+            f"  4. `git push origin HEAD:{default_branch}`\n"
+            f"  注意：当前处于 git worktree 隔离分支 `{task_branch}`，**不能执行 `git checkout {default_branch}`**，"
+            f"必须通过 `HEAD:{default_branch}` refspec 提交代码。"
+        )
+        # No need for `git pull` on the code repo — worktree was freshly created from the latest commit.
+        pre_steps = (
+            "1. 在 HALF 协作仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。\n"
+            "2. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。"
+        )
+    elif task_branch and not default_branch:
+        code_push_instruction = (
+            f"代码修改完成后，在项目代码仓库目录依次执行：\n"
+            f"  1. `git add .` 并 `git commit`\n"
+            f"  2. `git fetch origin`\n"
+            f"  3. `git rebase origin/HEAD`（如有冲突请智能解决后执行 `git rebase --continue`）\n"
+            f"  4. `git push origin HEAD:$(git rev-parse --abbrev-ref origin/HEAD | sed 's|origin/||')`\n"
+            f"  注意：当前处于 git worktree 隔离分支 `{task_branch}`，**不能执行 `git checkout` 切换到主分支**，"
+            f"必须通过 refspec 提交代码。"
+        )
+        pre_steps = (
+            "1. 在 HALF 协作仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。\n"
+            "2. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。"
+        )
+    else:
+        code_push_instruction = "代码修改在项目代码仓库执行 git add、git commit、git push。"
+        pre_steps = (
+            "1. 在开始本任务前，必须先在项目代码仓库目录执行 `git pull`；若 HALF 协作仓库与项目代码仓库不同，也必须在 HALF 协作仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。\n"
+            "2. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。"
+        )
+
     sections = [f"你是项目 [{project.name}] 的执行 Agent。"]
     if goal_text:
         sections.append(f"## 项目任务介绍\n{goal_text}")
@@ -304,8 +343,7 @@ def generate_task_prompt(
     if template_inputs_section:
         sections.append(template_inputs_section)
     sections.append(f"""## 执行前置步骤（必须先做）
-1. 在开始本任务前，必须先在项目代码仓库目录执行 `git pull`；若 HALF 协作仓库与项目代码仓库不同，也必须在 HALF 协作仓库目录执行 `git pull`，确保拿到最新的远端状态，否则可能读不到前序任务输出。
-2. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。
+{pre_steps}
 
 ## 任务信息
 - 任务码：{task.task_code}
@@ -321,7 +359,8 @@ def generate_task_prompt(
 3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
 4. `result.json` 必须是合法 JSON 对象，包含 `task_code`、`summary`、`artifacts`；`task_code` 必须为 `{task.task_code}`，`summary` 必须为非空字符串，`artifacts` 必须是仓库根相对路径字符串数组，不得使用绝对路径、反斜杠或 `..` 越界路径
 5. 后续任务默认从前序任务目录及其中的 `result.json` 读取成果，不要依赖旧的单文件输出路径约定
-6. 代码修改在项目代码仓库执行 git add、git commit、git push；协作产物在 HALF 协作仓库执行 git add、git commit、git push。
+6. {code_push_instruction}
+7. 协作产物在 HALF 协作仓库执行 git add、git commit、git push。
 
 ## 完成哨兵约束
 - 只有项目代码仓库的代码修改已经提交并 push 成功后，才允许生成 `result.json`。

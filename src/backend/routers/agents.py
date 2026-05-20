@@ -75,6 +75,8 @@ class AgentResponse(BaseModel):
     is_active: bool
     availability_status: str
     display_order: int = 0
+    sdk_type: Optional[str] = None  # from AgentTypeConfig: currently only "claude"
+    has_api_key: bool = False
     subscription_expires_at: Optional[datetime]
     short_term_reset_at: Optional[datetime]
     short_term_reset_interval_hours: Optional[int]
@@ -106,6 +108,8 @@ class AgentTypeCatalogResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    sdk_type: Optional[str] = None
+    has_api_key: bool = False
     models: list[AgentTypeCatalogModel] = Field(default_factory=list)
 
 
@@ -177,6 +181,8 @@ def _build_agent_type_catalog(db: Session, agent_type: AgentTypeConfig) -> Agent
         id=agent_type.id,
         name=agent_type.name,
         description=agent_type.description,
+        sdk_type=agent_type.sdk_type,
+        has_api_key=bool(agent_type.api_key_encrypted),
         models=models,
     )
 
@@ -349,10 +355,15 @@ def _clear_confirmation_flags_on_manual_update(agent: Agent, update_data: dict):
         agent.long_term_reset_needs_confirmation = False
 
 
-def _build_agent_response(agent: Agent, user: User, owner_roles: dict[int, str | None] | None = None) -> AgentResponse:
+def _agent_type_config(db: Session, agent: Agent) -> AgentTypeConfig | None:
+    return db.query(AgentTypeConfig).filter(AgentTypeConfig.name == agent.agent_type).first()
+
+
+def _build_agent_response(agent: Agent, user: User, owner_roles: dict[int, str | None] | None = None, agent_type: AgentTypeConfig | None = None) -> AgentResponse:
     roles = owner_roles or {}
     owner_role = roles.get(agent.created_by) if agent.created_by is not None else None
     public = owner_role == "admin"
+    type_config = agent_type
     return AgentResponse(
         id=agent.id,
         name=agent.name,
@@ -365,6 +376,8 @@ def _build_agent_response(agent: Agent, user: User, owner_roles: dict[int, str |
         is_active=agent.is_active,
         availability_status=agent.availability_status,
         display_order=agent.display_order or 0,
+        sdk_type=type_config.sdk_type if type_config else None,
+        has_api_key=bool(type_config.api_key_encrypted) if type_config else False,
         subscription_expires_at=agent.subscription_expires_at,
         short_term_reset_at=agent.short_term_reset_at,
         short_term_reset_interval_hours=agent.short_term_reset_interval_hours,
@@ -395,7 +408,12 @@ def list_agents(db: Session = Depends(get_db), user: User = Depends(get_current_
         for agent in agents:
             db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, agents)
-    return [_build_agent_response(agent, user, owner_roles) for agent in agents]
+    type_names = {agent.agent_type for agent in agents}
+    type_configs = {
+        item.name: item
+        for item in db.query(AgentTypeConfig).filter(AgentTypeConfig.name.in_(type_names)).all()
+    } if type_names else {}
+    return [_build_agent_response(agent, user, owner_roles, type_configs.get(agent.agent_type)) for agent in agents]
 
 
 @router.get("/config/types", response_model=list[AgentTypeCatalogResponse])
@@ -424,7 +442,12 @@ def reorder_agents(body: ReorderRequest, db: Session = Depends(get_db), user: Us
     for agent in agents:
         db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, agents)
-    return [_build_agent_response(agent, user, owner_roles) for agent in agents]
+    type_names = {agent.agent_type for agent in agents}
+    type_configs = {
+        item.name: item
+        for item in db.query(AgentTypeConfig).filter(AgentTypeConfig.name.in_(type_names)).all()
+    } if type_names else {}
+    return [_build_agent_response(agent, user, owner_roles, type_configs.get(agent.agent_type)) for agent in agents]
 
 
 @router.post("", response_model=AgentResponse, status_code=status.HTTP_201_CREATED)
@@ -448,7 +471,7 @@ def create_agent(body: AgentCreate, db: Session = Depends(get_db), user: User = 
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.put("/{agent_id}", response_model=AgentResponse)
@@ -468,7 +491,7 @@ def update_agent(agent_id: int, body: AgentUpdate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.patch("/{agent_id}/status", response_model=AgentResponse)
@@ -487,7 +510,7 @@ def update_agent_status(agent_id: int, body: StatusUpdate, db: Session = Depends
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.post("/{agent_id}/short-term-reset/reset", response_model=AgentResponse)
@@ -502,7 +525,7 @@ def reset_short_term(agent_id: int, db: Session = Depends(get_db), user: User = 
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.post("/{agent_id}/short-term-reset/confirm", response_model=AgentResponse)
@@ -513,7 +536,7 @@ def confirm_short_term(agent_id: int, db: Session = Depends(get_db), user: User 
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.post("/{agent_id}/long-term-reset/reset", response_model=AgentResponse)
@@ -539,7 +562,7 @@ def reset_long_term(agent_id: int, db: Session = Depends(get_db), user: User = D
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.post("/{agent_id}/long-term-reset/confirm", response_model=AgentResponse)
@@ -550,7 +573,7 @@ def confirm_long_term(agent_id: int, db: Session = Depends(get_db), user: User =
     db.commit()
     db.refresh(agent)
     owner_roles = get_agent_owner_roles(db, [agent])
-    return _build_agent_response(agent, user, owner_roles)
+    return _build_agent_response(agent, user, owner_roles, _agent_type_config(db, agent))
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)

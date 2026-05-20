@@ -25,6 +25,7 @@ def _truthy(value: str | None) -> bool:
 
 class Settings:
     SECRET_KEY: str = os.getenv("HALF_SECRET_KEY", "example-insecure-secret-placeholder")
+    AGENT_API_KEY_ENCRYPTION_SECRET: str | None = os.getenv("HALF_AGENT_API_KEY_ENCRYPTION_SECRET")
     ADMIN_PASSWORD: str = os.getenv("HALF_ADMIN_PASSWORD", "example-insecure-password-placeholder")
     ALLOW_REGISTER: bool = _truthy(os.getenv("HALF_ALLOW_REGISTER", "false"))
     DEMO_SEED_ENABLED: bool = _truthy(os.getenv("HALF_DEMO_SEED_ENABLED", "true"))

@@ -1816,6 +1816,150 @@ body,
   border: 1px solid #a7f3d0;
 }
 
+.badge-sdk {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Per-project agent settings */
+.project-agent-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.project-agent-setting-row {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--bg-secondary);
+}
+
+/* When embedded inside an agent card, strip the card styling */
+.project-console-agent-settings .project-agent-setting-row {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  border-radius: 0;
+  padding: 12px 0 0;
+  background: transparent;
+  margin-top: 12px;
+}
+
+.project-agent-setting-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.project-agent-setting-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* SDK config section in agent settings */
+.settings-sdk-section {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary, #f9fafb);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.settings-sdk-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-sdk-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.settings-sdk-url {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-sdk-key-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-sdk-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-sdk-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Execution mode badges on project/agent */
+.badge-mode-auto {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  font-size: 11px;
+}
+
+.badge-mode-manual {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  font-size: 11px;
+}
+
+/* Project mode selector */
+.project-mode-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.project-mode-btn {
+  padding: 6px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all 0.15s;
+}
+
+.project-mode-btn.active {
+  background: var(--color-primary, #2563eb);
+  color: #fff;
+  border-color: var(--color-primary, #2563eb);
+  font-weight: 500;
+}
+
+.btn-sm {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.form-group-inline {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+
 .badge-public {
   background: #eef2ff;
   color: #4338ca;

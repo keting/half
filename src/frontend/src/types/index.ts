@@ -40,6 +40,7 @@ export interface Agent {
   long_term_reset_interval_days: number | null;
   long_term_reset_mode: string;
   long_term_reset_needs_confirmation: boolean;
+  sdk_type: string | null;
   created_by: number | null;
   owner_role: 'admin' | 'user' | null;
   is_public: boolean;
@@ -58,6 +59,9 @@ export interface AgentTypeConfig {
   id: number;
   name: string;
   description: string | null;
+  sdk_type: string | null;
+  api_base_url: string | null;
+  has_api_key: boolean;
   models: ModelDefinition[];
 }
 
@@ -85,6 +89,7 @@ export interface Project {
   task_timeout_minutes?: number | null;
   planning_mode?: string;
   template_inputs?: Record<string, string>;
+  is_auto?: boolean;
   inactive_agent_ids?: number[];
   next_step?: string | {
     action: string;

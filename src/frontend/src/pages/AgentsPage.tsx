@@ -772,6 +772,11 @@ export default function AgentsPage() {
                   <ModelBadge key={`${agent.id}-${model.model_name}-${index}`} type={index === 0 ? agent.agent_type : undefined} model={model.model_name} />
                 ))}
                 {agent.co_located && <span className="badge badge-neutral" title="该 Agent 默认与项目部署机器同服务器">同服务器</span>}
+                {agent.sdk_type && (
+                  <span className="badge badge-sdk" title={`该 Agent 类型已配置自动执行（${agent.sdk_type}），派发任务后将自动调用 SDK 执行`}>
+                    ⚡ 自动
+                  </span>
+                )}
                 {expiryDisplay && <span className={`badge badge-expiry${expiringSoon ? ' badge-expiry-warning' : ''}`} title="订阅到期时间">{expiryDisplay}</span>}
               </div>
 

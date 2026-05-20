@@ -117,7 +117,7 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
         self.base_dir = Path(self.temp_dir.name)
         self.repos_dir = self.base_dir / "repos"
         self.workspace_dir = self.base_dir / "workspace"
-        (self.repos_dir / "3").mkdir(parents=True)
+        (self.repos_dir / "3" / "collab").mkdir(parents=True)
         (self.workspace_dir / "outputs" / "proj-3").mkdir(parents=True)
 
         self.original_repos_dir = settings.REPOS_DIR
@@ -176,7 +176,7 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
         ) as mock_pull:
             repo_dir = git_service.ensure_repo(3, "git@github.com:example-org/example-repo.git")
 
-        self.assertEqual(repo_dir, str(self.repos_dir / "3"))
+        self.assertEqual(repo_dir, str(self.repos_dir / "3" / "collab"))
         mock_fetch.assert_called_once_with(3)
         mock_pull.assert_called_once_with(3)
 

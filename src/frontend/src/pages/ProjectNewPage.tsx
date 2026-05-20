@@ -51,6 +51,7 @@ export interface ProjectSubmitPayloadInput {
   pollingStartDelayMinutes: number | null;
   pollingStartDelaySeconds: number | null;
   taskTimeoutMinutes: number | null;
+  isAuto?: boolean;
 }
 
 export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
@@ -69,6 +70,7 @@ export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
     polling_start_delay_minutes: input.pollingStartDelayMinutes,
     polling_start_delay_seconds: input.pollingStartDelaySeconds,
     task_timeout_minutes: input.taskTimeoutMinutes,
+    is_auto: Boolean(input.isAuto),
   };
 }
 
@@ -90,6 +92,7 @@ export default function ProjectNewPage() {
   const [pollingStartDelayMinutes, setPollingStartDelayMinutes] = useState<number | null>(null);
   const [pollingStartDelaySeconds, setPollingStartDelaySeconds] = useState<number | null>(null);
   const [taskTimeoutMinutes, setTaskTimeoutMinutes] = useState<number | null>(10);
+  const [isAuto, setIsAuto] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState('');
@@ -148,6 +151,7 @@ export default function ProjectNewPage() {
           setPollingStartDelayMinutes(project.polling_start_delay_minutes ?? null);
           setPollingStartDelaySeconds(project.polling_start_delay_seconds ?? null);
           setTaskTimeoutMinutes(project.task_timeout_minutes ?? globalPolling?.task_timeout_minutes ?? 10);
+          setIsAuto(Boolean(project.is_auto));
         } else if (globalPolling) {
           setOriginalAgentIds([]);
           // Prefill from global defaults so the user starts with the
@@ -171,6 +175,10 @@ export default function ProjectNewPage() {
   }, [id, isEditMode]);
 
   const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.name.localeCompare(b.name)), [agents]);
+  const filteredAgents = useMemo(
+    () => sortedAgents.filter((agent) => isAuto ? Boolean(agent.sdk_type) : !agent.sdk_type),
+    [sortedAgents, isAuto],
+  );
 
   function toggleAgent(agentId: number) {
     setSelectedAgentIds((prev) => {
@@ -257,6 +265,7 @@ export default function ProjectNewPage() {
         pollingStartDelayMinutes,
         pollingStartDelaySeconds,
         taskTimeoutMinutes,
+        isAuto,
       });
       const project = isEditMode
         ? await api.put<Project>(`/api/projects/${id}`, payload)
@@ -423,8 +432,27 @@ export default function ProjectNewPage() {
         </SectionCard>
 
         <SectionCard title="参与智能体" description="选择可参与此项目执行的 Agent">
+          <div className="project-mode-selector">
+            <button
+              type="button"
+              className={`project-mode-btn${!isAuto ? ' active' : ''}`}
+              onClick={() => { setIsAuto(false); setSelectedAgentIds([]); setAgentCoLocated({}); }}
+            >
+              手动
+            </button>
+            <button
+              type="button"
+              className={`project-mode-btn${isAuto ? ' active' : ''}`}
+              onClick={() => { setIsAuto(true); setSelectedAgentIds([]); setAgentCoLocated({}); }}
+            >
+              自动
+            </button>
+          </div>
+          <div className="helper-text" style={{ marginBottom: '10px' }}>
+            {isAuto ? '自动模式：只展示已配置 SDK 的 Agent，HALF 会自动派发任务给 Agent 执行。' : '手动模式：只展示未配置 SDK 的 Agent，需手动将 Prompt 粘贴给 Agent 执行。'}
+          </div>
           <div className="agent-select-cards">
-            {sortedAgents.map((agent) => {
+            {filteredAgents.map((agent) => {
               const selected = selectedAgentIds.includes(agent.id);
               const disabled = isUnavailableAgentSelectionDisabled(agent, originalAgentIds);
               return (
@@ -448,6 +476,10 @@ export default function ProjectNewPage() {
                       <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
                         {agent.is_public ? '公共' : '私有'}
                       </span>
+                      {agent.sdk_type
+                        ? <span className="badge badge-sdk" title={`自动执行 SDK：${agent.sdk_type}`}>⚡ 自动</span>
+                        : <span className="badge badge-mode-manual">手动</span>
+                      }
                       {agent.is_disabled_public && <span className="badge badge-disabled-public">已停用</span>}
                       <StatusBadge status={deriveAgentStatus(agent).status} />
                     </div>
@@ -472,12 +504,18 @@ export default function ProjectNewPage() {
                         <CoLocatedFieldLabel />
                       </label>
                     )}
+
                   </div>
                 </div>
               );
             })}
           </div>
-          {hasAgents && selectedAgentIds.length === 0 && (
+          {filteredAgents.length === 0 && hasAgents && (
+            <div className="empty-state compact-empty-state">
+              <p>{isAuto ? '没有已配置自动执行 SDK 的 Agent。请先在智能体设置中为某个 Agent 类型配置自动执行。' : '没有手动执行模式的 Agent。'}</p>
+            </div>
+          )}
+          {filteredAgents.length > 0 && hasAgents && selectedAgentIds.length === 0 && (
             <div className="helper-text helper-text-error">请至少选择 1 个 Agent。</div>
           )}
         </SectionCard>

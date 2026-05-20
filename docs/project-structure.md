@@ -1,6 +1,6 @@
 # 代码结构导览
 
-> **对应版本**：v0.2.1
+> **对应版本**：v0.3.0（含自动派发模式）
 > 本文档帮助想要修改 HALF 代码的贡献者快速定位对应模块。以 `main` 分支的当前真实目录结构为准。
 
 ---
@@ -46,7 +46,7 @@ backend/
 ├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
-├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
+├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）；Task 含 dispatch_mode 字段；AgentTypeConfig 含 sdk_type / api_base_url / api_key_encrypted 自动模式配置字段；Agent 含 is_auto 字段
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
 ├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
@@ -54,7 +54,7 @@ backend/
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
 │   ├── codex_usage.py             # /api/codex-usage/*（Codex OAuth 登录、状态与额度刷新）
-│   ├── agent_settings.py          # /api/agent-settings/*（仅管理员）
+│   ├── agent_settings.py          # /api/agent-settings/*（仅管理员）；管理 AgentTypeConfig 含自动模式 API 凭证（sdk_type / api_base_url / api_key）
 │   ├── projects.py                # /api/projects CRUD
 │   ├── plans.py                   # /api/projects/:id/plans/*
 │   ├── tasks.py                   # /api/tasks/*（无 prefix；在 main 里 include）
@@ -63,16 +63,21 @@ backend/
 │   ├── settings.py                # /api/settings/polling、/api/settings/prompt
 │   └── users.py                   # /api/admin/users/* + /api/admin/audit-logs（仅管理员）
 ├── services/                      # 业务服务层
-│   ├── git_service.py             # clone / fetch / pull / read_file / file_exists / _safe_join / validate_git_url
+│   ├── git_service.py             # 两仓库布局管理：collab/（协作仓库）、code/（代码仓库，可选）、tasks/{id}/（per-task worktree）；clone / fetch / pull / read_file / file_exists / ensure_code_repo_sync / create_task_workspace / delete_task_workspace / delete_project_repo / _safe_join / validate_git_url
 │   ├── path_service.py            # resolve_expected_output_path / normalize_expected_output_path（路径归一化 + 防越界）
 │   ├── prompt_service.py          # generate_plan_prompt / generate_task_prompt / generate_template_prompt
 │   ├── prompt_settings.py         # 全局 Prompt 设置（同机分配引导）读写
-│   ├── polling_service.py         # polling_loop / poll_project / get_effective_task_timeout_minutes
+│   ├── polling_service.py         # polling_loop / poll_project / get_effective_task_timeout_minutes；只处理手动模式任务的 result.json 检测
 │   ├── polling_config_service.py  # 项目级轮询参数解析
 │   ├── agents.py                  # Agent availability 状态推导、短期/长期重置续推逻辑
+│   ├── auto_dispatch.py           # 自动派发编排：get_ready_auto_tasks（查询就绪任务）/ dispatch_auto_tasks（向 BackgroundTasks 注册执行）/ run_auto_task（单任务执行 + DAG 链式推进）
 │   ├── codex_usage_cache.py       # Codex OAuth token、账号额度快照与账号级刷新冷却的内存缓存
 │   ├── project_agents.py          # 项目-Agent 绑定校验
-│   └── usage_limits.py            # 用量相关辅助
+│   ├── usage_limits.py            # 用量相关辅助
+│   └── agent_runner/              # Agent SDK 调用层（自动模式）
+│       ├── base.py                # AgentRunner 抽象基类
+│       ├── claude_runner.py       # ClaudeRunner：调用 Anthropic Messages API
+│       └── registry.py            # 按 sdk_type 返回对应 Runner 实例；目前支持 claude
 ├── middleware/
 │   └── rate_limit.py              # 登录限流（5 次失败锁 15 分钟）
 ├── validators/
@@ -115,10 +120,14 @@ FastAPI 应用也在这里实例化，并挂载 auth、agents、projects、plans
 | 密码强度 / 启动期校验 | `config.py::validate_security_config` |
 | Agent 可用性推导、续推 | `services/agents.py` |
 | Git 读文件 / 同步策略 | `services/git_service.py::ensure_repo_sync / read_file / dir_has_content` |
+| Git 仓库布局 / worktree 生命周期 | `services/git_service.py::ensure_code_repo_sync / create_task_workspace / delete_task_workspace` |
 | 路径安全 / 归一化 | `services/path_service.py` |
 | Prompt 模板 | `services/prompt_service.py` |
-| 轮询循环 | `services/polling_service.py::polling_loop / poll_project` |
+| 轮询循环（手动模式） | `services/polling_service.py::polling_loop / poll_project` |
 | 任务超时判定 | `services/polling_service.py::get_effective_task_timeout_minutes` |
+| 自动派发调度 | `services/auto_dispatch.py::dispatch_auto_tasks / run_auto_task` |
+| Agent API 调用（Claude） | `services/agent_runner/claude_runner.py` |
+| Agent 类型 API 凭证管理 | `routers/agent_settings.py` + `AgentTypeConfig` 模型 |
 | Owner 级隔离 | `access.py` |
 | 登录限流 | `middleware/rate_limit.py` |
 | Git URL 白名单 | `validators/git_url.py` |

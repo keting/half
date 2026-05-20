@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from sqlalchemy import inspect, text
@@ -29,7 +30,7 @@ from services.polling_service import polling_loop
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_LOCATION_GUIDANCE_KEY
 from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG if os.getenv("HALF_DEBUG") else logging.INFO)
 logger = logging.getLogger("half")
 
 
@@ -124,6 +125,7 @@ def ensure_schema_updates():
             "task_timeout_minutes": "INTEGER",
             "planning_mode": "TEXT DEFAULT 'balanced'",
             "template_inputs_json": "TEXT DEFAULT '{}'",
+            "is_auto": "INTEGER DEFAULT 0",
         },
         "project_plans": {
             "prompt_text": "TEXT",
@@ -136,8 +138,14 @@ def ensure_schema_updates():
             "detected_at": "DATETIME",
             "last_error": "TEXT",
         },
+        "tasks": {
+            "dispatch_mode": "TEXT",
+        },
         "agent_type_configs": {
             "description": "TEXT",
+            "api_base_url": "TEXT",
+            "api_key_encrypted": "TEXT",
+            "sdk_type": "TEXT",
             "display_order": "INTEGER DEFAULT 0",
         },
         "agent_type_model_map": {

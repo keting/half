@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 
 from access import get_owned_project, load_usable_agents
 from database import get_db
-from models import Agent, Project, ProjectPlan, Task, TaskEvent, User
+from models import Agent, AgentTypeConfig, Project, ProjectPlan, Task, TaskEvent, User
 from auth import get_current_user
 from schemas import UtcDatetimeModel
 from services.polling_config_service import get_global_polling_settings
-from services.git_service import validate_git_url
+from services.git_service import validate_git_url, delete_project_repo
 from services.project_agents import (
     agent_ids_from_assignments_json,
     parse_agent_assignments_json,
@@ -68,6 +68,7 @@ class ProjectCreate(BaseModel):
     task_timeout_minutes: Optional[int] = None
     planning_mode: str = DEFAULT_PLANNING_MODE
     template_inputs: Optional[object] = None
+    is_auto: bool = False
 
 
 class ProjectUpdate(BaseModel):
@@ -86,6 +87,7 @@ class ProjectUpdate(BaseModel):
     task_timeout_minutes: Optional[int] = None
     planning_mode: Optional[str] = None
     template_inputs: Optional[object] = None
+    is_auto: Optional[bool] = None
 
 
 class ProjectResponse(UtcDatetimeModel):
@@ -107,6 +109,7 @@ class ProjectResponse(UtcDatetimeModel):
     task_timeout_minutes: Optional[int]
     planning_mode: str
     template_inputs: dict[str, str]
+    is_auto: bool = False
     agent_assignments: list[AgentAssignment]
     inactive_agent_ids: list[int] = Field(default_factory=list)
 
@@ -189,11 +192,37 @@ def _build_project_response(db: Session, project: Project, next_step: Optional[s
         'task_timeout_minutes': project.task_timeout_minutes,
         'planning_mode': _normalize_planning_mode(getattr(project, 'planning_mode', None)),
         'template_inputs': _parse_template_inputs_json(getattr(project, 'template_inputs_json', None)),
+        'is_auto': bool(getattr(project, 'is_auto', False)),
         'inactive_agent_ids': _inactive_project_agent_ids(db, project),
     }
     if next_step is not None and task_summary is not None:
         return ProjectDetailResponse(next_step=next_step, task_summary=task_summary, **payload)
     return ProjectResponse(**payload)
+
+
+def _validate_agent_mode_compatibility(db: Session, agent_ids: list[int], is_auto: bool) -> None:
+    """Raise 400 if any agent's type execution mode doesn't match the project's execution mode."""
+    if not agent_ids:
+        return
+    agents = db.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+    type_names = {agent.agent_type for agent in agents}
+    type_configs = {
+        cfg.name: cfg
+        for cfg in db.query(AgentTypeConfig).filter(AgentTypeConfig.name.in_(type_names)).all()
+    } if type_names else {}
+    for agent in agents:
+        cfg = type_configs.get(agent.agent_type)
+        agent_is_auto = bool(cfg and cfg.sdk_type is not None)
+        if is_auto and not agent_is_auto:
+            raise HTTPException(
+                status_code=400,
+                detail=f"自动模式项目只能使用自动模式的 agent（agent id={agent.id} 为手动模式）",
+            )
+        if not is_auto and agent_is_auto:
+            raise HTTPException(
+                status_code=400,
+                detail=f"手动模式项目只能使用手动模式的 agent（agent id={agent.id} 为自动模式）",
+            )
 
 
 def _raise_unavailable_agent_error(agent_ids: list[int]) -> None:
@@ -421,6 +450,8 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
     body.git_repo_url = _validate_required_git_repo_url(body.git_repo_url)
     project_repo_url = _normalize_optional_project_repo_url(body.project_repo_url)
     agent_assignments = _project_assignments_from_body(db, body, user)
+    agent_ids = [int(a.get("id")) for a in agent_assignments]
+    _validate_agent_mode_compatibility(db, agent_ids, body.is_auto)
     _validate_polling_params(
         body.polling_interval_min,
         body.polling_interval_max,
@@ -455,6 +486,7 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
         task_timeout_minutes=polling_snapshot["task_timeout_minutes"],
         planning_mode=_normalize_planning_mode(body.planning_mode),
         template_inputs_json=json.dumps(_normalize_template_inputs(body.template_inputs), ensure_ascii=False),
+        is_auto=body.is_auto,
     )
     if project.created_by is None:
         raise HTTPException(status_code=500, detail="created_by must not be None")
@@ -521,6 +553,16 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         update_data['task_timeout_minutes'] = get_global_polling_settings(db)["task_timeout_minutes"]
     if 'planning_mode' in update_data:
         update_data['planning_mode'] = _normalize_planning_mode(update_data['planning_mode'])
+
+    # Validate agent mode compatibility against the merged is_auto
+    if 'agent_ids_json' in update_data or 'is_auto' in update_data:
+        merged_is_auto = bool(update_data.get('is_auto', getattr(project, 'is_auto', False)))
+        if 'agent_ids_json' in update_data:
+            merged_agent_ids = [int(a["id"]) for a in json.loads(update_data['agent_ids_json'])]
+        else:
+            merged_agent_ids = _project_agent_ids(project)
+        _validate_agent_mode_compatibility(db, merged_agent_ids, merged_is_auto)
+
     if 'template_inputs' in update_data:
         update_data['template_inputs_json'] = json.dumps(
             _normalize_template_inputs(update_data.pop('template_inputs')),
@@ -558,4 +600,5 @@ def delete_project(project_id: int, db: Session = Depends(get_db), user: User = 
     db.query(ProjectPlan).filter(ProjectPlan.project_id == project_id).delete(synchronize_session=False)
     db.delete(project)
     db.commit()
+    delete_project_repo(project_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
