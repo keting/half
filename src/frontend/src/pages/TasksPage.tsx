@@ -5,6 +5,7 @@ import { Task, Agent, Project, FlowState } from '../types';
 import DagView from '../components/DagView';
 import TaskDetailPanel from '../components/TaskDetailPanel';
 import { getNextStepText } from '../contracts';
+import { ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE, hasIssueReviewLoopAttention } from '../utils/issueReviewLoop';
 
 export default function TasksPage() {
   const { id } = useParams<{ id: string }>();
@@ -95,6 +96,7 @@ export default function TasksPage() {
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const nextStepText = getNextStepText(project?.next_step);
+  const showIssueReviewLoopAttention = hasIssueReviewLoopAttention(flowState);
   const tasksWithAgentLabels = tasks.map((task) => {
     const assignee = agents.find((agent) => agent.id === task.assignee_agent_id);
     return {
@@ -152,6 +154,9 @@ export default function TasksPage() {
           )}
           {flowState.errors?.length > 0 && (
             <div className="helper-text helper-text-error">{flowState.errors.join('；')}</div>
+          )}
+          {showIssueReviewLoopAttention && (
+            <div className="helper-text helper-text-warning">{ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE}</div>
           )}
         </div>
       )}

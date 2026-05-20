@@ -390,6 +390,8 @@ def get_issue_review_flow_state(db: Session, project: Project) -> dict[str, Any]
         effective["TASK-004"] = "frozen"
         effective["TASK-005"] = "unlocked"
         derived_phase = "awaiting_decision"
+    elif derived_phase == "needs_attention" and decision.get("status") == "submitted":
+        effective["TASK-005"] = "completed"
     elif errors:
         for task_code, item in reviews.items():
             if item.get("status") == "needs_attention":

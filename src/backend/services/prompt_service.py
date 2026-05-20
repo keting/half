@@ -337,7 +337,7 @@ def _issue_review_loop_task_section(project: Project, task: Task) -> str:
 3. 两份 review 都必须包含布尔 `approve_merge`，并且 `round`、`round_id`、`work_branch`、`head_commit` 必须与当前 `{flow_state_path}` 一致。
 4. 在 HALF 协作仓库 `main` 分支写入 `TASK-005/decisions/round-XXX/decision.json` 和 `decision.md`。
 5. 若任一评审不同意合并，更新 `{flow_state_path}` 顶层 `task_states`：`TASK-002` 为 `needs_fix`，`TASK-003` / `TASK-004` / `TASK-005` 为 `frozen`，并更新 `phase`。
-6. 若达到 `max_review_rounds` 且仍未通过，写入人工处理报告并将流程标记为 `needs_attention`。
+6. 若达到 `max_review_rounds` 且仍未通过，必须写入本轮 `decision.json` / `decision.md` 人工处理报告，并将流程 `phase` 标记为 `needs_attention`；HALF 后端会据此将 `TASK-005` 派生为已完成并提示人工介入。
 7. 只有两份评审都同意合并时，先在顶层 `task_states` 把 `TASK-002` 标记为 `approved`，再以 `main` 作为目标分支提交 PR，写入 `TASK-005/pr.json` / `pr.md`，最后将流程标记为 `completed` 并生成最终 `result.json`。
 8. 将决策、PR 记录、`flow-state.json` 和最终 `result.json` commit 并 push 到 HALF 协作仓库 `origin/main`。"""
     else:

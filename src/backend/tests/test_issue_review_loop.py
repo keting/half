@@ -93,6 +93,16 @@ class IssueReviewLoopTests(unittest.TestCase):
             "approve_merge": approve_merge,
         }
 
+    def _decision(self, approved: bool = False, next_action: str = "manual_intervention") -> dict:
+        return {
+            "round": 1,
+            "round_id": "round-001-abc123",
+            "work_branch": "issue-123",
+            "head_commit": "abc123",
+            "approved": approved,
+            "next_action": next_action,
+        }
+
     def test_builtin_required_inputs_do_not_include_branch_fields(self):
         keys = {item["key"] for item in issue_review_loop_required_inputs()}
 
@@ -221,6 +231,39 @@ class IssueReviewLoopTests(unittest.TestCase):
 
         self.assertEqual(state["derived_phase"], "needs_fix")
         self.assertEqual(state["effective_task_states"]["TASK-002"], "needs_fix")
+        self.assertEqual(state["effective_task_states"]["TASK-005"], "frozen")
+
+    def test_needs_attention_with_submitted_decision_marks_decision_task_completed(self):
+        flow = self._flow_state()
+        flow["phase"] = "needs_attention"
+        flow["task_states"]["TASK-005"] = "frozen"
+        files = {
+            "outputs/proj-10/flow-state.json": json.dumps(flow),
+            "outputs/proj-10/TASK-003/reviews/round-001/review.json": json.dumps(self._review(False)),
+            "outputs/proj-10/TASK-004/reviews/round-001/review.json": json.dumps(self._review(True)),
+            "outputs/proj-10/TASK-005/decisions/round-001/decision.json": json.dumps(self._decision()),
+        }
+
+        with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
+            state = get_issue_review_flow_state(self.db, self.project)
+
+        self.assertEqual(state["derived_phase"], "needs_attention")
+        self.assertEqual(state["decision"]["status"], "submitted")
+        self.assertEqual(state["effective_task_states"]["TASK-005"], "completed")
+
+    def test_needs_attention_without_valid_decision_does_not_complete_decision_task(self):
+        flow = self._flow_state()
+        flow["phase"] = "needs_attention"
+        flow["task_states"]["TASK-005"] = "frozen"
+        files = {
+            "outputs/proj-10/flow-state.json": json.dumps(flow),
+        }
+
+        with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
+            state = get_issue_review_flow_state(self.db, self.project)
+
+        self.assertEqual(state["derived_phase"], "needs_attention")
+        self.assertEqual(state["decision"]["status"], "pending")
         self.assertEqual(state["effective_task_states"]["TASK-005"], "frozen")
 
     def test_dispatch_uses_loop_business_state_instead_of_db_predecessors(self):

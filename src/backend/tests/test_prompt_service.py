@@ -398,6 +398,8 @@ class PromptServiceTests(unittest.TestCase):
         self.assertIn("`round`、`round_id`、`work_branch`、`head_commit` 必须与当前 `outputs/proj-4/flow-state.json` 一致", prompt)
         self.assertIn("更新 `outputs/proj-4/flow-state.json` 顶层 `task_states`", prompt)
         self.assertIn("`TASK-002` 为 `needs_fix`", prompt)
+        self.assertIn("必须写入本轮 `decision.json` / `decision.md` 人工处理报告", prompt)
+        self.assertIn("HALF 后端会据此将 `TASK-005` 派生为已完成并提示人工介入", prompt)
         self.assertIn("在顶层 `task_states` 把 `TASK-002` 标记为 `approved`", prompt)
         self.assertIn("以 `main` 作为目标分支提交 PR", prompt)
         self.assertIn("将决策、PR 记录、`flow-state.json` 和最终 `result.json` commit 并 push 到 HALF 协作仓库 `origin/main`", prompt)

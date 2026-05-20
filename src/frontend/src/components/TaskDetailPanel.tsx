@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import StatusBadge from './StatusBadge';
 import { copyText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
+import { ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE, isIssueReviewLoopAttentionTask } from '../utils/issueReviewLoop';
 
 interface Props {
   task: Task;
@@ -49,6 +50,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
   const canOperate = flowState?.enabled ? (businessDispatchable && !loopTaskRunning) : blockedPredecessors.length === 0;
   const canPreparePrompt = flowState?.enabled ? (businessDispatchable || canLoopRedispatch) : blockedPredecessors.length === 0;
   const canEdit = !flowState?.enabled && task.status === 'pending' && canOperate;
+  const showIssueReviewLoopAttention = isIssueReviewLoopAttentionTask(task, flowState);
 
   useEffect(() => {
     setDraftTaskName(task.task_name);
@@ -231,6 +233,12 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
         <div className="detail-section">
           <label>流程业务状态</label>
           <p><StatusBadge status={businessState} /></p>
+        </div>
+      )}
+
+      {showIssueReviewLoopAttention && (
+        <div className="helper-text helper-text-warning">
+          {ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE}
         </div>
       )}
 
