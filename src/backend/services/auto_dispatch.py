@@ -60,6 +60,9 @@ def is_auto_agent_type(agent_type: AgentTypeConfig | None) -> bool:
 def is_auto_task(db: Session, task: Task) -> bool:
     if not task.assignee_agent_id:
         return False
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project or not project.is_auto:
+        return False
     agent = db.query(Agent).filter(Agent.id == task.assignee_agent_id).first()
     return is_auto_agent_type(get_agent_type_config(db, agent))
 
@@ -79,7 +82,11 @@ def get_ready_auto_tasks(
     May mark tasks as 'needs_attention' when agent credentials are missing,
     but never marks tasks as 'running' — that is deferred to run_auto_task.
     """
-    query = db.query(Task).filter(Task.status == "pending")
+    query = (
+        db.query(Task)
+        .join(Project, Task.project_id == Project.id)
+        .filter(Task.status == "pending", Project.is_auto == True)  # noqa: E712
+    )
     if project_id is not None:
         query = query.filter(Task.project_id == project_id)
     task_id_list = list(task_ids or [])

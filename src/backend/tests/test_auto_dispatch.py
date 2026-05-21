@@ -52,6 +52,7 @@ from services.auto_dispatch import (
     _complete_project_if_done,
     get_ready_auto_tasks,
     is_auto_agent_type,
+    is_auto_task,
     is_task_ready,
     run_auto_task,
 )
@@ -780,6 +781,210 @@ class TestApiKeyNotExposed(unittest.TestCase):
         self.assertNotIn("api_key", agent_fields)
         self.assertNotIn("api_key_encrypted", agent_fields)
         self.assertIn("has_api_key", agent_fields)
+
+
+# ---------------------------------------------------------------------------
+# Regression: is_auto must gate on project.is_auto, not just agent sdk_type
+# ---------------------------------------------------------------------------
+
+class TestManualProjectBackwardCompat(unittest.TestCase):
+    """Regression: agent type gaining sdk_type must not affect is_auto=False projects."""
+
+    def setUp(self):
+        engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        )
+        Base.metadata.create_all(bind=engine)
+        self.db = sessionmaker(bind=engine)()
+        user = User(id=1, username="owner", password_hash=hash_password("Owner123"))
+        # Agent type that has sdk_type — simulates admin setting sdk_type after the fact
+        auto_type = AgentTypeConfig(id=1, name="newly-auto", sdk_type="claude")
+        self.agent = Agent(
+            id=1, name="Agent", slug="agent-1",
+            agent_type="newly-auto", created_by=1,
+        )
+        self.manual_project = Project(
+            id=1, name="ManualP",
+            git_repo_url="https://github.com/x/y",
+            collaboration_dir="o/1",
+            status="executing",
+            is_auto=False,
+            created_by=1,
+        )
+        self.auto_project = Project(
+            id=2, name="AutoP",
+            git_repo_url="https://github.com/x/y",
+            collaboration_dir="o/2",
+            status="executing",
+            is_auto=True,
+            created_by=1,
+        )
+        plan1 = ProjectPlan(id=1, project_id=1, status="final")
+        plan2 = ProjectPlan(id=2, project_id=2, status="final")
+        self.db.add_all([user, auto_type, self.agent, self.manual_project, self.auto_project, plan1, plan2])
+        self.db.commit()
+        self.addCleanup(self.db.close)
+        self._seq = 1
+
+    def _task(self, project_id: int, plan_id: int, code: str) -> Task:
+        t = Task(
+            id=self._seq,
+            project_id=project_id, plan_id=plan_id,
+            task_code=code, task_name=code,
+            status="pending",
+            assignee_agent_id=self.agent.id,
+            depends_on_json="[]",
+            expected_output_path=f"o/{project_id}/{code}/result.json",
+        )
+        self._seq += 1
+        self.db.add(t)
+        self.db.commit()
+        return t
+
+    def test_is_auto_task_false_for_manual_project(self):
+        """Even when agent type has sdk_type, tasks in manual projects are not auto tasks."""
+        task = self._task(1, 1, "T1")
+        self.assertFalse(is_auto_task(self.db, task))
+
+    def test_is_auto_task_true_for_auto_project(self):
+        """Control: same agent type in an auto project → is_auto_task returns True."""
+        task = self._task(2, 2, "T1")
+        self.assertTrue(is_auto_task(self.db, task))
+
+    def test_get_ready_auto_tasks_skips_manual_project(self):
+        """get_ready_auto_tasks must not include tasks from is_auto=False projects."""
+        manual_task = self._task(1, 1, "T1")
+        ready = get_ready_auto_tasks(self.db, project_id=1)
+        self.assertNotIn(manual_task.id, ready)
+
+
+# ---------------------------------------------------------------------------
+# Regression: update_agent_type fail-fast when manual project tasks exist
+# ---------------------------------------------------------------------------
+
+class TestAgentTypeSdkTypeManualProjectGuard(unittest.TestCase):
+    """update_agent_type must block setting sdk_type when manual project tasks exist."""
+
+    def setUp(self):
+        engine = _make_engine()
+        Base.metadata.create_all(bind=engine)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+        app = FastAPI()
+        app.include_router(auth_router.router)
+        app.include_router(agent_settings_router.router)
+
+        def override_db():
+            db = self.SessionLocal()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        app.dependency_overrides[database.get_db] = override_db
+        self.client = TestClient(app)
+
+        with self.SessionLocal() as db:
+            db.add(User(
+                username="admin",
+                password_hash=hash_password("Admin123"),
+                role="admin",
+                status="active",
+            ))
+            db.commit()
+
+    def _admin_headers(self) -> dict:
+        r = self.client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123"},
+        )
+        return {"Authorization": f"Bearer {r.json()['token']}"}
+
+    def test_setting_sdk_type_blocked_when_manual_project_tasks_exist(self):
+        """update_agent_type raises 400 when manual project has active tasks of this agent type."""
+        headers = self._admin_headers()
+        r = self.client.post("/api/agent-settings/types", json={"name": "my-type"}, headers=headers)
+        self.assertEqual(r.status_code, 201)
+        type_id = r.json()["id"]
+
+        with self.SessionLocal() as db:
+            agent = Agent(id=1, name="A", slug="a-1", agent_type="my-type", created_by=1)
+            project = Project(
+                id=1, name="ManualP",
+                git_repo_url="https://github.com/x/y",
+                collaboration_dir="o/1",
+                status="executing",
+                is_auto=False,
+                created_by=1,
+            )
+            plan = ProjectPlan(id=1, project_id=1, status="final")
+            task = Task(
+                project_id=1, plan_id=1,
+                task_code="T1", task_name="T1",
+                status="pending",
+                assignee_agent_id=1,
+                depends_on_json="[]",
+                expected_output_path="o/1/T1/result.json",
+            )
+            db.add_all([agent, project, plan, task])
+            db.commit()
+
+        r = self.client.put(
+            f"/api/agent-settings/types/{type_id}",
+            json={"sdk_type": "claude"},
+            headers=headers,
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("手动项目", r.json()["detail"])
+
+    def test_setting_sdk_type_allowed_when_no_manual_tasks(self):
+        """update_agent_type succeeds when no active tasks exist for this agent type."""
+        headers = self._admin_headers()
+        r = self.client.post("/api/agent-settings/types", json={"name": "clean-type"}, headers=headers)
+        type_id = r.json()["id"]
+
+        r = self.client.put(
+            f"/api/agent-settings/types/{type_id}",
+            json={"sdk_type": "claude"},
+            headers=headers,
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["sdk_type"], "claude")
+
+    def test_setting_sdk_type_allowed_when_manual_tasks_are_done(self):
+        """update_agent_type allows sdk_type when manual project tasks are already completed."""
+        headers = self._admin_headers()
+        r = self.client.post("/api/agent-settings/types", json={"name": "done-type"}, headers=headers)
+        type_id = r.json()["id"]
+
+        with self.SessionLocal() as db:
+            agent = Agent(id=2, name="B", slug="b-1", agent_type="done-type", created_by=1)
+            project = Project(
+                id=2, name="ManualDone",
+                git_repo_url="https://github.com/x/y",
+                collaboration_dir="o/2",
+                status="completed",
+                is_auto=False,
+                created_by=1,
+            )
+            plan = ProjectPlan(id=2, project_id=2, status="final")
+            task = Task(
+                project_id=2, plan_id=2,
+                task_code="T1", task_name="T1",
+                status="completed",
+                assignee_agent_id=2,
+                depends_on_json="[]",
+                expected_output_path="o/2/T1/result.json",
+            )
+            db.add_all([agent, project, plan, task])
+            db.commit()
+
+        r = self.client.put(
+            f"/api/agent-settings/types/{type_id}",
+            json={"sdk_type": "claude"},
+            headers=headers,
+        )
+        self.assertEqual(r.status_code, 200)
 
 
 if __name__ == "__main__":

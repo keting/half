@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent, Task, TaskEvent
+from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent, Project, Task, TaskEvent
 from auth import require_admin, User
 
 router = APIRouter(prefix="/api/agent-settings", tags=["agent-settings"])
@@ -196,7 +196,29 @@ def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends
         agent_type.description = body.description.strip() or None
 
     if "sdk_type" in body.model_fields_set:
-        agent_type.sdk_type = _normalize_sdk_type(body.sdk_type)
+        new_sdk_type = _normalize_sdk_type(body.sdk_type)
+        if new_sdk_type is not None and agent_type.sdk_type is None:
+            agent_ids_of_type = [
+                row[0]
+                for row in db.query(Agent.id).filter(Agent.agent_type == agent_type.name).all()
+            ]
+            if agent_ids_of_type:
+                conflicting_task = (
+                    db.query(Task)
+                    .join(Project, Task.project_id == Project.id)
+                    .filter(
+                        Task.assignee_agent_id.in_(agent_ids_of_type),
+                        Task.status.in_(["pending", "running"]),
+                        Project.is_auto == False,  # noqa: E712
+                    )
+                    .first()
+                )
+                if conflicting_task:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="该 Agent 类型已有手动项目的活跃任务引用，设置 sdk_type 将影响现有任务行为",
+                    )
+        agent_type.sdk_type = new_sdk_type
 
     db.commit()
     db.refresh(agent_type)
