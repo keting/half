@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import configparser
 import time
@@ -17,6 +18,8 @@ from urllib.parse import urlparse
 _ENSURE_REPO_TTL_SECONDS = 3.0
 _ensure_repo_last_run: dict[int, float] = {}
 _ensure_repo_locks: dict[int, threading.Lock] = {}
+_ensure_code_repo_last_run: dict[int, float] = {}
+_ensure_code_repo_locks: dict[int, threading.Lock] = {}
 
 import logging
 
@@ -45,6 +48,13 @@ _RETRYABLE_GIT_ERROR_MARKERS = (
 
 
 @dataclass(frozen=True)
+class TaskWorkspace:
+    workspace_dir: str
+    task_branch: str
+    default_branch: str | None
+
+
+@dataclass(frozen=True)
 class RepoSyncStatus:
     repo_dir: str | None
     used_cache: bool = False
@@ -65,8 +75,24 @@ def validate_git_url(url: str) -> str:
     return value
 
 
-def _repo_dir(project_id: int) -> str:
+def _project_dir(project_id: int) -> str:
+    """Root workspace directory for a project: {REPOS_DIR}/{project_id}/"""
     return os.path.join(settings.REPOS_DIR, str(project_id))
+
+
+def _collab_dir(project_id: int) -> str:
+    """Collaboration repo checkout: {REPOS_DIR}/{project_id}/collab/"""
+    return os.path.join(settings.REPOS_DIR, str(project_id), "collab")
+
+
+def _code_dir(project_id: int) -> str:
+    """Code repo checkout (two-repo mode): {REPOS_DIR}/{project_id}/code/"""
+    return os.path.join(settings.REPOS_DIR, str(project_id), "code")
+
+
+def _task_workspace_dir(project_id: int, task_id: int) -> str:
+    """Per-task isolated workspace (auto mode): {REPOS_DIR}/{project_id}/tasks/{task_id}/"""
+    return os.path.join(settings.REPOS_DIR, str(project_id), "tasks", str(task_id))
 
 
 def _project_lock(project_id: int) -> threading.Lock:
@@ -74,6 +100,14 @@ def _project_lock(project_id: int) -> threading.Lock:
     if lock is None:
         lock = threading.Lock()
         _ensure_repo_locks[project_id] = lock
+    return lock
+
+
+def _code_lock(project_id: int) -> threading.Lock:
+    lock = _ensure_code_repo_locks.get(project_id)
+    if lock is None:
+        lock = threading.Lock()
+        _ensure_code_repo_locks[project_id] = lock
     return lock
 
 
@@ -86,11 +120,29 @@ def _safe_join(base: str, relative_path: str) -> str:
     return candidate
 
 
+def _migrate_legacy_repo(project_id: int) -> None:
+    """Move a legacy repo from {project_id}/ directly to {project_id}/collab/ if needed."""
+    project = _project_dir(project_id)
+    collab = _collab_dir(project_id)
+    if os.path.isdir(collab):
+        return  # already migrated or freshly created
+    if not os.path.isdir(os.path.join(project, ".git")):
+        return  # no legacy repo present
+    tmp = collab + ".migrating"
+    os.makedirs(tmp, exist_ok=True)
+    for item in os.listdir(project):
+        if item in ("collab", "collab.migrating", "code", "tasks"):
+            continue
+        os.rename(os.path.join(project, item), os.path.join(tmp, item))
+    os.rename(tmp, collab)
+    logger.info("Migrated legacy repo for project %s to %s", project_id, collab)
+
+
 def clone_repo(project_id: int, git_repo_url: str) -> str:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if os.path.exists(repo_dir):
         return repo_dir
-    os.makedirs(settings.REPOS_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(repo_dir), exist_ok=True)
     subprocess.run(
         ["git", "clone", git_repo_url, repo_dir],
         check=True,
@@ -112,7 +164,7 @@ def _run_git(repo_dir: str, args: list[str], *, timeout: int = 60) -> subprocess
 
 
 def pull_repo(project_id: int) -> str:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not os.path.exists(repo_dir):
         raise FileNotFoundError(f"Repo directory not found: {repo_dir}")
     _run_git(repo_dir, ["pull", "--ff-only"])
@@ -120,7 +172,7 @@ def pull_repo(project_id: int) -> str:
 
 
 def fetch_repo(project_id: int) -> str:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not os.path.exists(repo_dir):
         raise FileNotFoundError(f"Repo directory not found: {repo_dir}")
     _run_git(repo_dir, ["fetch", "--prune", "origin"])
@@ -172,7 +224,7 @@ def _is_shallow_repo(repo_dir: str) -> bool:
 
 
 def _unshallow_repo(project_id: int) -> tuple[bool, str | None]:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not _is_shallow_repo(repo_dir):
         return True, None
     return _retry_git_operation(
@@ -182,7 +234,8 @@ def _unshallow_repo(project_id: int) -> tuple[bool, str | None]:
 
 
 def ensure_repo_sync(project_id: int, git_repo_url: str) -> RepoSyncStatus:
-    repo_dir = _repo_dir(project_id)
+    _migrate_legacy_repo(project_id)
+    repo_dir = _collab_dir(project_id)
     now = time.monotonic()
     lock = _project_lock(project_id)
     with lock:
@@ -342,7 +395,7 @@ def _workspace_path(relative_path: str, git_repo_url: str | None) -> str | None:
 
 
 def _remote_head_ref(project_id: int) -> str | None:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not os.path.isdir(repo_dir):
         return None
 
@@ -362,7 +415,7 @@ def _remote_head_ref(project_id: int) -> str | None:
 
 
 def _read_remote_file(project_id: int, relative_path: str) -> str | None:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not os.path.isdir(repo_dir):
         return None
 
@@ -380,7 +433,7 @@ def _read_remote_file(project_id: int, relative_path: str) -> str | None:
 
 
 def _list_remote_dir(project_id: int, relative_path: str) -> list[str]:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not os.path.isdir(repo_dir):
         return []
     ref = _remote_head_ref(project_id)
@@ -395,7 +448,7 @@ def _list_remote_dir(project_id: int, relative_path: str) -> list[str]:
 
 
 def _remote_dir_has_content(project_id: int, relative_path: str) -> bool:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if not os.path.isdir(repo_dir):
         return False
     ref = _remote_head_ref(project_id)
@@ -416,7 +469,7 @@ def read_file(
     *,
     prefer_remote: bool = False,
 ) -> str | None:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if prefer_remote:
         remote_content = _read_remote_file(project_id, relative_path)
         if remote_content is not None:
@@ -468,7 +521,7 @@ def list_dir(
     prefer_remote: bool = False,
 ) -> list[str]:
     """List immediate entries in a repo subdirectory. Returns [] if not a dir."""
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if prefer_remote:
         remote_entries = _list_remote_dir(project_id, relative_path)
         if remote_entries:
@@ -500,7 +553,7 @@ def dir_has_content(
     prefer_remote: bool = False,
 ) -> bool:
     """True if relative_path is a directory containing at least one non-empty file."""
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if prefer_remote and _remote_dir_has_content(project_id, relative_path):
         return True
     candidates: list[str] = []
@@ -532,7 +585,7 @@ def file_exists(
     *,
     prefer_remote: bool = False,
 ) -> bool:
-    repo_dir = _repo_dir(project_id)
+    repo_dir = _collab_dir(project_id)
     if prefer_remote and _read_remote_file(project_id, relative_path) is not None:
         return True
     try:
@@ -547,3 +600,147 @@ def file_exists(
         return True
 
     return _read_remote_file(project_id, relative_path) is not None
+
+
+# ---------------------------------------------------------------------------
+# Code repo (project_repo_url) — auto mode only
+# ---------------------------------------------------------------------------
+
+def ensure_code_repo_sync(project_id: int, code_repo_url: str) -> RepoSyncStatus:
+    """Ensure the code repository (project_repo_url) is cloned and up-to-date."""
+    repo_dir = _code_dir(project_id)
+    lock = _code_lock(project_id)
+    with lock:
+        if os.path.exists(repo_dir):
+            fetched, fetch_error = _retry_git_operation(
+                "git fetch origin (code repo)",
+                lambda: _run_git(repo_dir, ["fetch", "--prune", "origin"]),
+            )
+            if not fetched:
+                return RepoSyncStatus(repo_dir=repo_dir, fetched=False, remote_ready=False, error=fetch_error)
+            warnings: list[str] = []
+            pulled, pull_error = _retry_git_operation(
+                "git pull --ff-only (code repo)",
+                lambda: _run_git(repo_dir, ["pull", "--ff-only"]),
+            )
+            if pull_error:
+                warnings.append(pull_error)
+            return RepoSyncStatus(repo_dir=repo_dir, fetched=True, pulled=pulled, remote_ready=True, warnings=warnings)
+
+        os.makedirs(os.path.dirname(repo_dir), exist_ok=True)
+        cloned, clone_error = _retry_git_operation(
+            "git clone (code repo)",
+            lambda: subprocess.run(
+                ["git", "clone", code_repo_url, repo_dir],
+                check=True, capture_output=True, text=True, timeout=120,
+            ),
+        )
+        if not cloned:
+            return RepoSyncStatus(repo_dir=None, remote_ready=False, error=clone_error)
+        return RepoSyncStatus(repo_dir=repo_dir, fetched=True, pulled=True, remote_ready=True)
+
+
+# ---------------------------------------------------------------------------
+# Per-task workspace — auto mode
+# ---------------------------------------------------------------------------
+
+def _get_default_branch(repo_dir: str) -> str | None:
+    """Return the remote default branch name (e.g. 'main' or 'master').
+
+    Uses the local tracking ref ``origin/HEAD`` which is set during
+    ``git clone`` — no network access required.
+    Returns *None* when the ref is absent or unparseable.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "origin/HEAD"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        ref = result.stdout.strip()  # e.g. "origin/main"
+        if ref and "/" in ref:
+            return ref.split("/", 1)[1]
+        return ref or None
+    except Exception:
+        logger.debug("Could not determine default branch for %s", repo_dir, exc_info=True)
+        return None
+
+
+def create_task_workspace(project_id: int, task_id: int) -> TaskWorkspace:
+    """Create an isolated workspace for auto-mode task execution.
+
+    Structure::
+
+        {project_dir}/tasks/{task_id}/
+            code/   <- git worktree of the code repo (or collab repo in single-repo mode)
+            collab  -> symlink ../../collab
+
+    Returns the task workspace directory path.
+    """
+    task_ws = _task_workspace_dir(project_id, task_id)
+    code_wt = os.path.join(task_ws, "code")
+    collab_link = os.path.join(task_ws, "collab")
+
+    # Use code repo if present (two-repo mode), else collab repo (single-repo mode)
+    code = _code_dir(project_id)
+    base_repo = code if os.path.isdir(os.path.join(code, ".git")) else _collab_dir(project_id)
+
+    os.makedirs(task_ws, exist_ok=True)
+    branch = f"task-{task_id}"
+    _run_git(base_repo, ["worktree", "add", "-b", branch, code_wt])
+    logger.info("Created worktree for task %s at %s (branch=%s)", task_id, code_wt, branch)
+
+    default_branch = _get_default_branch(base_repo)
+
+    # Symlink collab repo into task workspace so agent sees both dirs
+    collab_target = os.path.relpath(_collab_dir(project_id), task_ws)
+    os.symlink(collab_target, collab_link)
+
+    return TaskWorkspace(
+        workspace_dir=task_ws,
+        task_branch=branch,
+        default_branch=default_branch,
+    )
+
+
+def delete_task_workspace(project_id: int, task_id: int) -> None:
+    """Remove the task worktree and workspace directory."""
+    task_ws = _task_workspace_dir(project_id, task_id)
+    code_wt = os.path.join(task_ws, "code")
+
+    code = _code_dir(project_id)
+    base_repo = code if os.path.isdir(os.path.join(code, ".git")) else _collab_dir(project_id)
+
+    try:
+        _run_git(base_repo, ["worktree", "remove", "--force", code_wt])
+    except Exception:
+        logger.warning("Failed to remove worktree at %s", code_wt, exc_info=True)
+
+    try:
+        _run_git(base_repo, ["worktree", "prune"])
+    except Exception:
+        pass
+
+    try:
+        shutil.rmtree(task_ws, ignore_errors=True)
+    except Exception:
+        logger.warning("Failed to remove task workspace at %s", task_ws, exc_info=True)
+
+
+def delete_project_repo(project_id: int) -> None:
+    """Remove all on-disk git checkouts for a project.
+
+    Cleans up {REPOS_DIR}/{project_id}/ entirely so that a future project
+    with the same ID cannot accidentally inherit a stale checkout.
+    """
+    project_dir = _project_dir(project_id)
+    if not os.path.exists(project_dir):
+        return
+    try:
+        shutil.rmtree(project_dir)
+        logger.info("Deleted repo directory for project %s: %s", project_id, project_dir)
+    except Exception:
+        logger.warning("Failed to delete repo directory for project %s at %s", project_id, project_dir, exc_info=True)

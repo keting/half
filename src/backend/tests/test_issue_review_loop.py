@@ -14,6 +14,7 @@ if str(BACKEND_DIR) not in sys.path:
 from auth import hash_password
 from database import Base
 from models import ProcessTemplate, Project, ProjectPlan, Task, User
+from fastapi.background import BackgroundTasks
 from routers.tasks import TaskDispatchRequest, dispatch_task, redispatch_task
 from services.issue_review_loop import (
     DEFAULT_REVIEW_PROMPT,
@@ -304,7 +305,7 @@ class IssueReviewLoopTests(unittest.TestCase):
         self.assertIn("Cannot dispatch running task", str(ctx.exception))
 
         with patch("services.issue_review_loop.git_service.read_file", side_effect=lambda _project_id, path, **_kw: files.get(path)):
-            updated = redispatch_task(task_3.id, TaskDispatchRequest(), self.db, self.user)
+            updated = redispatch_task(task_3.id, BackgroundTasks(), TaskDispatchRequest(), self.db, self.user)
 
         self.assertEqual(updated.status, "running")
 

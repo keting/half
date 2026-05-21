@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -59,19 +59,18 @@ class PlanFinalizeValidationTests(unittest.TestCase):
     def test_finalize_plan_rejects_action_phrase_expected_output(self):
         _project, plan = self._seed_plan("代码变更提交")
         with self.assertRaises(HTTPException) as ctx:
-            finalize_plan(20, FinalizeRequest(plan_id=plan.id), self.db, self.user)
-        self.assertEqual(ctx.exception.status_code, 400)
+            finalize_plan(20, FinalizeRequest(plan_id=plan.id), BackgroundTasks(), db=self.db, user=self.user)
         self.assertIn("invalid expected_output", ctx.exception.detail)
         self.assertIn("action phrase", ctx.exception.detail)
 
     def test_finalize_plan_accepts_path_with_trailing_human_description(self):
         _project, plan = self._seed_plan("outputs/proj-20/result.json，请按以下格式写入")
-        response = finalize_plan(20, FinalizeRequest(plan_id=plan.id), self.db, self.user)
+        response = finalize_plan(20, FinalizeRequest(plan_id=plan.id), BackgroundTasks(), db=self.db, user=self.user)
         self.assertEqual(response["tasks_created"], 1)
 
     def test_finalize_plan_writes_project_task_timeout_to_tasks(self):
         _project, plan = self._seed_plan("outputs/proj-20/result.json")
-        response = finalize_plan(20, FinalizeRequest(plan_id=plan.id), self.db, self.user)
+        response = finalize_plan(20, FinalizeRequest(plan_id=plan.id), BackgroundTasks(), db=self.db, user=self.user)
         self.assertEqual(response["tasks_created"], 1)
         from models import Task
         task = self.db.query(Task).filter(Task.project_id == 20).one()

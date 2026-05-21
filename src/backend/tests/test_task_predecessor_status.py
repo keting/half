@@ -14,6 +14,7 @@ if str(BACKEND_DIR) not in sys.path:
 from database import Base
 from auth import hash_password
 from models import Project, ProjectPlan, Task, TaskEvent, User
+from fastapi import BackgroundTasks
 from routers.tasks import (
     TaskDispatchRequest,
     _compute_predecessor_status,
@@ -173,7 +174,7 @@ class TaskPredecessorStatusTests(unittest.TestCase):
         with patch("routers.tasks.git_service.ensure_repo") as mock_ensure, patch(
             "routers.tasks.git_service.file_exists",
             return_value=False,
-        ):
+        ), patch("routers.tasks.dispatch_auto_tasks"):
             dispatched = dispatch_task(task.id, TaskDispatchRequest(), self.db, self.user)
         self.assertEqual(dispatched.status, "running")
         mock_ensure.assert_not_called()
@@ -185,8 +186,8 @@ class TaskPredecessorStatusTests(unittest.TestCase):
         with patch("routers.tasks.git_service.ensure_repo"), patch(
             "routers.tasks.git_service.file_exists",
             return_value=True,
-        ):
-            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, self.user)
+        ), patch("routers.tasks.dispatch_auto_tasks"):
+            updated = redispatch_task(task.id, BackgroundTasks(), TaskDispatchRequest(), self.db, self.user)
         self.assertEqual(updated.status, "running")
         self.assertIsNone(updated.last_error)
         event = (
@@ -201,8 +202,8 @@ class TaskPredecessorStatusTests(unittest.TestCase):
         with patch("routers.tasks.git_service.ensure_repo") as mock_ensure, patch(
             "routers.tasks.git_service.file_exists",
             return_value=False,
-        ):
-            updated = redispatch_task(task.id, TaskDispatchRequest(), self.db, self.user)
+        ), patch("routers.tasks.dispatch_auto_tasks"):
+            updated = redispatch_task(task.id, BackgroundTasks(), TaskDispatchRequest(), self.db, self.user)
         self.assertEqual(updated.status, "running")
         mock_ensure.assert_not_called()
 
@@ -211,7 +212,7 @@ class TaskPredecessorStatusTests(unittest.TestCase):
         task.last_error = "boom: timeout"
         self.db.commit()
 
-        updated = mark_complete(task.id, self.db, self.user)
+        updated = mark_complete(task.id, BackgroundTasks(), self.db, self.user)
 
         self.assertEqual(updated.status, "completed")
         self.assertIsNone(updated.last_error)

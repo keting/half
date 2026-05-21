@@ -1,0 +1,71 @@
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  uvicorn_default:
+    "()": uvicorn.logging.DefaultFormatter
+    fmt: "%(levelprefix)s %(message)s"
+    use_colors: null
+
+  uvicorn_access:
+    "()": uvicorn.logging.AccessFormatter
+    fmt: '%(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+
+  app:
+    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+handlers:
+  uvicorn_default:
+    class: logging.StreamHandler
+    formatter: uvicorn_default
+    stream: ext://sys.stderr
+
+  uvicorn_access:
+    class: logging.StreamHandler
+    formatter: uvicorn_access
+    stream: ext://sys.stdout
+
+  app_console:
+    class: logging.StreamHandler
+    formatter: app
+    stream: ext://sys.stdout
+
+  app_file:
+    class: logging.FileHandler
+    formatter: app
+    filename: ../../logs/app.log
+    encoding: utf-8
+
+  runner_file:
+    class: logging.FileHandler
+    formatter: app
+    filename: ../../logs/cc_runner.log
+    encoding: utf-8
+
+root:
+  level: INFO
+  handlers: [app_console, app_file]
+
+loggers:
+  uvicorn:
+    handlers: [uvicorn_default]
+    level: INFO
+    propagate: false
+
+  uvicorn.error:
+    level: INFO
+
+  uvicorn.access:
+    handlers: [uvicorn_access]
+    level: INFO
+    propagate: false
+
+  services.agent_runner:
+    handlers: [runner_file]
+    level: DEBUG
+    propagate: true
+
+  watchfiles.main:
+    level: WARNING
+    propagate: false

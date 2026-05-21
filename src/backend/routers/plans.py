@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from services.polling_config_service import get_project_polling_settings
 from services.prompt_settings import get_plan_co_location_guidance
 from schemas import UtcDatetimeModel
 from services.project_agents import agent_ids_from_assignments_json
+from services.auto_dispatch import dispatch_auto_tasks
 
 router = APIRouter(prefix="/api/projects", tags=["plans"])
 
@@ -537,7 +538,13 @@ def finalize_plan_record(
 
 
 @router.post("/{project_id}/plans/finalize")
-def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def finalize_plan(
+    project_id: int,
+    body: FinalizeRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     project = get_owned_project(db, project_id, user)
 
     plan = db.query(ProjectPlan).filter(
@@ -547,4 +554,6 @@ def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    return finalize_plan_record(db, project, plan, user)
+    result = finalize_plan_record(db, project, plan, user)
+    dispatch_auto_tasks(background_tasks, db, project_id=project_id)
+    return result

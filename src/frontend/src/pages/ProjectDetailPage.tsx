@@ -327,7 +327,7 @@ export default function ProjectDetailPage() {
 
       <SectionCard
         title="执行 Agent"
-        description="展示当前项目已选 Agent 的可用性、模型配置和订阅到期时间。"
+        description="展示当前项目已选 Agent 的可用性、模型配置和执行模式。"
       >
         <div className="project-console-agent-list">
           {selectedAgents.length > 0 ? (
@@ -338,6 +338,10 @@ export default function ProjectDetailPage() {
                     <strong>{agent.name}</strong>
                     <div className="project-console-agent-meta">
                       <ModelBadge type={agent.agent_type} model={agent.model_name} />
+                      {agent.sdk_type
+                        ? <span className="badge badge-sdk" title={`自动执行 SDK：${agent.sdk_type}`}>⚡ 自动</span>
+                        : <span className="badge badge-mode-manual">手动</span>
+                      }
                       <span className={`badge ${agent.is_public ? 'badge-public' : 'badge-private'}`}>
                         {agent.is_public ? '公共' : '私有'}
                       </span>

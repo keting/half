@@ -279,6 +279,8 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
     )
 
     for task in running_tasks:
+        if getattr(task, "dispatch_mode", None) == "auto":
+            continue
         # Skip polling this task if start delay has not elapsed yet
         if not _delay_satisfied(task.dispatched_at):
             logger.debug(

@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from sqlalchemy import inspect, text
@@ -30,7 +31,7 @@ from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_
 from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
 from services.issue_review_loop import ensure_issue_review_loop_template
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG if os.getenv("HALF_DEBUG") else logging.INFO)
 logger = logging.getLogger("half")
 
 
@@ -106,6 +107,8 @@ def ensure_schema_updates():
             "long_term_reset_mode": "TEXT DEFAULT 'days'",
             "display_order": "INTEGER DEFAULT 0",
             "created_by": "INTEGER",
+            "api_base_url": "TEXT",
+            "api_key_encrypted": "TEXT",
         },
         "users": {
             "role": "TEXT DEFAULT 'user'",
@@ -126,6 +129,7 @@ def ensure_schema_updates():
             "default_max_review_rounds": f"INTEGER DEFAULT {DEFAULT_MAX_REVIEW_ROUNDS}",
             "planning_mode": "TEXT DEFAULT 'balanced'",
             "template_inputs_json": "TEXT DEFAULT '{}'",
+            "is_auto": "INTEGER DEFAULT 0",
         },
         "project_plans": {
             "prompt_text": "TEXT",
@@ -138,8 +142,12 @@ def ensure_schema_updates():
             "detected_at": "DATETIME",
             "last_error": "TEXT",
         },
+        "tasks": {
+            "dispatch_mode": "TEXT",
+        },
         "agent_type_configs": {
             "description": "TEXT",
+            "sdk_type": "TEXT",
             "display_order": "INTEGER DEFAULT 0",
         },
         "agent_type_model_map": {

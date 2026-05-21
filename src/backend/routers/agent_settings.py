@@ -6,10 +6,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent
+from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent, Task, TaskEvent
 from auth import require_admin, User
 
 router = APIRouter(prefix="/api/agent-settings", tags=["agent-settings"])
+
+VALID_SDK_TYPES = {"claude"}
 
 
 # --- Schemas ---
@@ -28,17 +30,20 @@ class AgentTypeOut(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    sdk_type: Optional[str] = None
     models: list[ModelDefinitionOut] = Field(default_factory=list)
 
 
 class AgentTypeCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    sdk_type: Optional[str] = None
 
 
 class AgentTypeUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    sdk_type: Optional[str] = None
 
 
 class ModelAddToType(BaseModel):
@@ -103,8 +108,18 @@ def _build_agent_type_response(db: Session, agent_type: AgentTypeConfig) -> Agen
         id=agent_type.id,
         name=agent_type.name,
         description=agent_type.description,
+        sdk_type=agent_type.sdk_type,
         models=[ModelDefinitionOut.model_validate(m) for m in models],
     )
+
+
+def _normalize_sdk_type(value: str | None) -> str | None:
+    sdk_type = (value or "").strip()
+    if not sdk_type:
+        return None
+    if sdk_type not in VALID_SDK_TYPES:
+        raise HTTPException(status_code=400, detail="sdk_type 不支持，有效值：claude")
+    return sdk_type
 
 
 # --- Agent Type Endpoints ---
@@ -151,6 +166,7 @@ def create_agent_type(body: AgentTypeCreate, db: Session = Depends(get_db), _use
     if existing:
         raise HTTPException(status_code=400, detail="该 Agent 类型已存在")
     agent_type = AgentTypeConfig(name=name, description=body.description)
+    agent_type.sdk_type = _normalize_sdk_type(body.sdk_type)
     db.add(agent_type)
     db.commit()
     db.refresh(agent_type)
@@ -179,7 +195,9 @@ def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends
     if body.description is not None:
         agent_type.description = body.description.strip() or None
 
-    agent_type.updated_at = datetime.now(timezone.utc)
+    if "sdk_type" in body.model_fields_set:
+        agent_type.sdk_type = _normalize_sdk_type(body.sdk_type)
+
     db.commit()
     db.refresh(agent_type)
     return _build_agent_type_response(db, agent_type)
