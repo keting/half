@@ -116,9 +116,9 @@ def get_ready_auto_tasks(
         agent_type = agent_types_by_name.get(agent.agent_type) if agent and agent.agent_type else None
         if not is_auto_agent_type(agent_type):
             continue
-        if not agent_type.api_base_url or not agent_type.api_key_encrypted or not agent_type.sdk_type:
+        if not agent.api_base_url or not agent.api_key_encrypted or not agent_type.sdk_type:
             task.status = "needs_attention"
-            task.last_error = "Auto-dispatch agent type is missing API credentials"
+            task.last_error = "Auto-dispatch agent is missing API credentials"
             task.updated_at = now
             db.add(TaskEvent(
                 task_id=task.id,

@@ -47,7 +47,7 @@ export default function AgentSettingsPage() {
 
   // SDK config editing per type
   const [editingSdkTypeId, setEditingSdkTypeId] = useState<number | null>(null);
-  const [sdkConfigForm, setSdkConfigForm] = useState({ sdk_type: '', api_base_url: '', api_key: '' });
+  const [sdkConfigForm, setSdkConfigForm] = useState({ sdk_type: '' });
 
   const fetchTypes = useCallback(() => {
     api.get<AgentTypeConfig[]>('/api/agent-settings/types')
@@ -164,19 +164,15 @@ export default function AgentSettingsPage() {
     setEditingSdkTypeId(agentType.id);
     setSdkConfigForm({
       sdk_type: agentType.sdk_type || '',
-      api_base_url: agentType.api_base_url || '',
-      api_key: '',
     });
   }
 
   async function handleSaveSdkConfig(typeId: number) {
-    const { sdk_type, api_base_url, api_key } = sdkConfigForm;
+    const { sdk_type } = sdkConfigForm;
     setError('');
     try {
       await api.put(`/api/agent-settings/types/${typeId}`, {
         sdk_type: sdk_type || null,
-        api_base_url: api_base_url.trim() || null,
-        api_key: api_key.trim() || null,
       });
       setEditingSdkTypeId(null);
       fetchTypes();
@@ -184,10 +180,10 @@ export default function AgentSettingsPage() {
   }
 
   async function handleClearSdkConfig(typeId: number, typeName: string) {
-    if (!confirm(`切换后 "${typeName}" 的 SDK 类型和 API 凭证将被清除，确认继续？`)) return;
+    if (!confirm(`切换后 "${typeName}" 将变为手动模式，确认继续？`)) return;
     setError('');
     try {
-      await api.put(`/api/agent-settings/types/${typeId}`, { sdk_type: null, api_base_url: null, api_key: null });
+      await api.put(`/api/agent-settings/types/${typeId}`, { sdk_type: null });
       fetchTypes();
     } catch (err) { setError(`清除 SDK 配置失败：${err}`); }
   }
@@ -410,30 +406,6 @@ export default function AgentSettingsPage() {
                       </select>
                     </div>
                   </div>
-                  {sdkConfigForm.sdk_type && (
-                    <>
-                      <div className="form-group">
-                        <label>API Base URL</label>
-                        <input
-                          type="text"
-                          value={sdkConfigForm.api_base_url}
-                          onChange={(e) => setSdkConfigForm((prev) => ({ ...prev, api_base_url: e.target.value }))}
-                          placeholder="例如：https://api.anthropic.com"
-                          className="input-mono"
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>API Key {agentType.has_api_key ? <span className="helper-text">（留空则保留现有密钥）</span> : null}</label>
-                        <input
-                          type="password"
-                          value={sdkConfigForm.api_key}
-                          onChange={(e) => setSdkConfigForm((prev) => ({ ...prev, api_key: e.target.value }))}
-                          placeholder={agentType.has_api_key ? '留空则保留现有密钥' : '输入 API Key'}
-                          autoComplete="new-password"
-                        />
-                      </div>
-                    </>
-                  )}
                   <div className="settings-sdk-form-actions">
                     <button className="btn btn-primary btn-sm" onClick={() => handleSaveSdkConfig(agentType.id)}>保存</button>
                     <button className="btn btn-ghost btn-sm" onClick={() => setEditingSdkTypeId(null)}>取消</button>
@@ -445,13 +417,11 @@ export default function AgentSettingsPage() {
                     <>
                       <span className="badge badge-sdk">⚡ 自动</span>
                       <span className="settings-sdk-info">Claude</span>
-                      {agentType.api_base_url && <span className="settings-sdk-url">{agentType.api_base_url}</span>}
-                      <span className="settings-sdk-key-status">{agentType.has_api_key ? '🔑 已配置密钥' : '⚠️ 未配置密钥'}</span>
                       <button className="btn btn-xs btn-outline" onClick={() => startEditSdk(agentType)}>编辑</button>
                       <button className="btn btn-xs btn-outline btn-danger-text" onClick={() => handleClearSdkConfig(agentType.id, agentType.name)}>清除</button>
                     </>
                   ) : (
-                    <button className="btn btn-sm btn-secondary" onClick={() => startEditSdk(agentType)}>配置自动执行</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => startEditSdk(agentType)}>配置执行模式</button>
                   )}
                 </div>
               )}

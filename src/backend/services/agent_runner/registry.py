@@ -10,7 +10,7 @@ from services.agent_credentials import decrypt_api_key
 from services.agent_runner.base import AgentRunner, AgentRunContext
 from services.prompt_service import generate_task_prompt
 
-logger = logging.getLogger("half.agent_runner")
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MODELS: dict[str, str] = {
     "claude": "deepseek-v4-flash",
@@ -131,8 +131,8 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
             prompt=prompt,
         )
 
-        api_base_url = agent_type_config.api_base_url if agent_type_config else None
-        api_key = decrypt_api_key(agent_type_config.api_key_encrypted) if agent_type_config else None
+        api_base_url = agent.api_base_url
+        api_key = decrypt_api_key(agent.api_key_encrypted)
         runner = _create_runner(agent, effective_sdk_type, api_base_url=api_base_url, api_key=api_key)
 
         logger.info(

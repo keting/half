@@ -29,3 +29,6 @@ src/backend/repos/
 
 # Optional local-only operator notes
 /LOCAL.md
+
+.github/copilot-instructions.md
+**/*.log

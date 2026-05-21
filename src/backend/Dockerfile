@@ -23,4 +23,4 @@ ENV HALF_REPOS_DIR=/app/repos
 
 EXPOSE 8000 1455
 
-CMD ["uv", "run", "--no-dev", "--frozen", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-dev", "--frozen", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

@@ -179,24 +179,22 @@ class TestGetReadyAutoTasks(unittest.TestCase):
         self.auto_type = AgentTypeConfig(
             id=1, name="gpt-auto",
             sdk_type="claude",
-            api_base_url="https://api.example.com/v1",
-            api_key_encrypted=encrypt_api_key(self._VALID_KEY),
         )
-        # Auto agent type — missing credentials (sdk_type set but no key/url)
+        # Auto agent type — missing credentials (sdk_type set but no key/url on instance)
         self.no_creds_type = AgentTypeConfig(
             id=2, name="gpt-no-creds",
             sdk_type="claude",
-            api_base_url=None,
-            api_key_encrypted=None,
         )
         # Manual agent type (no sdk_type at all)
         self.manual_type = AgentTypeConfig(id=3, name="manual-type")
 
         self.auto_agent = Agent(
-            id=1, name="Auto", slug="auto-1", agent_type="gpt-auto", created_by=1
+            id=1, name="Auto", slug="auto-1", agent_type="gpt-auto", created_by=1,
+            api_base_url="https://api.example.com/v1",
+            api_key_encrypted=encrypt_api_key(self._VALID_KEY),
         )
         self.no_creds_agent = Agent(
-            id=2, name="NoCreds", slug="nocreds-1", agent_type="gpt-no-creds", created_by=1
+            id=2, name="NoCreds", slug="nocreds-1", agent_type="gpt-no-creds", created_by=1,
         )
         self.manual_agent = Agent(
             id=3, name="Manual", slug="manual-1", agent_type="manual-type", created_by=1
@@ -313,11 +311,11 @@ class TestRunAutoTask(unittest.TestCase):
             auto_type = AgentTypeConfig(
                 id=1, name="gpt-auto",
                 sdk_type="claude",
-                api_base_url="https://api.example.com/v1",
-                api_key_encrypted=encrypt_api_key(self._VALID_KEY),
             )
             auto_agent = Agent(
-                id=1, name="Auto", slug="auto-1", agent_type="gpt-auto", created_by=1
+                id=1, name="Auto", slug="auto-1", agent_type="gpt-auto", created_by=1,
+                api_base_url="https://api.example.com/v1",
+                api_key_encrypted=encrypt_api_key(self._VALID_KEY),
             )
             db.add_all([user, project, plan, auto_type, auto_agent])
             db.commit()
@@ -491,8 +489,6 @@ class TestProjectAgentModeCompatibility(unittest.TestCase):
             auto_type = AgentTypeConfig(
                 name="gpt-auto",
                 sdk_type="claude",
-                api_base_url="https://api.example.com/v1",
-                api_key_encrypted=encrypt_api_key("some-key"),
             )
             manual_type = AgentTypeConfig(name="manual-type")
             db.add_all([auto_type, manual_type])
@@ -734,8 +730,6 @@ class TestApiKeyNotExposed(unittest.TestCase):
             json={
                 "name": name,
                 "sdk_type": "claude",
-                "api_base_url": "https://api.example.com/v1",
-                "api_key": self._SECRET,
             },
             headers=headers,
         )
@@ -743,12 +737,12 @@ class TestApiKeyNotExposed(unittest.TestCase):
         return r.json()
 
     def test_create_response_does_not_contain_raw_api_key(self):
-        """AC-6: POST /api/agent-settings/types response must not expose the key."""
+        """AC-6: POST /api/agent-settings/types response must not expose any key."""
         headers = self._admin_headers()
         data = self._create_auto_type(headers)
         self.assertNotIn(self._SECRET, json.dumps(data))
         self.assertNotIn("api_key_encrypted", data)
-        self.assertTrue(data.get("has_api_key"))
+        self.assertNotIn("api_key", data)
 
     def test_list_response_does_not_contain_raw_api_key(self):
         """AC-6: GET /api/agent-settings/types response must not expose the key."""
@@ -759,28 +753,33 @@ class TestApiKeyNotExposed(unittest.TestCase):
         self.assertNotIn(self._SECRET, json.dumps(r.json()))
 
     def test_update_response_does_not_contain_raw_api_key(self):
-        """AC-6: PUT /api/agent-settings/types/{id} response must not expose new key."""
+        """AC-6: PUT /api/agent-settings/types/{id} response must not expose any key."""
         headers = self._admin_headers()
         data = self._create_auto_type(headers)
         type_id = data["id"]
-        updated_secret = "brand-new-secret-key"
         r = self.client.put(
             f"/api/agent-settings/types/{type_id}",
-            json={"api_key": updated_secret},
+            json={"description": "updated"},
             headers=headers,
         )
         self.assertEqual(r.status_code, 200)
         payload = json.dumps(r.json())
-        self.assertNotIn(updated_secret, payload)
         self.assertNotIn(self._SECRET, payload)
+        self.assertNotIn("api_key_encrypted", r.json())
 
     def test_agent_type_out_schema_exposes_only_has_api_key_flag(self):
-        """AC-6: AgentTypeOut schema has has_api_key flag but no raw key fields."""
+        """AC-6: AgentTypeOut has no raw key fields; has_api_key flag lives on AgentResponse."""
         from routers.agent_settings import AgentTypeOut
-        fields = set(AgentTypeOut.model_fields.keys())
-        self.assertNotIn("api_key", fields)
-        self.assertNotIn("api_key_encrypted", fields)
-        self.assertIn("has_api_key", fields)
+        type_fields = set(AgentTypeOut.model_fields.keys())
+        self.assertNotIn("api_key", type_fields)
+        self.assertNotIn("api_key_encrypted", type_fields)
+        self.assertNotIn("has_api_key", type_fields)
+        # The has_api_key flag is on the agent instance response
+        from routers.agents import AgentResponse
+        agent_fields = set(AgentResponse.model_fields.keys())
+        self.assertNotIn("api_key", agent_fields)
+        self.assertNotIn("api_key_encrypted", agent_fields)
+        self.assertIn("has_api_key", agent_fields)
 
 
 if __name__ == "__main__":

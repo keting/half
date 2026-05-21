@@ -39,6 +39,8 @@ class Agent(Base):
     co_located = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     availability_status = Column(Text, default="unknown")  # online/quota_exhausted/expired/unknown
+    api_base_url = Column(Text, nullable=True)
+    api_key_encrypted = Column(Text, nullable=True)
     subscription_expires_at = Column(DateTime, nullable=True)
     short_term_reset_at = Column(DateTime, nullable=True)
     short_term_reset_interval_hours = Column(Integer, nullable=True)
@@ -164,8 +166,6 @@ class AgentTypeConfig(Base):
     description = Column(Text, nullable=True)
     # sdk_type: "copilot" | "claude" — which SDK runner to use (auto mode only)
     sdk_type = Column(Text, nullable=True)
-    api_base_url = Column(Text, nullable=True)
-    api_key_encrypted = Column(Text, nullable=True)
     display_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

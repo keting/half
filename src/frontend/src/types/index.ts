@@ -46,6 +46,8 @@ export interface Agent {
   is_public: boolean;
   can_edit: boolean;
   is_disabled_public: boolean;
+  api_base_url: string | null;
+  has_api_key: boolean;
 }
 
 export interface ModelDefinition {
@@ -60,8 +62,6 @@ export interface AgentTypeConfig {
   name: string;
   description: string | null;
   sdk_type: string | null;
-  api_base_url: string | null;
-  has_api_key: boolean;
   models: ModelDefinition[];
 }
 

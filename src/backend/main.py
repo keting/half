@@ -106,6 +106,8 @@ def ensure_schema_updates():
             "long_term_reset_mode": "TEXT DEFAULT 'days'",
             "display_order": "INTEGER DEFAULT 0",
             "created_by": "INTEGER",
+            "api_base_url": "TEXT",
+            "api_key_encrypted": "TEXT",
         },
         "users": {
             "role": "TEXT DEFAULT 'user'",
@@ -143,8 +145,6 @@ def ensure_schema_updates():
         },
         "agent_type_configs": {
             "description": "TEXT",
-            "api_base_url": "TEXT",
-            "api_key_encrypted": "TEXT",
             "sdk_type": "TEXT",
             "display_order": "INTEGER DEFAULT 0",
         },

@@ -10,6 +10,7 @@ from access import get_agent_owner_roles, get_mutable_agent, is_agent_public, li
 from database import get_db
 from models import Agent, Project, ProjectPlan, Task, User, AgentTypeConfig, AgentTypeModelMap, ModelDefinition
 from auth import get_current_user
+from services.agent_credentials import encrypt_api_key
 from services.project_agents import agent_ids_from_assignments_json
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -36,6 +37,8 @@ class AgentCreate(BaseModel):
     long_term_reset_at: Optional[datetime] = None
     long_term_reset_interval_days: Optional[int] = None
     long_term_reset_mode: str = "days"
+    api_base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class AgentUpdate(BaseModel):
@@ -53,6 +56,8 @@ class AgentUpdate(BaseModel):
     long_term_reset_at: Optional[datetime] = None
     long_term_reset_interval_days: Optional[int] = None
     long_term_reset_mode: Optional[str] = None
+    api_base_url: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class StatusUpdate(BaseModel):
@@ -76,6 +81,7 @@ class AgentResponse(BaseModel):
     availability_status: str
     display_order: int = 0
     sdk_type: Optional[str] = None  # from AgentTypeConfig: currently only "claude"
+    api_base_url: Optional[str] = None
     has_api_key: bool = False
     subscription_expires_at: Optional[datetime]
     short_term_reset_at: Optional[datetime]
@@ -109,7 +115,6 @@ class AgentTypeCatalogResponse(BaseModel):
     name: str
     description: Optional[str] = None
     sdk_type: Optional[str] = None
-    has_api_key: bool = False
     models: list[AgentTypeCatalogModel] = Field(default_factory=list)
 
 
@@ -182,7 +187,6 @@ def _build_agent_type_catalog(db: Session, agent_type: AgentTypeConfig) -> Agent
         name=agent_type.name,
         description=agent_type.description,
         sdk_type=agent_type.sdk_type,
-        has_api_key=bool(agent_type.api_key_encrypted),
         models=models,
     )
 
@@ -252,6 +256,15 @@ def _normalize_agent_input(payload: dict) -> dict:
     for field in ("short_term_reset_at", "long_term_reset_at"):
         if field in payload:
             payload[field] = _normalize_beijing_datetime(payload[field])
+    # Handle API credentials: encrypt key, normalize base URL
+    api_key = payload.pop("api_key", None)
+    if api_key and api_key.strip():
+        payload["api_key_encrypted"] = encrypt_api_key(api_key)
+    else:
+        payload.pop("api_key_encrypted", None)
+    if "api_base_url" in payload:
+        raw = (payload["api_base_url"] or "").strip().rstrip("/")
+        payload["api_base_url"] = raw or None
     return payload
 
 
@@ -278,6 +291,14 @@ def _normalize_agent_update_input(payload: dict) -> dict:
     if "capability" in payload:
         raw_capability = payload.get("capability")
         payload["capability"] = raw_capability.strip() if raw_capability else None
+
+    # Handle API credentials: only update if explicitly provided
+    api_key = payload.pop("api_key", None)
+    if api_key is not None and api_key.strip():
+        payload["api_key_encrypted"] = encrypt_api_key(api_key)
+    if "api_base_url" in payload:
+        raw = (payload["api_base_url"] or "").strip().rstrip("/")
+        payload["api_base_url"] = raw or None
 
     return payload
 
@@ -377,7 +398,8 @@ def _build_agent_response(agent: Agent, user: User, owner_roles: dict[int, str |
         availability_status=agent.availability_status,
         display_order=agent.display_order or 0,
         sdk_type=type_config.sdk_type if type_config else None,
-        has_api_key=bool(type_config.api_key_encrypted) if type_config else False,
+        api_base_url=agent.api_base_url,
+        has_api_key=bool(agent.api_key_encrypted),
         subscription_expires_at=agent.subscription_expires_at,
         short_term_reset_at=agent.short_term_reset_at,
         short_term_reset_interval_hours=agent.short_term_reset_interval_hours,

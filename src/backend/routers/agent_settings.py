@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent
 from auth import require_admin, User
-from services.agent_credentials import encrypt_api_key
 
 router = APIRouter(prefix="/api/agent-settings", tags=["agent-settings"])
 
@@ -32,8 +31,6 @@ class AgentTypeOut(BaseModel):
     name: str
     description: Optional[str] = None
     sdk_type: Optional[str] = None
-    api_base_url: Optional[str] = None
-    has_api_key: bool = False
     models: list[ModelDefinitionOut] = Field(default_factory=list)
 
 
@@ -41,16 +38,12 @@ class AgentTypeCreate(BaseModel):
     name: str
     description: Optional[str] = None
     sdk_type: Optional[str] = None
-    api_base_url: Optional[str] = None
-    api_key: Optional[str] = None
 
 
 class AgentTypeUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     sdk_type: Optional[str] = None
-    api_base_url: Optional[str] = None
-    api_key: Optional[str] = None
 
 
 class ModelAddToType(BaseModel):
@@ -116,8 +109,6 @@ def _build_agent_type_response(db: Session, agent_type: AgentTypeConfig) -> Agen
         name=agent_type.name,
         description=agent_type.description,
         sdk_type=agent_type.sdk_type,
-        api_base_url=agent_type.api_base_url,
-        has_api_key=bool(agent_type.api_key_encrypted),
         models=[ModelDefinitionOut.model_validate(m) for m in models],
     )
 
@@ -131,42 +122,17 @@ def _normalize_sdk_type(value: str | None) -> str | None:
     return sdk_type
 
 
-def _normalize_api_base_url(value: str | None) -> str | None:
-    normalized = (value or "").strip().rstrip("/")
-    return normalized or None
-
-
 def _apply_sdk_config(
     agent_type: AgentTypeConfig,
     *,
     sdk_type: str | None,
-    api_base_url: str | None = None,
-    api_key: str | None = None,
-    partial: bool,
 ) -> None:
-    """Apply sdk_type + credentials to an AgentTypeConfig.
+    """Apply sdk_type to an AgentTypeConfig.
 
+    Credentials are stored at the agent instance level, not the type level.
     When sdk_type is None the agent type is cleared to unconfigured.
     """
     normalized_sdk_type = _normalize_sdk_type(sdk_type)
-
-    if normalized_sdk_type is None:
-        # Unconfigured: clear all
-        agent_type.sdk_type = None
-        agent_type.api_base_url = None
-        agent_type.api_key_encrypted = None
-        return
-
-    # Auto mode: sdk_type is set — validate credentials
-    if not partial or api_base_url is not None:
-        agent_type.api_base_url = _normalize_api_base_url(api_base_url)
-    if api_key is not None and api_key.strip():
-        agent_type.api_key_encrypted = encrypt_api_key(api_key)
-
-    if not agent_type.api_base_url:
-        raise HTTPException(status_code=400, detail="自动模式需要 API Base URL")
-    if not agent_type.api_key_encrypted:
-        raise HTTPException(status_code=400, detail="自动模式需要 API Key")
     agent_type.sdk_type = normalized_sdk_type
 
 
@@ -217,9 +183,6 @@ def create_agent_type(body: AgentTypeCreate, db: Session = Depends(get_db), _use
     _apply_sdk_config(
         agent_type,
         sdk_type=body.sdk_type,
-        api_base_url=body.api_base_url,
-        api_key=body.api_key,
-        partial=False,
     )
     db.add(agent_type)
     db.commit()
@@ -249,17 +212,10 @@ def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends
     if body.description is not None:
         agent_type.description = body.description.strip() or None
 
-    if (
-        body.sdk_type is not None
-        or body.api_base_url is not None
-        or body.api_key is not None
-    ):
+    if body.sdk_type is not None:
         _apply_sdk_config(
             agent_type,
-            sdk_type=body.sdk_type if body.sdk_type is not None else agent_type.sdk_type,
-            api_base_url=body.api_base_url,
-            api_key=body.api_key,
-            partial=True,
+            sdk_type=body.sdk_type,
         )
 
     agent_type.updated_at = datetime.now(timezone.utc)

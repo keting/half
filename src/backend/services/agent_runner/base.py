@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from models import Agent, Project, Task
 
-logger = logging.getLogger("half.agent_runner")
+logger = logging.getLogger(__name__)
 
 
 @dataclass

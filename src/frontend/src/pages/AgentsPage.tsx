@@ -24,6 +24,8 @@ interface AgentForm {
   co_located: boolean;
   is_active: boolean;
   subscription_expires_at: string;
+  api_base_url: string;
+  api_key: string;
 }
 
 interface CodexUsageWindow {
@@ -70,6 +72,8 @@ function createEmptyForm(): AgentForm {
     co_located: false,
     is_active: true,
     subscription_expires_at: '',
+    api_base_url: '',
+    api_key: '',
   };
 }
 
@@ -236,6 +240,8 @@ export default function AgentsPage() {
       co_located: Boolean(agent.co_located),
       is_active: Boolean(agent.is_active),
       subscription_expires_at: formatForDateTimeLocal(agent.subscription_expires_at),
+      api_base_url: agent.api_base_url || '',
+      api_key: '',
     });
     setEditingId(agent.id);
     setShowForm(true);
@@ -265,7 +271,7 @@ export default function AgentsPage() {
     setSaving(true);
     setError('');
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: form.name.trim(),
         agent_type: effectiveAgentType,
         model_name: resolvedFormModels[0]?.model_name || null,
@@ -278,6 +284,10 @@ export default function AgentsPage() {
         })),
         subscription_expires_at: form.subscription_expires_at || null,
       };
+      if (currentTypeConfig?.sdk_type) {
+        payload.api_base_url = form.api_base_url.trim() || null;
+        payload.api_key = form.api_key.trim() || null;
+      }
       if (editingId) await api.put(`/api/agents/${editingId}`, payload);
       else await api.post('/api/agents', payload);
       api.invalidate('/api/agents');
@@ -627,6 +637,40 @@ export default function AgentsPage() {
 
             {error && <div className="error-message">{error}</div>}
 
+            {currentTypeConfig?.sdk_type && (
+              <SectionCard title="API 凭证">
+                <div className="form-group">
+                  <label>API Base URL</label>
+                  <input
+                    type="text"
+                    value={form.api_base_url}
+                    onChange={(e) => updateField('api_base_url', e.target.value)}
+                    placeholder="例如：https://api.anthropic.com"
+                    className="input-mono"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>
+                    API Key
+                    {editingId && agents.find((a) => a.id === editingId)?.has_api_key && (
+                      <span className="helper-text">（留空则保留现有密钥）</span>
+                    )}
+                  </label>
+                  <input
+                    type="password"
+                    value={form.api_key}
+                    onChange={(e) => updateField('api_key', e.target.value)}
+                    placeholder={
+                      editingId && agents.find((a) => a.id === editingId)?.has_api_key
+                        ? '留空则保留现有密钥'
+                        : '输入 API Key'
+                    }
+                    autoComplete="new-password"
+                  />
+                </div>
+              </SectionCard>
+            )}
+
             <div className="agent-form-footer">
               <button type="button" className="btn btn-ghost" onClick={handleCancel}>取消</button>
               <button type="submit" className="btn btn-primary" disabled={saving || !form.name.trim() || !effectiveAgentType || !canSubmitModels}>
@@ -773,9 +817,14 @@ export default function AgentsPage() {
                 ))}
                 {agent.co_located && <span className="badge badge-neutral" title="该 Agent 默认与项目部署机器同服务器">同服务器</span>}
                 {agent.sdk_type && (
-                  <span className="badge badge-sdk" title={`该 Agent 类型已配置自动执行（${agent.sdk_type}），派发任务后将自动调用 SDK 执行`}>
-                    ⚡ 自动
-                  </span>
+                  <>
+                    <span className="badge badge-sdk" title={`该 Agent 类型已配置自动执行（${agent.sdk_type}），派发任务后将自动调用 SDK 执行`}>
+                      ⚡ 自动
+                    </span>
+                    <span className={`badge ${agent.has_api_key ? 'badge-neutral' : 'badge-warning'}`} title={agent.has_api_key ? '已配置 API Key' : '未配置 API Key'}>
+                      {agent.has_api_key ? '🔑 已配置密钥' : '⚠️ 未配置密钥'}
+                    </span>
+                  </>
                 )}
                 {expiryDisplay && <span className={`badge badge-expiry${expiringSoon ? ' badge-expiry-warning' : ''}`} title="订阅到期时间">{expiryDisplay}</span>}
               </div>
