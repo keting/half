@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from routers.plans import finalize_plan_record
 from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
 from services.project_agents import agent_ids_from_assignments_json
+from services.auto_dispatch import dispatch_auto_tasks
 from services.issue_review_loop import DEFAULT_REVIEW_PROMPT, FLOW_TYPE
 
 router = APIRouter(prefix="/api/process-templates", tags=["process_templates"])
@@ -456,6 +457,7 @@ def apply_template(
     template_id: int,
     project_id: int,
     body: TemplateApplyRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -545,6 +547,7 @@ def apply_template(
     db.flush()
 
     result = finalize_plan_record(db, project, plan, user)
+    dispatch_auto_tasks(background_tasks, db, project_id=project_id)
     return TemplateApplyResponse(
         plan_id=plan.id,
         tasks_created=int(result["tasks_created"]),
