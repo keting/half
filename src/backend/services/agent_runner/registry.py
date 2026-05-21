@@ -12,10 +12,6 @@ from services.prompt_service import generate_task_prompt
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODELS: dict[str, str] = {
-    "claude": "deepseek-v4-flash",
-}
-
 
 def _create_runner(
     agent: Agent,
@@ -26,10 +22,7 @@ def _create_runner(
     """Instantiate the concrete runner for the given sdk_type."""
     from services.agent_runner.claude_runner import ClaudeRunner
 
-    effective_model = (
-        (agent.model_name or "").strip()
-        or _DEFAULT_MODELS.get(sdk_type, "")
-    )
+    effective_model = (agent.model_name or "").strip()
 
     if sdk_type == "claude":
         return ClaudeRunner(model=effective_model, api_base_url=api_base_url, api_key=api_key)
@@ -89,6 +82,13 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
             logger.error(
                 "run_task_for_agent: sdk_type not configured for agent %s in task %s", agent.id, task_id
             )
+            return
+
+        model_name = (agent.model_name or "").strip()
+        if not model_name:
+            msg = f"Agent {agent.id} 未配置 model_name，无法自动执行任务"
+            logger.error("Task %s: %s", task.task_code, msg)
+            _mark_task_error(db, task, msg)
             return
 
         # --- Sync collaboration repo ---
