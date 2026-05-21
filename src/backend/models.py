@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, Text, Boolean, DateTime, ForeignKey, UniqueConstraint,
 )
+from config import DEFAULT_MAX_REVIEW_ROUNDS
 from database import Base
 
 
@@ -83,6 +84,7 @@ class Project(Base):
     polling_start_delay_minutes = Column(Integer, nullable=True)  # NULL means use global default
     polling_start_delay_seconds = Column(Integer, nullable=True)  # NULL means use global default
     task_timeout_minutes = Column(Integer, nullable=True)
+    default_max_review_rounds = Column(Integer, nullable=False, default=DEFAULT_MAX_REVIEW_ROUNDS)
     planning_mode = Column(Text, default="balanced")
     template_inputs_json = Column(Text, default="{}")
     is_auto = Column(Boolean, default=False)  # False = manual, True = auto

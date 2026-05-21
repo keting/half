@@ -87,6 +87,7 @@ export interface Project {
   polling_start_delay_minutes?: number | null;
   polling_start_delay_seconds?: number | null;
   task_timeout_minutes?: number | null;
+  default_max_review_rounds?: number;
   planning_mode?: string;
   template_inputs?: Record<string, string>;
   is_auto?: boolean;
@@ -130,6 +131,7 @@ export interface TemplateRequiredInput {
   label: string;
   required: boolean;
   sensitive: boolean;
+  default_value?: string;
 }
 
 export interface ProcessTemplate {
@@ -166,6 +168,35 @@ export interface Task {
   timeout_minutes: number;
   dispatched_at: string | null;
   completed_at: string | null;
+}
+
+export interface IssueReviewLoopReviewState {
+  status: string;
+  approve_merge: boolean | null;
+  review_path: string | null;
+}
+
+export interface FlowState {
+  enabled: boolean;
+  exists: boolean;
+  valid: boolean;
+  flow_type: string | null;
+  phase: string | null;
+  derived_phase: string | null;
+  current_round: number | null;
+  round_id: string | null;
+  work_branch: string | null;
+  head_commit: string | null;
+  max_review_rounds: number | null;
+  task_states: Record<string, string>;
+  effective_task_states: Record<string, string>;
+  reviews: Record<string, IssueReviewLoopReviewState>;
+  decision: Record<string, unknown>;
+  pr: {
+    status?: string | null;
+    url?: string | null;
+  };
+  errors: string[];
 }
 
 export interface TaskEvent {

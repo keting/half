@@ -12,6 +12,7 @@ from database import get_db
 from models import Agent, AgentTypeConfig, Project, ProjectPlan, Task, TaskEvent, User
 from auth import get_current_user
 from schemas import UtcDatetimeModel
+from config import DEFAULT_MAX_REVIEW_ROUNDS
 from services.polling_config_service import get_global_polling_settings
 from services.git_service import validate_git_url, delete_project_repo
 from services.project_agents import (
@@ -20,6 +21,7 @@ from services.project_agents import (
     serialize_agent_assignments,
 )
 from services.agents import derive_agent_status
+from services.issue_review_loop import get_issue_review_flow_state
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -66,6 +68,7 @@ class ProjectCreate(BaseModel):
     polling_start_delay_minutes: Optional[int] = None  # None = use global default
     polling_start_delay_seconds: Optional[int] = None  # None = use global default
     task_timeout_minutes: Optional[int] = None
+    default_max_review_rounds: Optional[int] = DEFAULT_MAX_REVIEW_ROUNDS
     planning_mode: str = DEFAULT_PLANNING_MODE
     template_inputs: Optional[object] = None
     is_auto: bool = False
@@ -85,6 +88,7 @@ class ProjectUpdate(BaseModel):
     polling_start_delay_minutes: Optional[int] = None
     polling_start_delay_seconds: Optional[int] = None
     task_timeout_minutes: Optional[int] = None
+    default_max_review_rounds: Optional[int] = None
     planning_mode: Optional[str] = None
     template_inputs: Optional[object] = None
     is_auto: Optional[bool] = None
@@ -107,6 +111,7 @@ class ProjectResponse(UtcDatetimeModel):
     polling_start_delay_minutes: Optional[int]
     polling_start_delay_seconds: Optional[int]
     task_timeout_minutes: Optional[int]
+    default_max_review_rounds: int
     planning_mode: str
     template_inputs: dict[str, str]
     is_auto: bool = False
@@ -190,6 +195,7 @@ def _build_project_response(db: Session, project: Project, next_step: Optional[s
         'polling_start_delay_minutes': project.polling_start_delay_minutes,
         'polling_start_delay_seconds': project.polling_start_delay_seconds,
         'task_timeout_minutes': project.task_timeout_minutes,
+        'default_max_review_rounds': getattr(project, 'default_max_review_rounds', None) or DEFAULT_MAX_REVIEW_ROUNDS,
         'planning_mode': _normalize_planning_mode(getattr(project, 'planning_mode', None)),
         'template_inputs': _parse_template_inputs_json(getattr(project, 'template_inputs_json', None)),
         'is_auto': bool(getattr(project, 'is_auto', False)),
@@ -413,6 +419,14 @@ def _validate_polling_params(
             raise HTTPException(status_code=400, detail="task_timeout_minutes must be 1-120 minutes")
 
 
+def _validate_default_max_review_rounds(value: Optional[int]) -> int:
+    if value is None:
+        return DEFAULT_MAX_REVIEW_ROUNDS
+    if value < 1 or value > 20:
+        raise HTTPException(status_code=400, detail="default_max_review_rounds must be 1-20")
+    return value
+
+
 def _resolve_polling_snapshot(
     db: Session,
     interval_min: Optional[int],
@@ -484,6 +498,7 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db), user: Use
         polling_start_delay_minutes=polling_snapshot["polling_start_delay_minutes"],
         polling_start_delay_seconds=polling_snapshot["polling_start_delay_seconds"],
         task_timeout_minutes=polling_snapshot["task_timeout_minutes"],
+        default_max_review_rounds=_validate_default_max_review_rounds(body.default_max_review_rounds),
         planning_mode=_normalize_planning_mode(body.planning_mode),
         template_inputs_json=json.dumps(_normalize_template_inputs(body.template_inputs), ensure_ascii=False),
         is_auto=body.is_auto,
@@ -507,6 +522,12 @@ def get_project(project_id: int, db: Session = Depends(get_db), user: User = Dep
     project = get_owned_project(db, project_id, user)
     next_step, task_summary = compute_next_step(db, project)
     return _build_project_response(db, project, next_step=next_step, task_summary=task_summary)
+
+
+@router.get('/{project_id}/flow-state')
+def get_project_flow_state(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = get_owned_project(db, project_id, user)
+    return get_issue_review_flow_state(db, project)
 
 
 @router.put('/{project_id}', response_model=ProjectResponse)
@@ -563,6 +584,8 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
             merged_agent_ids = _project_agent_ids(project)
         _validate_agent_mode_compatibility(db, merged_agent_ids, merged_is_auto)
 
+    if 'default_max_review_rounds' in update_data:
+        update_data['default_max_review_rounds'] = _validate_default_max_review_rounds(update_data['default_max_review_rounds'])
     if 'template_inputs' in update_data:
         update_data['template_inputs_json'] = json.dumps(
             _normalize_template_inputs(update_data.pop('template_inputs')),

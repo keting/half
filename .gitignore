@@ -28,6 +28,7 @@ src/backend/half.db
 src/backend/repos/
 
 # Optional local-only operator notes
+/AGENTS.md
 /LOCAL.md
 
 .github/copilot-instructions.md

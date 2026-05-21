@@ -57,6 +57,9 @@ jobs:
             const isForkPullRequest = Boolean(
               pullRequest && pullRequest.head.repo.full_name !== pullRequest.base.repo.full_name,
             );
+            const isDependabotPullRequest = Boolean(
+              pullRequest && pullRequest.user?.login === 'dependabot[bot]',
+            );
             const requiredChecks = [];
 
             if (process.env.JS_CHANGED === 'true') {
@@ -77,6 +80,13 @@ jobs:
             if (isForkPullRequest) {
               core.info(
                 `Skipping CodeQL gate for fork pull request ${pullRequest.number}; GitHub-managed CodeQL analyze checks are not emitted for this context.`,
+              );
+              return;
+            }
+
+            if (isDependabotPullRequest) {
+              core.info(
+                `Skipping CodeQL gate for Dependabot pull request ${pullRequest.number}; GitHub-managed CodeQL default setup does not run Analyze on Dependabot-authored PRs.`,
               );
               return;
             }

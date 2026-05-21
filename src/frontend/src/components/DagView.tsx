@@ -4,11 +4,38 @@ import ReactFlow, {
   Controls,
   Node,
   Edge,
+  Handle,
   Position,
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Task } from '../types';
+
+const EDGE_COLOR = '#94a3b8';
+
+const HIDDEN_HANDLE_STYLE: React.CSSProperties = {
+  width: 1,
+  height: 1,
+  minWidth: 1,
+  minHeight: 1,
+  opacity: 0,
+  border: 0,
+  pointerEvents: 'none',
+};
+
+function TaskNode({ data }: { data: { label: React.ReactNode } }) {
+  return (
+    <>
+      <Handle id="top-target" type="target" position={Position.Top} style={HIDDEN_HANDLE_STYLE} />
+      <Handle id="bottom-target" type="target" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} />
+      <Handle id="top-source" type="source" position={Position.Top} style={HIDDEN_HANDLE_STYLE} />
+      <Handle id="bottom-source" type="source" position={Position.Bottom} style={HIDDEN_HANDLE_STYLE} />
+      {data.label}
+    </>
+  );
+}
+
+const nodeTypes = { task: TaskNode };
 
 const STATUS_COLORS: Record<string, string> = {
   pending_blocked: '#94a3b8',
@@ -17,6 +44,12 @@ const STATUS_COLORS: Record<string, string> = {
   completed: '#22c55e',
   needs_attention: '#ef4444',
   abandoned: '#64748b',
+  frozen: '#94a3b8',
+  unlocked: '#eab308',
+  waiting_review: '#3b82f6',
+  waiting_decision: '#3b82f6',
+  needs_fix: '#ef4444',
+  approved: '#22c55e',
 };
 
 const STATUS_BACKGROUNDS: Record<string, string> = {
@@ -26,6 +59,12 @@ const STATUS_BACKGROUNDS: Record<string, string> = {
   completed: '#ecfdf5',
   needs_attention: '#fef2f2',
   abandoned: '#e2e8f0',
+  frozen: '#f1f5f9',
+  unlocked: '#fef9c3',
+  waiting_review: '#eff6ff',
+  waiting_decision: '#eff6ff',
+  needs_fix: '#fef2f2',
+  approved: '#ecfdf5',
 };
 
 interface Props {
@@ -33,6 +72,7 @@ interface Props {
   selectedTaskId?: number | null;
   onSelectTask: (taskId: number) => void;
   missingPredecessorIds?: Set<number>;
+  showIssueReviewLoopEdge?: boolean;
 }
 
 function computeLayout(tasks: Task[]): Map<string, { x: number; y: number }> {
@@ -90,6 +130,11 @@ function computeLayout(tasks: Task[]): Map<string, { x: number; y: number }> {
 }
 
 function getVisualStatus(task: Task, tasks: Task[]): string {
+  const businessStatus = (task as Task & { business_status?: string | null }).business_status;
+  if (businessStatus) {
+    return businessStatus;
+  }
+
   if (task.status !== 'pending') {
     return task.status;
   }
@@ -113,7 +158,7 @@ function getVisualStatus(task: Task, tasks: Task[]): string {
   return isReady ? 'pending_ready' : 'pending_blocked';
 }
 
-export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPredecessorIds }: Props) {
+export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPredecessorIds, showIssueReviewLoopEdge }: Props) {
   const { initialNodes, initialEdges } = useMemo(() => {
     const positions = computeLayout(tasks);
 
@@ -126,6 +171,7 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
 
       return {
         id: String(task.id),
+        type: 'task',
         position: pos,
         data: {
           label: (
@@ -173,15 +219,33 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
             id: `${depTask.id}-${task.id}`,
             source: String(depTask.id),
             target: String(task.id),
-            markerEnd: { type: MarkerType.ArrowClosed },
-            style: { stroke: '#94a3b8' },
+            sourceHandle: 'bottom-source',
+            targetHandle: 'top-target',
+            markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR },
+            style: { stroke: EDGE_COLOR },
           });
         }
       });
     });
 
+    if (showIssueReviewLoopEdge) {
+      const decisionTask = tasks.find((task) => task.task_code === 'TASK-005');
+      const codingTask = tasks.find((task) => task.task_code === 'TASK-002');
+      if (decisionTask && codingTask) {
+        edges.push({
+          id: `${decisionTask.id}-${codingTask.id}-review-loop`,
+          source: String(decisionTask.id),
+          target: String(codingTask.id),
+          sourceHandle: 'top-source',
+          targetHandle: 'bottom-target',
+          markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_COLOR },
+          style: { stroke: EDGE_COLOR, strokeDasharray: '6 4' },
+        });
+      }
+    }
+
     return { initialNodes: nodes, initialEdges: edges };
-  }, [tasks, selectedTaskId, missingPredecessorIds]);
+  }, [tasks, selectedTaskId, missingPredecessorIds, showIssueReviewLoopEdge]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -195,6 +259,7 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
       <ReactFlow
         nodes={initialNodes}
         edges={initialEdges}
+        nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
         fitView
         fitViewOptions={{ padding: 0.2 }}

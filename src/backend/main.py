@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 load_dotenv()
 
-from config import settings, validate_security_config
+from config import DEFAULT_MAX_REVIEW_ROUNDS, settings, validate_security_config
 from database import engine, SessionLocal, Base
 from models import Agent, User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Project, ProjectPlan, Task, GlobalSetting, ProcessTemplate
 from auth import hash_password
@@ -29,6 +29,7 @@ from routers import codex_usage as codex_usage_router
 from services.polling_service import polling_loop
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_LOCATION_GUIDANCE_KEY
 from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
+from services.issue_review_loop import ensure_issue_review_loop_template
 
 logging.basicConfig(level=logging.DEBUG if os.getenv("HALF_DEBUG") else logging.INFO)
 logger = logging.getLogger("half")
@@ -125,6 +126,7 @@ def ensure_schema_updates():
             "polling_start_delay_minutes": "INTEGER",
             "polling_start_delay_seconds": "INTEGER",
             "task_timeout_minutes": "INTEGER",
+            "default_max_review_rounds": f"INTEGER DEFAULT {DEFAULT_MAX_REVIEW_ROUNDS}",
             "planning_mode": "TEXT DEFAULT 'balanced'",
             "template_inputs_json": "TEXT DEFAULT '{}'",
             "is_auto": "INTEGER DEFAULT 0",
@@ -415,6 +417,7 @@ def init_db():
             db.refresh(admin)
         repair_legacy_agent_owners(db, admin)
         repair_legacy_project_owners(db, admin)
+        ensure_issue_review_loop_template(db, admin)
         if settings.DEMO_SEED_ENABLED:
             if seed_demo_project(db, admin):
                 logger.info("Demo project seed loaded")

@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 
 from access import get_owned_project, load_usable_agents
 from auth import get_current_user
+from config import DEFAULT_MAX_REVIEW_ROUNDS
 from database import get_db
 from models import Agent, ProcessTemplate, ProjectPlan, User
 from routers.plans import finalize_plan_record
 from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
 from services.project_agents import agent_ids_from_assignments_json
+from services.issue_review_loop import DEFAULT_REVIEW_PROMPT, FLOW_TYPE
 
 router = APIRouter(prefix="/api/process-templates", tags=["process_templates"])
 
@@ -257,6 +259,7 @@ def validate_required_inputs(value: object | None) -> list[dict[str, object]]:
             "label": label,
             "required": required,
             "sensitive": sensitive,
+            **({"default_value": str(item.get("default_value"))} if item.get("default_value") is not None else {}),
         })
     return normalized
 
@@ -499,6 +502,25 @@ def apply_template(
     applied_data = json.loads(json.dumps(data, ensure_ascii=False))
     for task in applied_data["tasks"]:
         task["assignee"] = slot_to_slug[task["assignee"]]
+
+    if applied_data.get("flow_type") == FLOW_TYPE:
+        try:
+            template_inputs = json.loads(project.template_inputs_json or "{}")
+        except json.JSONDecodeError:
+            template_inputs = {}
+        if not isinstance(template_inputs, dict):
+            template_inputs = {}
+        template_inputs_changed = False
+        if not str(template_inputs.get("max_review_rounds") or "").strip():
+            template_inputs["max_review_rounds"] = str(
+                getattr(project, "default_max_review_rounds", None) or DEFAULT_MAX_REVIEW_ROUNDS
+            )
+            template_inputs_changed = True
+        if not str(template_inputs.get("review_prompt") or "").strip():
+            template_inputs["review_prompt"] = DEFAULT_REVIEW_PROMPT
+            template_inputs_changed = True
+        if template_inputs_changed:
+            project.template_inputs_json = json.dumps(template_inputs, ensure_ascii=False)
 
     now = datetime.now(timezone.utc)
     db.query(ProjectPlan).filter(

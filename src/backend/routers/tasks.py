@@ -21,6 +21,11 @@ from services.auto_dispatch import (
     is_auto_task,
     run_auto_task,
 )
+from services.issue_review_loop import (
+    get_effective_business_state,
+    is_business_dispatch_allowed,
+    project_uses_issue_review_loop,
+)
 
 router = APIRouter(tags=["tasks"])
 
@@ -67,6 +72,29 @@ class TaskUpdateRequest(BaseModel):
 
 class TaskDispatchRequest(BaseModel):
     ignore_missing_predecessor_outputs: bool = False
+
+
+def _load_task_project(db: Session, task: Task) -> Project:
+    project = db.query(Project).filter(Project.id == task.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+def _validate_loop_dispatch_state(db: Session, task: Task, project: Project, *, action: str) -> bool:
+    if not project_uses_issue_review_loop(db, project):
+        return False
+    if action == "dispatch" and task.status == "running":
+        raise HTTPException(status_code=400, detail=f"Cannot dispatch running task in issue review loop: {task.task_code}")
+    business_state = get_effective_business_state(db, project, task.task_code)
+    if not is_business_dispatch_allowed(business_state):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot dispatch task while issue review loop state is: {business_state or 'unknown'}",
+        )
+    if task.status == "abandoned":
+        raise HTTPException(status_code=400, detail=f"Cannot dispatch abandoned task in issue review loop: {task.task_code}")
+    return True
 
 
 # Project-scoped task list
@@ -354,7 +382,9 @@ def dispatch_task(
     user: User = Depends(get_current_user),
 ):
     task = get_owned_task(db, task_id, user)
-    if task.status not in ("pending", "needs_attention"):
+    project = _load_task_project(db, task)
+    is_loop_dispatch = _validate_loop_dispatch_state(db, task, project, action="dispatch")
+    if not is_loop_dispatch and task.status not in ("pending", "needs_attention"):
         raise HTTPException(status_code=400, detail=f"Cannot dispatch task in status: {task.status}")
 
     _validate_dispatch_predecessors(
@@ -463,20 +493,22 @@ def redispatch_task(
     user: User = Depends(get_current_user),
 ):
     task = get_owned_task(db, task_id, user)
-    if task.status not in ("needs_attention", "running", "abandoned"):
+    project = _load_task_project(db, task)
+    is_loop_dispatch = _validate_loop_dispatch_state(db, task, project, action="redispatch")
+    if not is_loop_dispatch and task.status not in ("needs_attention", "running", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot redispatch task in status: {task.status}")
 
+    auto_task = is_auto_task(db, task)
     _validate_dispatch_predecessors(
         db,
         task,
         ignore_missing_predecessor_outputs=body.ignore_missing_predecessor_outputs,
     )
-    auto_task = is_auto_task(db, task)
 
     now = datetime.now(timezone.utc)
     prev_status = task.status
     prev_error = task.last_error
-    task.status = "running"
+    task.status = "pending" if auto_task else "running"
     task.dispatch_mode = DISPATCH_MODE_AUTO if auto_task else DISPATCH_MODE_MANUAL
     task.dispatched_at = now
     task.last_error = None

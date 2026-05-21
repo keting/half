@@ -30,6 +30,7 @@ from routers.process_templates import (
     validate_template_json,
 )
 from routers.projects import ProjectUpdate, get_project, update_project
+from services.issue_review_loop import DEFAULT_REVIEW_PROMPT, FLOW_TYPE
 
 
 class ProcessTemplateTests(unittest.TestCase):
@@ -175,6 +176,19 @@ class ProcessTemplateTests(unittest.TestCase):
                     validate_required_inputs(value)
                 self.assertEqual(ctx.exception.status_code, 400)
                 self.assertIn(expected, ctx.exception.detail)
+
+    def test_validate_required_inputs_preserves_default_value(self):
+        normalized = validate_required_inputs([
+            {
+                "key": "review_prompt",
+                "label": "评审提示词",
+                "required": True,
+                "sensitive": False,
+                "default_value": "默认提示词",
+            }
+        ])
+
+        self.assertEqual(normalized[0]["default_value"], "默认提示词")
 
     def test_project_update_saves_template_inputs_as_flat_strings(self):
         response = update_project(
@@ -547,6 +561,28 @@ class ProcessTemplateTests(unittest.TestCase):
         self.assertEqual([task.assignee_agent_id for task in tasks], [10, 11])
         self.assertEqual(tasks[0].expected_output_path, "outputs/proj-20/T1/result.json")
         self.assertEqual(tasks[0].timeout_minutes, 33)
+
+    def test_apply_issue_review_template_defaults_review_prompt(self):
+        template_json = self._template_json()
+        template_json["flow_type"] = FLOW_TYPE
+        template = create_template(
+            ProcessTemplateCreate(name="", description="", template_json=template_json),
+            self.db,
+            self.user,
+        )
+
+        apply_template(
+            template.id,
+            20,
+            TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 11}),
+            self.db,
+            self.user,
+        )
+
+        project = self.db.query(Project).filter(Project.id == 20).one()
+        template_inputs = json.loads(project.template_inputs_json)
+        self.assertEqual(template_inputs["review_prompt"], DEFAULT_REVIEW_PROMPT)
+        self.assertEqual(template_inputs["max_review_rounds"], "3")
 
     def test_apply_template_accepts_project_bound_public_agent(self):
         project = self.db.query(Project).filter(Project.id == 20).one()

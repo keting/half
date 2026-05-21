@@ -9,6 +9,7 @@ import ModelBadge from '../components/ModelBadge';
 import CoLocatedFieldLabel from '../components/CoLocatedFieldLabel';
 import { deriveAgentStatus, getAgentModels, summarizeAgentCapabilities } from '../utils/agents';
 import { validateGitRepoUrl } from '../utils/gitRepoUrl';
+import { DEFAULT_MAX_REVIEW_ROUNDS } from '../constants';
 
 const UNAVAILABLE_AGENT_DETAIL = 'Some selected agents are unavailable';
 
@@ -52,6 +53,7 @@ export interface ProjectSubmitPayloadInput {
   pollingStartDelaySeconds: number | null;
   taskTimeoutMinutes: number | null;
   isAuto?: boolean;
+  defaultMaxReviewRounds: number;
 }
 
 export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
@@ -71,6 +73,7 @@ export function buildProjectSubmitPayload(input: ProjectSubmitPayloadInput) {
     polling_start_delay_seconds: input.pollingStartDelaySeconds,
     task_timeout_minutes: input.taskTimeoutMinutes,
     is_auto: Boolean(input.isAuto),
+    default_max_review_rounds: input.defaultMaxReviewRounds,
   };
 }
 
@@ -93,6 +96,7 @@ export default function ProjectNewPage() {
   const [pollingStartDelaySeconds, setPollingStartDelaySeconds] = useState<number | null>(null);
   const [taskTimeoutMinutes, setTaskTimeoutMinutes] = useState<number | null>(10);
   const [isAuto, setIsAuto] = useState(false);
+  const [defaultMaxReviewRounds, setDefaultMaxReviewRounds] = useState(DEFAULT_MAX_REVIEW_ROUNDS);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState('');
@@ -152,6 +156,7 @@ export default function ProjectNewPage() {
           setPollingStartDelaySeconds(project.polling_start_delay_seconds ?? null);
           setTaskTimeoutMinutes(project.task_timeout_minutes ?? globalPolling?.task_timeout_minutes ?? 10);
           setIsAuto(Boolean(project.is_auto));
+          setDefaultMaxReviewRounds(project.default_max_review_rounds ?? DEFAULT_MAX_REVIEW_ROUNDS);
         } else if (globalPolling) {
           setOriginalAgentIds([]);
           // Prefill from global defaults so the user starts with the
@@ -161,9 +166,11 @@ export default function ProjectNewPage() {
           setPollingStartDelayMinutes(globalPolling.polling_start_delay_minutes);
           setPollingStartDelaySeconds(globalPolling.polling_start_delay_seconds);
           setTaskTimeoutMinutes(globalPolling.task_timeout_minutes);
+          setDefaultMaxReviewRounds(DEFAULT_MAX_REVIEW_ROUNDS);
         } else {
           setOriginalAgentIds([]);
           setTaskTimeoutMinutes(10);
+          setDefaultMaxReviewRounds(DEFAULT_MAX_REVIEW_ROUNDS);
         }
       } catch (err) {
         setError(`加载失败：${err}`);
@@ -249,6 +256,9 @@ export default function ProjectNewPage() {
     if (taskTimeoutMinutes === null || taskTimeoutMinutes < 1 || taskTimeoutMinutes > 120) {
       setError('Task 超时时间必须在 1-120 分钟之间'); return;
     }
+    if (defaultMaxReviewRounds < 1 || defaultMaxReviewRounds > 20) {
+      setError('默认最大评审轮次必须在 1-20 之间'); return;
+    }
     setLoading(true);
     try {
       const payload = buildProjectSubmitPayload({
@@ -266,6 +276,7 @@ export default function ProjectNewPage() {
         pollingStartDelaySeconds,
         taskTimeoutMinutes,
         isAuto,
+        defaultMaxReviewRounds,
       });
       const project = isEditMode
         ? await api.put<Project>(`/api/projects/${id}`, payload)
@@ -427,6 +438,19 @@ export default function ProjectNewPage() {
                 onChange={(e) => setTaskTimeoutMinutes(e.target.value === '' ? null : parseInt(e.target.value))}
                 placeholder="请输入 1-120 分钟"
               />
+            </div>
+            <div className="form-group">
+              <label htmlFor="default-review-rounds">默认最大评审轮次</label>
+              <input
+                id="default-review-rounds"
+                type="number"
+                min="1"
+                max="20"
+                value={defaultMaxReviewRounds}
+                onChange={(e) => setDefaultMaxReviewRounds(parseInt(e.target.value) || DEFAULT_MAX_REVIEW_ROUNDS)}
+                placeholder={`默认 ${DEFAULT_MAX_REVIEW_ROUNDS}`}
+              />
+              <div className="helper-text">Issue 编码评审循环模板会默认使用该值。</div>
             </div>
           </div>
         </SectionCard>

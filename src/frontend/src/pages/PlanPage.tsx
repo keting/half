@@ -5,6 +5,7 @@ import { copyText } from '../contracts';
 import { Agent, Plan, ProcessTemplate, Project } from '../types';
 import { getAgentModels } from '../utils/agents';
 import { applyTemplatePlan, filterTemplateInputs, getMissingTemplateInputs } from '../utils/applyTemplatePlan';
+import { DEFAULT_MAX_REVIEW_ROUNDS } from '../constants';
 import { FlowSource, buildPlanSourcePrefKey, resolveFlowSourcePreference } from '../utils/flowSource';
 import { DEFAULT_PLANNING_MODE, PLANNING_MODE_OPTIONS, PlanningMode, getPlanningModeMeta, normalizePlanningMode } from '../utils/planningMode';
 
@@ -239,7 +240,21 @@ export default function PlanPage() {
     const template = templates.find((item) => item.id === templateId) || null;
     setSelectedTemplateId(templateId);
     setSlotAgentIds(Object.fromEntries((template?.agent_slots || []).map((slot) => [slot, null])));
-    setTemplateInputs((current) => filterTemplateInputs(template?.required_inputs || [], current));
+    setTemplateInputs((current) => {
+      const next = filterTemplateInputs(template?.required_inputs || [], current);
+      (template?.required_inputs || []).forEach((input) => {
+        if (input.default_value && !String(next[input.key] || '').trim()) {
+          next[input.key] = input.default_value;
+        }
+      });
+      if (
+        (template?.required_inputs || []).some((input) => input.key === 'max_review_rounds')
+        && !String(next.max_review_rounds || '').trim()
+      ) {
+        next.max_review_rounds = String(project?.default_max_review_rounds || DEFAULT_MAX_REVIEW_ROUNDS);
+      }
+      return next;
+    });
   }
 
   function updateSlotAgent(slot: string, agentIdValue: string) {
@@ -648,7 +663,7 @@ export default function PlanPage() {
                     <label>模版所需信息</label>
                     <div className="template-slot-map">
                       {(selectedTemplate.required_inputs || []).map((input) => {
-                        const value = templateInputs[input.key] || '';
+                        const value = templateInputs[input.key] ?? input.default_value ?? '';
                         const missing = input.required && !value.trim();
                         return (
                           <div key={input.key} className="template-slot-row">
@@ -656,13 +671,24 @@ export default function PlanPage() {
                               <label htmlFor={`template-input-${input.key}`}>
                                 {input.label}{input.required && <span className="helper-text-error"> *</span>}
                               </label>
-                              <input
-                                id={`template-input-${input.key}`}
-                                type={input.sensitive ? 'password' : 'text'}
-                                value={value}
-                                onChange={(event) => updateTemplateInput(input.key, event.target.value)}
-                                placeholder={input.label}
-                              />
+                              {input.key === 'review_prompt' ? (
+                                <textarea
+                                  id={`template-input-${input.key}`}
+                                  value={value}
+                                  onChange={(event) => updateTemplateInput(input.key, event.target.value)}
+                                  placeholder={input.label}
+                                  rows={18}
+                                  className="import-textarea"
+                                />
+                              ) : (
+                                <input
+                                  id={`template-input-${input.key}`}
+                                  type={input.sensitive ? 'password' : 'text'}
+                                  value={value}
+                                  onChange={(event) => updateTemplateInput(input.key, event.target.value)}
+                                  placeholder={input.label}
+                                />
+                              )}
                             </div>
                             <div className="template-slot-description">
                               {input.key}{input.sensitive ? ' · 敏感输入' : ''}

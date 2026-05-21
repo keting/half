@@ -22,7 +22,7 @@ export function filterTemplateInputs(
   templateInputs: Record<string, string> = {}
 ): Record<string, string> {
   return Object.fromEntries(
-    requiredInputs.map((input) => [input.key, templateInputs[input.key] ?? ''])
+    requiredInputs.map((input) => [input.key, templateInputs[input.key] ?? input.default_value ?? ''])
   );
 }
 
@@ -30,7 +30,7 @@ export function getMissingTemplateInputs(
   requiredInputs: TemplateRequiredInput[] = [],
   templateInputs: Record<string, string> = {}
 ): TemplateRequiredInput[] {
-  return requiredInputs.filter((input) => input.required && !(templateInputs[input.key] || '').trim());
+  return requiredInputs.filter((input) => input.required && !(templateInputs[input.key] ?? input.default_value ?? '').trim());
 }
 
 export async function applyTemplatePlan({

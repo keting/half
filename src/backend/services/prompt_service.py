@@ -4,6 +4,7 @@ import re
 from sqlalchemy.orm import Session
 
 from models import Agent, ProcessTemplate, Project, ProjectPlan, Task
+from services.issue_review_loop import FLOW_TYPE
 from services.project_agents import parse_agent_assignments_json
 from services.prompt_settings import normalize_plan_co_location_guidance
 
@@ -259,6 +260,91 @@ def _build_template_inputs_section(db: Session, project: Project, task: Task) ->
     return "## 模版所需信息\n" + "\n".join(lines)
 
 
+def _task_uses_issue_review_loop(db: Session, task: Task) -> bool:
+    if not getattr(task, "plan_id", None):
+        return False
+    plan = db.query(ProjectPlan).filter(ProjectPlan.id == task.plan_id).first()
+    data = _parse_json_object(getattr(plan, "plan_json", None) if plan else None)
+    return data.get("flow_type") == FLOW_TYPE
+
+
+def _issue_review_loop_task_section(project: Project, task: Task) -> str:
+    collab = (project.collaboration_dir or "").strip("/")
+    flow_state_path = f"{collab}/flow-state.json" if collab else "flow-state.json"
+    project_repo_url = _project_repo_url(project) or "未提供"
+    collaboration_repo_url = _collaboration_repo_url(project) or "未提供"
+    common = f"""## Issue 编码与双 Agent 评审循环规则
+- 本流程固定使用 `TASK-001` 到 `TASK-005` 作为角色槽位，真实轮次记录在 `{flow_state_path}` 和各 Task 的轮次目录中。
+- HALF 协作仓库地址：{collaboration_repo_url}
+- 项目代码仓库地址：{project_repo_url}
+- 协作分支固定为 `main`：所有协作产物、`flow-state.json`、`branch.json`、`review.json`、`decision.json` 都必须提交并 push 到 HALF 协作仓库的 `main` 分支。
+- 项目代码分支与协作分支必须分开处理：代码改动 push 到项目工作分支；协作产物 push 到协作仓库 `main`。即使两个仓库地址相同，也不能把协作产物提交到项目工作分支。
+- 后端和前端只按当前轮次目录派生业务状态；不要扫描历史轮次目录寻找“最新”评审。
+- 轮次目录使用 `round-XXX` 三位补零格式，例如 `round-001`。
+- 不要把密钥、令牌、私有凭据写入协作产物。"""
+
+    task_code = task.task_code
+    if task_code == "TASK-001":
+        specific = f"""## 本任务职责
+1. 从 `issue_url` 获取 issue 内容，写入 `TASK-001/issue-summary.md`。
+2. 生成实现计划，写入 `TASK-001/implementation-plan.md`。
+3. 初始化 `{flow_state_path}`，必须使用 HALF 后端可识别的顶层字段；不要写旧格式 `tasks.*.status`。
+4. `flow-state.json` 初始结构必须包含：
+```json
+{{
+  "schema_version": 1,
+  "flow_type": "{FLOW_TYPE}",
+  "current_round": 1,
+  "round_id": "round-001",
+  "phase": "coding",
+  "work_branch": null,
+  "head_commit": null,
+  "max_review_rounds": 3,
+  "task_states": {{
+    "TASK-001": "completed",
+    "TASK-002": "unlocked",
+    "TASK-003": "frozen",
+    "TASK-004": "frozen",
+    "TASK-005": "frozen"
+  }}
+}}
+```
+其中 `max_review_rounds` 必须使用模板输入 `max_review_rounds` 的数字值。
+5. 最后生成 `TASK-001/result.json` 作为计划初始化完成哨兵。"""
+    elif task_code == "TASK-002":
+        specific = f"""## 本任务职责
+1. 开始前读取 `{flow_state_path}`；只有 `TASK-002` 的业务状态为 `unlocked` 或 `needs_fix` 时才继续。
+2. 固定以项目仓库 `main` 分支作为基准分支创建或更新工作分支；工作分支名由你根据 issue 编号和时间自动生成，不要要求用户提供分支名。
+3. 若是修复轮次，只读取当前轮次两份 review，并逐条回应合理性；拒绝采纳的意见必须说明理由。
+4. 完成代码修改和必要测试后，把项目代码 commit 并 push 到项目仓库工作分支，不要把代码改动直接提交到 `main`。
+5. 代码分支 push 成功后，切换到 HALF 协作仓库 `main` 分支并拉取最新状态；如果项目代码仓库和 HALF 协作仓库是同一个仓库，也必须先切回 `main` 再写协作产物。
+6. 在协作仓库 `main` 写入 `TASK-002/rounds/round-XXX/branch.json`、实现或修复摘要、测试报告；`branch.json` 中的 `base_branch` 必须为 `main`。
+7. 在协作仓库 `main` 更新 `{flow_state_path}` 顶层字段：设置最新 `current_round`、`round_id`、`work_branch`、`head_commit`，在顶层 `task_states` 中将 `TASK-002` 置为 `waiting_review`，`TASK-003` / `TASK-004` 置为 `unlocked`，`TASK-005` 置为 `frozen`，`phase` 置为 `awaiting_review`。
+8. 将上述协作产物 commit 并 push 到 HALF 协作仓库 `origin/main`；不得把 `{flow_state_path}` 或 `TASK-002/rounds/` 只提交到项目工作分支。
+9. 不得在两个评审都同意合并前提交 PR；中间轮次不要用 `result.json` 结束整个角色槽位。"""
+    elif task_code in ("TASK-003", "TASK-004"):
+        specific = f"""## 本任务职责
+1. 开始前读取 `{flow_state_path}`；只有 `{task_code}` 的业务状态为 `unlocked` 时才继续。
+2. 读取当前轮次的 `TASK-002/rounds/round-XXX/branch.json`，并用其中 `round`、`round_id`、`work_branch`、`head_commit` 作为评审锚点。
+3. 基于用户填写的 `review_prompt` 独立评审代码正确性、测试覆盖、回归风险、可维护性和需求匹配度。
+4. 只在 HALF 协作仓库 `main` 分支写入 `{task_code}/reviews/round-XXX/review.json` 和 `{task_code}/reviews/round-XXX/review.md`，并 push 到 `origin/main`。
+5. `review.json` 必须包含布尔字段 `approve_merge`，并且 `round`、`round_id`、`work_branch`、`head_commit` 必须与当前 flow-state 一致。
+6. 评审 Agent 不得修改 `{flow_state_path}`，不得依赖另一名评审 Agent 的结论。"""
+    elif task_code == "TASK-005":
+        specific = f"""## 本任务职责
+1. 开始前读取 `{flow_state_path}` 和当前轮次两份 review；HALF 派发本任务代表后端已根据 review 文件派生 `TASK-005 = unlocked`，原始 `flow-state.json.task_states.TASK-005` 可能仍是 `frozen`，不要因此停止。
+2. 只读取当前轮次 `TASK-003/reviews/round-XXX/review.json` 和 `TASK-004/reviews/round-XXX/review.json`；任一文件缺失、非法或锚点不匹配时必须停止并说明原因。
+3. 两份 review 都必须包含布尔 `approve_merge`，并且 `round`、`round_id`、`work_branch`、`head_commit` 必须与当前 `{flow_state_path}` 一致。
+4. 在 HALF 协作仓库 `main` 分支写入 `TASK-005/decisions/round-XXX/decision.json` 和 `decision.md`。
+5. 若任一评审不同意合并，更新 `{flow_state_path}` 顶层 `task_states`：`TASK-002` 为 `needs_fix`，`TASK-003` / `TASK-004` / `TASK-005` 为 `frozen`，并更新 `phase`。
+6. 若达到 `max_review_rounds` 且仍未通过，必须写入本轮 `decision.json` / `decision.md` 人工处理报告，并将流程 `phase` 标记为 `needs_attention`；HALF 后端会据此将 `TASK-005` 派生为已完成并提示人工介入。
+7. 只有两份评审都同意合并时，先在顶层 `task_states` 把 `TASK-002` 标记为 `approved`，再以 `main` 作为目标分支提交 PR，写入 `TASK-005/pr.json` / `pr.md`，最后将流程标记为 `completed` 并生成最终 `result.json`。
+8. 将决策、PR 记录、`flow-state.json` 和最终 `result.json` commit 并 push 到 HALF 协作仓库 `origin/main`。"""
+    else:
+        specific = ""
+    return common + "\n\n" + specific
+
+
 def generate_task_prompt(
     db: Session,
     project: Project,
@@ -271,6 +357,7 @@ def generate_task_prompt(
     task_dir = f"{collab}/{task.task_code}" if collab else task.task_code
     goal_text = (project.goal or "").strip()
     template_inputs_section = _build_template_inputs_section(db, project, task)
+    issue_review_loop_task = _task_uses_issue_review_loop(db, task)
     project_repo_url = _project_repo_url(project)
     collaboration_repo_url = _collaboration_repo_url(project)
 
@@ -342,8 +429,36 @@ def generate_task_prompt(
 - 任务产出、`result.json`、`usage.json` 写入 HALF 协作仓库的协作目录；HALF 只轮询该协作仓库。""")
     if template_inputs_section:
         sections.append(template_inputs_section)
+    if issue_review_loop_task:
+        sections.append(_issue_review_loop_task_section(project, task))
+
+    sentinel_rules = """2. 本流程的中间轮次状态由 `flow-state.json`、`branch.json`、`review.json`、`decision.json` 表达；不要为了让 HALF 结束角色槽位而提前生成 `result.json`
+3. 只有 `TASK-001` 初始化完成、`TASK-005` 提交 PR 成功或流程进入终止状态时，才生成对应任务的 `result.json`
+4. 需要生成 `result.json` 时，先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
+5. `result.json` 必须是合法 JSON 对象，包含 `task_code`、`summary`、`artifacts`；`task_code` 必须为 `{task_code}`，`summary` 必须为非空字符串，`artifacts` 必须是仓库根相对路径字符串数组，不得使用绝对路径、反斜杠或 `..` 越界路径
+6. 代码修改在项目代码仓库工作分支执行 git add、git commit、git push；协作产物在 HALF 协作仓库 `main` 分支执行 git add、git commit、git push origin main。""".format(task_code=task.task_code) if issue_review_loop_task else """2. 所有产出文件写完后，最后生成 `result.json`，它是完成哨兵，不是中间过程文件
+3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
+4. `result.json` 必须是合法 JSON 对象，包含 `task_code`、`summary`、`artifacts`；`task_code` 必须为 `{task_code}`，`summary` 必须为非空字符串，`artifacts` 必须是仓库根相对路径字符串数组，不得使用绝对路径、反斜杠或 `..` 越界路径
+5. 后续任务默认从前序任务目录及其中的 `result.json` 读取成果，不要依赖旧的单文件输出路径约定
+6. {code_push_instruction}
+7. 协作产物在 HALF 协作仓库执行 git add、git commit、git push。""".format(task_code=task.task_code, code_push_instruction=code_push_instruction)
+    predecessor_check = (
+        "3. 按本流程规则读取前序任务目录、`flow-state.json` 和当前轮次产物；不要要求中间轮次一定存在前序 `result.json`。"
+        if issue_review_loop_task
+        else "3. 确认上述前序任务目录及其中的 `result.json` 已经存在；若仍缺失，请等待或与项目负责人沟通，不要凭空创作前序内容。"
+    )
+    completion_sentinel = (
+        """## 完成哨兵约束
+- 本流程的中间任务不要提前生成 `result.json`；按上方专用规则在允许的阶段生成。
+- 如果生成 `result.json` 时没有代码改动，必须在报告和 `result.json` 中明确说明 `no_code_changes: true` 以及验证依据。"""
+        if issue_review_loop_task
+        else """## 完成哨兵约束
+- 只有项目代码仓库的代码修改已经提交并 push 成功后，才允许生成 `result.json`。
+- 如果本任务没有代码改动，必须在报告和 `result.json` 中明确说明 `no_code_changes: true` 以及验证依据；不得只生成 `result.json` 冒充完成。"""
+    )
     sections.append(f"""## 执行前置步骤（必须先做）
 {pre_steps}
+{predecessor_check}
 
 ## 任务信息
 - 任务码：{task.task_code}
@@ -355,15 +470,8 @@ def generate_task_prompt(
 
 ## 输出要求
 1. 将所有协作产出文件写入 HALF 协作仓库目录：{task_dir}/
-2. 所有产出文件写完后，最后生成 `result.json`，它是完成哨兵，不是中间过程文件
-3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`
-4. `result.json` 必须是合法 JSON 对象，包含 `task_code`、`summary`、`artifacts`；`task_code` 必须为 `{task.task_code}`，`summary` 必须为非空字符串，`artifacts` 必须是仓库根相对路径字符串数组，不得使用绝对路径、反斜杠或 `..` 越界路径
-5. 后续任务默认从前序任务目录及其中的 `result.json` 读取成果，不要依赖旧的单文件输出路径约定
-6. {code_push_instruction}
-7. 协作产物在 HALF 协作仓库执行 git add、git commit、git push。
+{sentinel_rules}
 
-## 完成哨兵约束
-- 只有项目代码仓库的代码修改已经提交并 push 成功后，才允许生成 `result.json`。
-- 如果本任务没有代码改动，必须在报告和 `result.json` 中明确说明 `no_code_changes: true` 以及验证依据；不得只生成 `result.json` 冒充完成。""")
+{completion_sentinel}""")
 
     return "\n\n".join(sections)

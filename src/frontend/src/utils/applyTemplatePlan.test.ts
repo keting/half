@@ -31,6 +31,27 @@ describe('applyTemplatePlan', () => {
       .toEqual([requiredInputs[1]]);
   });
 
+  it('uses required input defaults when values were not initialized', () => {
+    const requiredInputs = [
+      { key: 'review_prompt', label: '评审提示词', required: true, sensitive: false, default_value: '内置评审提示词' },
+      { key: 'issue_url', label: 'Issue URL', required: true, sensitive: false },
+    ];
+
+    expect(filterTemplateInputs(requiredInputs, {
+      issue_url: 'https://github.com/org/repo/issues/1',
+    })).toEqual({
+      review_prompt: '内置评审提示词',
+      issue_url: 'https://github.com/org/repo/issues/1',
+    });
+    expect(getMissingTemplateInputs(requiredInputs, {
+      issue_url: 'https://github.com/org/repo/issues/1',
+    })).toEqual([]);
+    expect(getMissingTemplateInputs(requiredInputs, {
+      review_prompt: '',
+      issue_url: 'https://github.com/org/repo/issues/1',
+    })).toEqual([requiredInputs[0]]);
+  });
+
   it('rejects an empty planning brief before any request', async () => {
     const api = createApi();
 
@@ -108,6 +129,45 @@ describe('applyTemplatePlan', () => {
     });
     expect(api.post).toHaveBeenCalledWith('/api/process-templates/3/apply/12', {
       slot_agent_ids: { 'agent-1': 1, 'agent-2': 2 },
+    });
+  });
+
+  it('does not submit removed issue-review branch inputs', async () => {
+    const api = createApi();
+    const requiredInputs = [
+      { key: 'issue_url', label: 'Issue URL', required: true, sensitive: false },
+      { key: 'review_prompt', label: '评审提示词', required: true, sensitive: false },
+      { key: 'test_command', label: '测试命令', required: false, sensitive: false },
+      { key: 'max_review_rounds', label: '最大评审轮次', required: true, sensitive: false },
+    ];
+
+    await applyTemplatePlan({
+      api,
+      projectId: 8,
+      templateId: 5,
+      planningBrief: '实现 issue',
+      slotAgentIds: { 'agent-1': 1, 'agent-2': 2, 'agent-3': 3 },
+      templateMappingComplete: true,
+      requiredInputs,
+      templateInputs: {
+        issue_url: 'https://github.com/org/repo/issues/1',
+        review_prompt: '严格评审',
+        test_command: 'npm test',
+        max_review_rounds: '3',
+        base_branch: 'develop',
+        work_branch_name: 'custom-work',
+        pr_target_branch: 'release',
+      },
+    });
+
+    expect(api.put).toHaveBeenCalledWith('/api/projects/8', {
+      goal: '实现 issue',
+      template_inputs: {
+        issue_url: 'https://github.com/org/repo/issues/1',
+        review_prompt: '严格评审',
+        test_command: 'npm test',
+        max_review_rounds: '3',
+      },
     });
   });
 

@@ -1,18 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Task, Agent } from '../types';
+import { Task, Agent, FlowState } from '../types';
 import { api } from '../api/client';
 import StatusBadge from './StatusBadge';
 import { copyText } from '../contracts';
 import { formatDateTime } from '../utils/datetime';
+import { ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE, isIssueReviewLoopAttentionTask } from '../utils/issueReviewLoop';
 
 interface Props {
   task: Task;
   agents: Agent[];
   allTasks: Task[];
+  flowState?: FlowState | null;
   onRefresh: () => void;
 }
 
-export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: Props) {
+export default function TaskDetailPanel({ task, agents, allTasks, flowState, onRefresh }: Props) {
   const [loading, setLoading] = useState('');
   const [copied, setCopied] = useState(false);
   const [showDispatchReminder, setShowDispatchReminder] = useState(false);
@@ -41,8 +43,14 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
   const blockedPredecessors = predecessorTasks.filter(
     (predecessorTask) => predecessorTask.status !== 'completed' && predecessorTask.status !== 'abandoned'
   );
-  const canOperate = blockedPredecessors.length === 0;
-  const canEdit = task.status === 'pending' && canOperate;
+  const businessState = flowState?.enabled ? (flowState.effective_task_states?.[task.task_code] || 'frozen') : null;
+  const businessDispatchable = businessState === 'unlocked' || businessState === 'needs_fix';
+  const loopTaskRunning = Boolean(flowState?.enabled && task.status === 'running');
+  const canLoopRedispatch = Boolean(flowState?.enabled && businessDispatchable && task.status === 'running');
+  const canOperate = flowState?.enabled ? (businessDispatchable && !loopTaskRunning) : blockedPredecessors.length === 0;
+  const canPreparePrompt = flowState?.enabled ? (businessDispatchable || canLoopRedispatch) : blockedPredecessors.length === 0;
+  const canEdit = !flowState?.enabled && task.status === 'pending' && canOperate;
+  const showIssueReviewLoopAttention = isIssueReviewLoopAttentionTask(task, flowState);
 
   useEffect(() => {
     setDraftTaskName(task.task_name);
@@ -106,9 +114,13 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
   useEffect(() => {
     setCachedPrompt(null);
     setPromptError(null);
-    if (!canOperate) return undefined;
+    if (!canPreparePrompt) return undefined;
     if (hasDraftChanges) return undefined;
-    if (!['pending', 'needs_attention', 'running'].includes(task.status)) return undefined;
+    if (flowState?.enabled) {
+      if (!businessDispatchable) return undefined;
+    } else if (!['pending', 'needs_attention', 'running'].includes(task.status)) {
+      return undefined;
+    }
 
     let cancelled = false;
     api.post<{ prompt: string }>(
@@ -126,10 +138,11 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
     return () => {
       cancelled = true;
     };
-  }, [task.id, task.status, task.task_name, task.description, task.expected_output_path, canOperate, hasDraftChanges]);
+  }, [task.id, task.status, task.task_name, task.description, task.expected_output_path, canPreparePrompt, hasDraftChanges, flowState?.enabled, businessDispatchable]);
 
   async function performDispatch(action: 'dispatch' | 'redispatch') {
-    if (!canOperate) {
+    const actionAllowed = action === 'redispatch' && flowState?.enabled ? canLoopRedispatch : canOperate;
+    if (!actionAllowed) {
       alert(`前序任务尚未全部完成，无法派发：${blockedPredecessors.map((taskItem) => taskItem.task_code).join(', ')}`);
       return;
     }
@@ -216,6 +229,18 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
     <div className="task-detail-panel">
       <h3>{task.task_code}: {task.task_name}</h3>
       <StatusBadge status={task.status} />
+      {businessState && (
+        <div className="detail-section">
+          <label>流程业务状态</label>
+          <p><StatusBadge status={businessState} /></p>
+        </div>
+      )}
+
+      {showIssueReviewLoopAttention && (
+        <div className="helper-text helper-text-warning">
+          {ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE}
+        </div>
+      )}
 
       <div className="detail-section">
         <label>指派 Agent</label>
@@ -350,7 +375,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
       )}
 
       <div className="detail-actions">
-        {(task.status === 'pending' || task.status === 'needs_attention') && (
+        {((flowState?.enabled && businessDispatchable && task.status !== 'running') || (!flowState?.enabled && (task.status === 'pending' || task.status === 'needs_attention'))) && (
           <div className="copy-prompt-row">
             <button
               className="btn btn-primary"
@@ -373,13 +398,15 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
           </div>
         )}
 
-        {!canOperate && (task.status === 'pending' || task.status === 'needs_attention') && (
+        {!canOperate && !canLoopRedispatch && (flowState?.enabled || task.status === 'pending' || task.status === 'needs_attention') && (
           <div className="helper-text helper-text-error">
-            前序任务未全部完成，当前不能复制 Prompt 或放弃任务。
+            {flowState?.enabled
+              ? `当前流程业务状态为 ${businessState || 'unknown'}，不能复制 Prompt 或派发。`
+              : '前序任务未全部完成，当前不能复制 Prompt 或放弃任务。'}
           </div>
         )}
 
-        {(task.status === 'running' || task.status === 'needs_attention') && (
+        {((flowState?.enabled && canLoopRedispatch) || (!flowState?.enabled && (task.status === 'running' || task.status === 'needs_attention'))) && (
           <button
             className="btn btn-secondary"
             onClick={handleRedispatch}

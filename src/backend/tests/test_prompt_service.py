@@ -7,6 +7,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from models import Agent, ProcessTemplate, Project, ProjectPlan, Task
+from services.issue_review_loop import FLOW_TYPE
 from services.prompt_service import generate_plan_prompt, generate_task_prompt, resolve_selected_agent_models
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE
 
@@ -302,6 +303,106 @@ class PromptServiceTests(unittest.TestCase):
                 )
                 prompt = generate_task_prompt(FakeTemplateSession(plan, template), project, task)
                 self.assertNotIn("## 模版所需信息", prompt)
+
+    def test_issue_review_task_001_prompt_uses_backend_flow_state_contract(self):
+        project = Project(id=4, name="Loop", collaboration_dir="outputs/proj-4", template_inputs_json='{"max_review_rounds":"5"}')
+        task = Task(
+            project_id=4,
+            plan_id=21,
+            task_code="TASK-001",
+            task_name="初始化",
+            description="初始化评审循环",
+            depends_on_json="[]",
+        )
+        plan = ProjectPlan(id=21, plan_json=f'{{"flow_type":"{FLOW_TYPE}"}}')
+
+        prompt = generate_task_prompt(FakeTemplateSession(plan), project, task)
+
+        self.assertIn('"flow_type": "issue_code_review_loop"', prompt)
+        self.assertIn('"schema_version": 1', prompt)
+        self.assertIn('"round_id": "round-001"', prompt)
+        self.assertIn('"phase": "coding"', prompt)
+        self.assertIn('"task_states": {', prompt)
+        self.assertIn('"TASK-001": "completed"', prompt)
+        self.assertIn('"TASK-002": "unlocked"', prompt)
+        self.assertIn('"TASK-005": "frozen"', prompt)
+        self.assertIn("不要写旧格式 `tasks.*.status`", prompt)
+        self.assertIn("`max_review_rounds` 的数字值", prompt)
+
+    def test_issue_review_task_002_prompt_updates_top_level_task_states(self):
+        project = Project(id=4, name="Loop", collaboration_dir="outputs/proj-4")
+        task = Task(
+            project_id=4,
+            plan_id=21,
+            task_code="TASK-002",
+            task_name="编码",
+            description="编码并推送",
+            depends_on_json="[]",
+        )
+        plan = ProjectPlan(id=21, plan_json=f'{{"flow_type":"{FLOW_TYPE}"}}')
+
+        prompt = generate_task_prompt(FakeTemplateSession(plan), project, task)
+
+        self.assertIn("协作分支固定为 `main`", prompt)
+        self.assertIn("项目代码分支与协作分支必须分开处理", prompt)
+        self.assertIn("即使两个仓库地址相同，也不能把协作产物提交到项目工作分支", prompt)
+        self.assertIn("固定以项目仓库 `main` 分支作为基准分支", prompt)
+        self.assertIn("工作分支名由你根据 issue 编号和时间自动生成", prompt)
+        self.assertIn("把项目代码 commit 并 push 到项目仓库工作分支", prompt)
+        self.assertIn("切换到 HALF 协作仓库 `main` 分支", prompt)
+        self.assertIn("push 到 HALF 协作仓库 `origin/main`", prompt)
+        self.assertIn("不得把 `outputs/proj-4/flow-state.json` 或 `TASK-002/rounds/` 只提交到项目工作分支", prompt)
+        self.assertIn("`base_branch` 必须为 `main`", prompt)
+        self.assertNotIn("`base_branch` 创建或更新工作分支", prompt)
+        self.assertNotIn("`work_branch_name`", prompt)
+        self.assertIn("更新 `outputs/proj-4/flow-state.json` 顶层字段", prompt)
+        self.assertIn("在顶层 `task_states` 中将 `TASK-002` 置为 `waiting_review`", prompt)
+        self.assertIn("`TASK-003` / `TASK-004` 置为 `unlocked`", prompt)
+        self.assertIn("`phase` 置为 `awaiting_review`", prompt)
+
+    def test_issue_review_task_003_prompt_pushes_review_to_collaboration_main(self):
+        project = Project(id=4, name="Loop", collaboration_dir="outputs/proj-4")
+        task = Task(
+            project_id=4,
+            plan_id=21,
+            task_code="TASK-003",
+            task_name="评审 A",
+            description="评审",
+            depends_on_json="[]",
+        )
+        plan = ProjectPlan(id=21, plan_json=f'{{"flow_type":"{FLOW_TYPE}"}}')
+
+        prompt = generate_task_prompt(FakeTemplateSession(plan), project, task)
+
+        self.assertIn("只在 HALF 协作仓库 `main` 分支写入 `TASK-003/reviews/round-XXX/review.json`", prompt)
+        self.assertIn("push 到 `origin/main`", prompt)
+        self.assertIn("评审 Agent 不得修改 `outputs/proj-4/flow-state.json`", prompt)
+
+    def test_issue_review_task_005_prompt_updates_top_level_task_states(self):
+        project = Project(id=4, name="Loop", collaboration_dir="outputs/proj-4")
+        task = Task(
+            project_id=4,
+            plan_id=21,
+            task_code="TASK-005",
+            task_name="决策",
+            description="评审决策",
+            depends_on_json="[]",
+        )
+        plan = ProjectPlan(id=21, plan_json=f'{{"flow_type":"{FLOW_TYPE}"}}')
+
+        prompt = generate_task_prompt(FakeTemplateSession(plan), project, task)
+
+        self.assertIn("HALF 派发本任务代表后端已根据 review 文件派生 `TASK-005 = unlocked`", prompt)
+        self.assertIn("原始 `flow-state.json.task_states.TASK-005` 可能仍是 `frozen`，不要因此停止", prompt)
+        self.assertIn("两份 review 都必须包含布尔 `approve_merge`", prompt)
+        self.assertIn("`round`、`round_id`、`work_branch`、`head_commit` 必须与当前 `outputs/proj-4/flow-state.json` 一致", prompt)
+        self.assertIn("更新 `outputs/proj-4/flow-state.json` 顶层 `task_states`", prompt)
+        self.assertIn("`TASK-002` 为 `needs_fix`", prompt)
+        self.assertIn("必须写入本轮 `decision.json` / `decision.md` 人工处理报告", prompt)
+        self.assertIn("HALF 后端会据此将 `TASK-005` 派生为已完成并提示人工介入", prompt)
+        self.assertIn("在顶层 `task_states` 把 `TASK-002` 标记为 `approved`", prompt)
+        self.assertIn("以 `main` 作为目标分支提交 PR", prompt)
+        self.assertIn("将决策、PR 记录、`flow-state.json` 和最终 `result.json` commit 并 push 到 HALF 协作仓库 `origin/main`", prompt)
 
 
 if __name__ == "__main__":

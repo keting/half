@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { Task, Agent, Project } from '../types';
+import { Task, Agent, Project, FlowState } from '../types';
 import DagView from '../components/DagView';
 import TaskDetailPanel from '../components/TaskDetailPanel';
 import { getNextStepText } from '../contracts';
+import { ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE, hasIssueReviewLoopAttention } from '../utils/issueReviewLoop';
 
 export default function TasksPage() {
   const { id } = useParams<{ id: string }>();
@@ -12,6 +13,7 @@ export default function TasksPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,8 +29,12 @@ export default function TasksPage() {
       setLoading(false);
     });
     try {
-      const taskList = await api.get<Task[]>(`/api/projects/${id}/tasks`);
+      const [taskList, flowStateData] = await Promise.all([
+        api.get<Task[]>(`/api/projects/${id}/tasks`),
+        api.get<FlowState>(`/api/projects/${id}/flow-state`).catch(() => null),
+      ]);
       setTasks(taskList);
+      setFlowState(flowStateData);
     } catch {
       // ignore
     } finally {
@@ -90,11 +96,13 @@ export default function TasksPage() {
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) || null;
   const nextStepText = getNextStepText(project?.next_step);
+  const showIssueReviewLoopAttention = hasIssueReviewLoopAttention(flowState);
   const tasksWithAgentLabels = tasks.map((task) => {
     const assignee = agents.find((agent) => agent.id === task.assignee_agent_id);
     return {
       ...task,
       assignee_label: assignee ? assignee.name : null,
+      business_status: flowState?.enabled ? flowState.effective_task_states?.[task.task_code] : null,
     };
   });
 
@@ -125,6 +133,34 @@ export default function TasksPage() {
         </div>
       )}
 
+      {flowState?.enabled && (
+        <div className="next-step-banner">
+          <strong>评审循环：</strong>
+          {' '}
+          阶段 {flowState.derived_phase || flowState.phase || '-'}，
+          轮次 {flowState.current_round ?? '-'}，
+          分支 {flowState.work_branch || '-'}，
+          commit {flowState.head_commit || '-'}
+          {flowState.pr?.url && (
+            <>
+              {' '}，PR <a href={flowState.pr.url} target="_blank" rel="noreferrer">{flowState.pr.url}</a>
+            </>
+          )}
+          {flowState.reviews?.['TASK-003'] && (
+            <>，评审 A {flowState.reviews['TASK-003'].status}{typeof flowState.reviews['TASK-003'].approve_merge === 'boolean' ? ` / ${flowState.reviews['TASK-003'].approve_merge ? '同意' : '不同意'}` : ''}</>
+          )}
+          {flowState.reviews?.['TASK-004'] && (
+            <>，评审 B {flowState.reviews['TASK-004'].status}{typeof flowState.reviews['TASK-004'].approve_merge === 'boolean' ? ` / ${flowState.reviews['TASK-004'].approve_merge ? '同意' : '不同意'}` : ''}</>
+          )}
+          {flowState.errors?.length > 0 && (
+            <div className="helper-text helper-text-error">{flowState.errors.join('；')}</div>
+          )}
+          {showIssueReviewLoopAttention && (
+            <div className="helper-text helper-text-warning">{ISSUE_REVIEW_LOOP_ATTENTION_MESSAGE}</div>
+          )}
+        </div>
+      )}
+
       <div className="tasks-layout">
         <div className="tasks-dag-panel">
           <DagView
@@ -132,6 +168,7 @@ export default function TasksPage() {
             selectedTaskId={selectedTaskId}
             onSelectTask={setSelectedTaskId}
             missingPredecessorIds={new Set()}
+            showIssueReviewLoopEdge={flowState?.enabled}
           />
         </div>
         <div className="tasks-detail-panel">
@@ -140,6 +177,7 @@ export default function TasksPage() {
               task={selectedTask}
               agents={agents}
               allTasks={tasks}
+              flowState={flowState}
               onRefresh={fetchData}
             />
           ) : (

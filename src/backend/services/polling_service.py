@@ -16,8 +16,16 @@ from services.polling_config_service import (
 from services import feishu_service
 from services.feishu_service import NotificationEvent
 from validators.result_json import validate_result_json_content
+from services.issue_review_loop import (
+    get_issue_review_branch_path,
+    get_issue_review_decision_path,
+    get_issue_review_flow_state,
+    project_uses_issue_review_loop,
+)
 
 logger = logging.getLogger("half.poller")
+
+ISSUE_REVIEW_LOOP_INTERMEDIATE_TASK_CODES = {"TASK-002", "TASK-003", "TASK-004", "TASK-005"}
 
 GIT_REPO_ACCESS_ERROR_MESSAGE = (
     "无法访问 Git 仓库。请检查仓库是否存在、仓库地址是否正确，"
@@ -147,6 +155,19 @@ def _set_task_runtime_error(db: Session, task: Task, now: datetime, message: str
         ))
 
 
+def _mark_task_completed(db: Session, task: Task, now: datetime, result_path: str, detail: str) -> None:
+    task.status = "completed"
+    task.completed_at = now
+    task.result_file_path = result_path
+    task.last_error = None
+    task.updated_at = now
+    db.add(TaskEvent(
+        task_id=task.id,
+        event_type="completed",
+        detail=detail,
+    ))
+
+
 def _set_plan_runtime_error(plan: ProjectPlan, now: datetime, message: str, *, needs_attention: bool) -> None:
     plan.last_error = message
     plan.updated_at = now
@@ -250,6 +271,13 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
                 plan.last_error = f"Plan JSON not found at {source_path} after {elapsed_minutes:.1f} minutes"
                 plan.updated_at = now
 
+    issue_review_loop_enabled = project_uses_issue_review_loop(db, project)
+    issue_review_flow_state = (
+        get_issue_review_flow_state(db, project)
+        if issue_review_loop_enabled
+        else None
+    )
+
     for task in running_tasks:
         if getattr(task, "dispatch_mode", None) == "auto":
             continue
@@ -266,21 +294,98 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
         if result.found and result.validation_error:
             _set_task_runtime_error(db, task, now, result.validation_error, needs_attention=True)
         elif result.found:
-            task.status = "completed"
-            task.completed_at = now
-            task.result_file_path = result_path
-            task.last_error = None
-            task.updated_at = now
-            db.add(TaskEvent(
-                task_id=task.id,
-                event_type="completed",
-                detail=f"Result validated at {result_path}",
-            ))
+            _mark_task_completed(db, task, now, result_path, f"Result validated at {result_path}")
             pending_notifications.append(NotificationEvent(
                 event_type="completed",
                 project_name=project.name,
                 task_name=task.task_name,
             ))
+        elif issue_review_loop_enabled and task.task_code in ISSUE_REVIEW_LOOP_INTERMEDIATE_TASK_CODES:
+            task_states = (
+                issue_review_flow_state.get("task_states", {})
+                if isinstance(issue_review_flow_state, dict)
+                else {}
+            )
+            effective_task_states = (
+                issue_review_flow_state.get("effective_task_states", {})
+                if isinstance(issue_review_flow_state, dict)
+                else {}
+            )
+            reviews = (
+                issue_review_flow_state.get("reviews", {})
+                if isinstance(issue_review_flow_state, dict)
+                else {}
+            )
+            decision = (
+                issue_review_flow_state.get("decision", {})
+                if isinstance(issue_review_flow_state, dict)
+                else {}
+            )
+            flow_result_path = ""
+            if task.task_code == "TASK-002" and task_states.get("TASK-002") in ("waiting_review", "approved"):
+                current_round = (
+                    issue_review_flow_state.get("current_round")
+                    if isinstance(issue_review_flow_state, dict)
+                    else None
+                )
+                if isinstance(current_round, int):
+                    branch_path = get_issue_review_branch_path(project, current_round)
+                    if git_service.read_file(
+                        project.id,
+                        branch_path,
+                        git_repo_url=project.git_repo_url,
+                        prefer_remote=True,
+                    ) is not None:
+                        flow_result_path = branch_path
+                if not flow_result_path:
+                    base = _normalize_collab_dir(project)
+                    flow_state_path = f"{base}/flow-state.json" if base else "flow-state.json"
+                    if git_service.read_file(
+                        project.id,
+                        flow_state_path,
+                        git_repo_url=project.git_repo_url,
+                        prefer_remote=True,
+                    ) is not None:
+                        flow_result_path = flow_state_path
+            elif task.task_code in ("TASK-003", "TASK-004"):
+                review_state = reviews.get(task.task_code)
+                if isinstance(review_state, dict) and review_state.get("status") == "submitted":
+                    flow_result_path = str(review_state.get("review_path") or result_path)
+            elif task.task_code == "TASK-005":
+                current_round = (
+                    issue_review_flow_state.get("current_round")
+                    if isinstance(issue_review_flow_state, dict)
+                    else None
+                )
+                terminal_phase = (
+                    issue_review_flow_state.get("derived_phase") or issue_review_flow_state.get("phase")
+                    if isinstance(issue_review_flow_state, dict)
+                    else None
+                )
+                if (
+                    isinstance(current_round, int)
+                    and isinstance(decision, dict)
+                    and decision.get("status") == "submitted"
+                    and (
+                        terminal_phase in {"needs_fix", "approved", "completed", "needs_attention"}
+                        or effective_task_states.get("TASK-005") in {"completed", "needs_attention"}
+                    )
+                ):
+                    flow_result_path = str(decision.get("decision_path") or get_issue_review_decision_path(project, current_round))
+
+            if flow_result_path:
+                _mark_task_completed(
+                    db,
+                    task,
+                    now,
+                    flow_result_path,
+                    f"Issue review loop state advanced at {flow_result_path}",
+                )
+                pending_notifications.append(NotificationEvent(
+                    event_type="completed",
+                    project_name=project.name,
+                    task_name=task.task_name,
+                ))
         elif task.dispatched_at:
             elapsed_minutes = (now - task.dispatched_at.replace(tzinfo=timezone.utc)).total_seconds() / 60
             timeout_limit = get_effective_task_timeout_minutes(db, project, task)
