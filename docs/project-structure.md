@@ -46,7 +46,7 @@ backend/
 ├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
-├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）；Task 含 dispatch_mode 字段；AgentTypeConfig 含 sdk_type / api_base_url / api_key_encrypted 自动模式配置字段；Agent 含 is_auto 字段
+├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）；Task 含 dispatch_mode 字段；AgentTypeConfig 含 sdk_type 自动模式标识字段；Agent 含 api_base_url / api_key_encrypted 实例级 API 凭证字段；Project 含 is_auto 字段
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
 ├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
@@ -54,7 +54,7 @@ backend/
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
 │   ├── codex_usage.py             # /api/codex-usage/*（Codex OAuth 登录、状态与额度刷新）
-│   ├── agent_settings.py          # /api/agent-settings/*（仅管理员）；管理 AgentTypeConfig 含自动模式 API 凭证（sdk_type / api_base_url / api_key）
+│   ├── agent_settings.py          # /api/agent-settings/*（仅管理员）；管理 AgentTypeConfig 的 sdk_type（自动模式标识）；Agent 实例的 api_base_url / api_key 通过 agents.py 管理
 │   ├── projects.py                # /api/projects CRUD
 │   ├── plans.py                   # /api/projects/:id/plans/*
 │   ├── tasks.py                   # /api/tasks/*（无 prefix；在 main 里 include）
@@ -127,7 +127,8 @@ FastAPI 应用也在这里实例化，并挂载 auth、agents、projects、plans
 | 任务超时判定 | `services/polling_service.py::get_effective_task_timeout_minutes` |
 | 自动派发调度 | `services/auto_dispatch.py::dispatch_auto_tasks / run_auto_task` |
 | Agent API 调用（Claude） | `services/agent_runner/claude_runner.py` |
-| Agent 类型 API 凭证管理 | `routers/agent_settings.py` + `AgentTypeConfig` 模型 |
+| Agent 类型自动模式标识（sdk_type）管理 | `routers/agent_settings.py` + `AgentTypeConfig` 模型 |
+| Agent 实例 API 凭证（api_base_url / api_key）管理 | `routers/agents.py` + `Agent` 模型 |
 | Owner 级隔离 | `access.py` |
 | 登录限流 | `middleware/rate_limit.py` |
 | Git URL 白名单 | `validators/git_url.py` |

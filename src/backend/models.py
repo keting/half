@@ -166,7 +166,7 @@ class AgentTypeConfig(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(Text, unique=True, nullable=False)
     description = Column(Text, nullable=True)
-    # sdk_type: "copilot" | "claude" — which SDK runner to use (auto mode only)
+    # sdk_type: "claude" — which SDK runner to use (auto mode only)
     sdk_type = Column(Text, nullable=True)
     display_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=utcnow)

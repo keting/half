@@ -690,7 +690,7 @@ def create_task_workspace(project_id: int, task_id: int) -> TaskWorkspace:
 
     os.makedirs(task_ws, exist_ok=True)
     branch = f"task-{task_id}"
-    _run_git(base_repo, ["worktree", "add", code_wt, "-b", branch])
+    _run_git(base_repo, ["worktree", "add", "-b", branch, code_wt])
     logger.info("Created worktree for task %s at %s (branch=%s)", task_id, code_wt, branch)
 
     default_branch = _get_default_branch(base_repo)

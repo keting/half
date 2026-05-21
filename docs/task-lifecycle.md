@@ -144,7 +144,7 @@ Prompt 模板的具体填充逻辑在 `services/prompt_service.py::generate_task
 
 ### 3.6 自动派发执行流程（Auto-Dispatch）
 
-当项目使用的 Agent 类型配置了 `sdk_type` + `api_base_url` + `api_key`，且 Agent 设置了 `is_auto = true` 时，任务由系统自动触发执行：
+当项目的 `is_auto = true`，且所使用的 Agent 类型配置了 `sdk_type`，同时对应 Agent 实例配置了 `api_base_url` + `api_key` 时，任务由系统自动触发执行：
 
 1. **触发时机**：计划 finalize（`POST /api/projects/:id/plans/finalize`）或任务完成/放弃（`POST /api/tasks/:taskId/mark-complete`、`abandon`）后，后端调用 `dispatch_auto_tasks(background_tasks, db, project_id=...)`。
 2. **就绪判断**：`get_ready_auto_tasks` 查询 `pending` 状态且所有前序任务均为 `completed`/`abandoned` 的自动 Agent 任务。若 Agent 缺少 API 凭证，对应任务进入 `needs_attention`（写 `last_error`）而不放入待执行列表。

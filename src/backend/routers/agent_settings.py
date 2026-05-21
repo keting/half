@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent
+from models import AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Agent, Task, TaskEvent
 from auth import require_admin, User
 
 router = APIRouter(prefix="/api/agent-settings", tags=["agent-settings"])
@@ -122,20 +122,6 @@ def _normalize_sdk_type(value: str | None) -> str | None:
     return sdk_type
 
 
-def _apply_sdk_config(
-    agent_type: AgentTypeConfig,
-    *,
-    sdk_type: str | None,
-) -> None:
-    """Apply sdk_type to an AgentTypeConfig.
-
-    Credentials are stored at the agent instance level, not the type level.
-    When sdk_type is None the agent type is cleared to unconfigured.
-    """
-    normalized_sdk_type = _normalize_sdk_type(sdk_type)
-    agent_type.sdk_type = normalized_sdk_type
-
-
 # --- Agent Type Endpoints ---
 
 @router.get("/types", response_model=list[AgentTypeOut])
@@ -180,10 +166,7 @@ def create_agent_type(body: AgentTypeCreate, db: Session = Depends(get_db), _use
     if existing:
         raise HTTPException(status_code=400, detail="该 Agent 类型已存在")
     agent_type = AgentTypeConfig(name=name, description=body.description)
-    _apply_sdk_config(
-        agent_type,
-        sdk_type=body.sdk_type,
-    )
+    agent_type.sdk_type = _normalize_sdk_type(body.sdk_type)
     db.add(agent_type)
     db.commit()
     db.refresh(agent_type)
@@ -212,13 +195,9 @@ def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends
     if body.description is not None:
         agent_type.description = body.description.strip() or None
 
-    if body.sdk_type is not None:
-        _apply_sdk_config(
-            agent_type,
-            sdk_type=body.sdk_type,
-        )
+    if "sdk_type" in body.model_fields_set:
+        agent_type.sdk_type = _normalize_sdk_type(body.sdk_type)
 
-    agent_type.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(agent_type)
     return _build_agent_type_response(db, agent_type)

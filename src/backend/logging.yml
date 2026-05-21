@@ -37,10 +37,10 @@ handlers:
     filename: ../../logs/app.log
     encoding: utf-8
 
-  half_file:
+  runner_file:
     class: logging.FileHandler
     formatter: app
-    filename: ../../logs/half.log
+    filename: ../../logs/cc_runner.log
     encoding: utf-8
 
 root:
@@ -61,8 +61,8 @@ loggers:
     level: INFO
     propagate: false
 
-  half:
-    handlers: [half_file]
+  services.agent_runner:
+    handlers: [runner_file]
     level: DEBUG
     propagate: true
 
