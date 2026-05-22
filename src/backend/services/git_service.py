@@ -18,7 +18,6 @@ from urllib.parse import urlparse
 _ENSURE_REPO_TTL_SECONDS = 3.0
 _ensure_repo_last_run: dict[int, float] = {}
 _ensure_repo_locks: dict[int, threading.Lock] = {}
-_ensure_code_repo_last_run: dict[int, float] = {}
 _ensure_code_repo_locks: dict[int, threading.Lock] = {}
 
 import logging
