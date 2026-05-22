@@ -19,7 +19,6 @@ from services.auto_dispatch import (
     DISPATCH_MODE_MANUAL,
     dispatch_auto_tasks,
     is_auto_task,
-    run_auto_task,
 )
 from services.issue_review_loop import (
     get_effective_business_state,
@@ -534,6 +533,6 @@ def redispatch_task(
     db.refresh(task)
 
     if auto_task:
-        background_tasks.add_task(run_auto_task, task.id)
+        dispatch_auto_tasks(background_tasks, db, task_ids=[task.id])
 
     return task
