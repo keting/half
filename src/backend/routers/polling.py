@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from access import get_owned_project
 from database import get_db
-from models import Project, Task, TaskEvent, User
+from models import Task, TaskEvent, User
 from auth import get_current_user
 from services import feishu_service
-from services.polling_service import poll_project, _poll_project_in_worker
+from services.polling_service import poll_project
 from services.polling_config_service import get_project_polling_settings
 from schemas import utc_isoformat
 
@@ -37,15 +37,7 @@ async def manual_poll(project_id: int, db: Session = Depends(get_db), user: User
     if not project.git_repo_url:
         raise HTTPException(status_code=400, detail="Project has no git repo URL")
     notifications = poll_project(db, project)
-    # Run poll in a thread pool worker (which opens its own DB session) so that
-    # blocking git operations and threading.Lock acquisition in ensure_repo_sync
-    # never block the event loop thread.
-    # loop = asyncio.get_running_loop()
-    # notifications = await loop.run_in_executor(None, _poll_project_in_worker, project_id)
     await feishu_service.dispatch_notifications(db, project.created_by, notifications)
-    # Re-fetch project so the returned status reflects what the worker wrote.
-    # db.expire_all()
-    # project = get_owned_project(db, project_id, user)
     return {
         "message": "Poll completed",
         "project_status": project.status,
