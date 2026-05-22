@@ -110,7 +110,7 @@
 - 跨任务的会话上下文维护（多轮对话）
 - API 调用失败后的自动重试机制
 - 用量统计和费用追踪（可作为后续功能扩展）
-- 对现有 `claude_runner.py` / `copilot_runner.py`（SDK 模式）的整合，本次仅引入 REST API 模式
+- 对现有 `copilot_runner.py` 等其他 SDK 模式 runner 的整合，本次仅通过 Claude Agent SDK 触发执行
 
 ---
 
