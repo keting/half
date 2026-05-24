@@ -987,5 +987,221 @@ class TestAgentTypeSdkTypeManualProjectGuard(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
 
 
+# ---------------------------------------------------------------------------
+# Regression: unready downstream task with missing creds must NOT be failed
+# ---------------------------------------------------------------------------
+
+class TestUnreadyTaskWithMissingCredsNotFailed(unittest.TestCase):
+    """Regression: T2 depends on T1 (not complete) and has missing API creds.
+
+    Before the fix, get_ready_auto_tasks() checked credentials *before*
+    is_task_ready(), so T2 would be prematurely marked 'needs_attention'
+    even though it wasn't scheduled to run yet.  After the fix, T2 must
+    stay 'pending' until T1 is done.
+    """
+
+    def setUp(self):
+        engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        )
+        Base.metadata.create_all(bind=engine)
+        self.db = sessionmaker(bind=engine)()
+        user = User(id=1, username="owner", password_hash=hash_password("Owner123"))
+        project = Project(
+            id=1, name="P",
+            git_repo_url="https://github.com/x/y",
+            collaboration_dir="o/1",
+            status="executing",
+            is_auto=True,
+            created_by=1,
+        )
+        plan = ProjectPlan(id=1, project_id=1, status="final")
+
+        # T1's agent: valid credentials
+        self.good_type = AgentTypeConfig(id=1, name="good-type", sdk_type="claude")
+        self.good_agent = Agent(
+            id=1, name="GoodAgent", slug="good-1", agent_type="good-type", created_by=1,
+            api_base_url="https://api.example.com/v1",
+            api_key_encrypted=encrypt_api_key("real-key"),
+        )
+        # T2's agent: missing credentials (no api_base_url, no api_key_encrypted)
+        self.bad_type = AgentTypeConfig(id=2, name="bad-type", sdk_type="claude")
+        self.bad_agent = Agent(
+            id=2, name="BadAgent", slug="bad-1", agent_type="bad-type", created_by=1,
+        )
+
+        self.db.add_all([
+            user, project, plan,
+            self.good_type, self.good_agent,
+            self.bad_type, self.bad_agent,
+        ])
+        self.db.commit()
+        self.addCleanup(self.db.close)
+        self._seq = 1
+
+    def _task(self, code: str, agent_id: int, depends_on: list | None = None) -> Task:
+        t = Task(
+            id=self._seq,
+            project_id=1, plan_id=1,
+            task_code=code, task_name=code,
+            status="pending",
+            assignee_agent_id=agent_id,
+            depends_on_json=json.dumps(depends_on or []),
+            expected_output_path=f"o/1/{code}/result.json",
+        )
+        self._seq += 1
+        self.db.add(t)
+        self.db.commit()
+        return t
+
+    def test_unready_downstream_with_missing_creds_stays_pending(self):
+        """T2 (depends on unfinished T1, bad creds) must remain 'pending' after dispatch scan."""
+        t1 = self._task("T1", self.good_agent.id)          # no deps, good creds
+        t2 = self._task("T2", self.bad_agent.id, depends_on=["T1"])  # blocked, bad creds
+
+        ready = get_ready_auto_tasks(self.db, project_id=1)
+
+        # T1 is ready (no deps, good creds)
+        self.assertIn(t1.id, ready)
+        # T2 is NOT ready (T1 still pending)
+        self.assertNotIn(t2.id, ready)
+        # Crucially, T2 must NOT have been prematurely failed
+        self.db.refresh(t2)
+        self.assertEqual(t2.status, "pending",
+                         "Unready downstream task must not be marked needs_attention prematurely")
+        self.assertIsNone(t2.last_error)
+
+    def test_ready_downstream_with_missing_creds_gets_needs_attention(self):
+        """Once T1 is complete, T2 (ready but bad creds) should become needs_attention."""
+        t1 = self._task("T1", self.good_agent.id)
+        t1.status = "completed"
+        self.db.add(t1)
+        self.db.commit()
+
+        t2 = self._task("T2", self.bad_agent.id, depends_on=["T1"])
+
+        ready = get_ready_auto_tasks(self.db, project_id=1)
+
+        self.assertNotIn(t2.id, ready)
+        self.db.refresh(t2)
+        self.assertEqual(t2.status, "needs_attention",
+                         "Ready task with missing creds should still become needs_attention")
+        self.assertIsNotNone(t2.last_error)
+
+
+# ---------------------------------------------------------------------------
+# Regression: auto-dispatch must honour the issue review loop business state
+# ---------------------------------------------------------------------------
+
+class TestAutoDispatchBusinessStateGate(unittest.TestCase):
+    """Auto-dispatch must not run tasks whose business state is 'frozen'.
+
+    The issue-review-loop template only unlocks tasks at specific phases
+    (e.g. TASK-003/004 only after TASK-002 publishes its work branch).
+    Auto-dispatch must respect the same gate as manual dispatch.
+    """
+
+    _VALID_KEY = "super-secret-key"
+
+    def setUp(self):
+        engine = create_engine(
+            "sqlite:///:memory:", connect_args={"check_same_thread": False}
+        )
+        Base.metadata.create_all(bind=engine)
+        self.db = sessionmaker(bind=engine)()
+
+        user = User(id=1, username="owner", password_hash=hash_password("Owner123"))
+        project = Project(
+            id=1, name="AutoLoop",
+            git_repo_url="https://github.com/x/y",
+            collaboration_dir="o/1",
+            status="executing",
+            is_auto=True,
+            created_by=1,
+        )
+        # A selected plan whose flow_type marks this as an issue_review_loop project
+        from services.issue_review_loop import FLOW_TYPE
+        plan = ProjectPlan(
+            id=1, project_id=1,
+            plan_type="final", status="final", is_selected=True,
+            plan_json=json.dumps({"flow_type": FLOW_TYPE, "tasks": []}),
+        )
+        auto_type = AgentTypeConfig(id=1, name="gpt-auto", sdk_type="claude")
+        auto_agent = Agent(
+            id=1, name="Auto", slug="auto-1", agent_type="gpt-auto", created_by=1,
+            api_base_url="https://api.example.com/v1",
+            api_key_encrypted=encrypt_api_key(self._VALID_KEY),
+        )
+        self.db.add_all([user, project, plan, auto_type, auto_agent])
+        self.db.commit()
+        self.addCleanup(self.db.close)
+        self._seq = 1
+
+    def _task(self, code: str, depends_on: list | None = None) -> Task:
+        t = Task(
+            id=self._seq,
+            project_id=1, plan_id=1,
+            task_code=code, task_name=code,
+            status="pending",
+            assignee_agent_id=1,
+            depends_on_json=json.dumps(depends_on or []),
+            expected_output_path=f"o/1/{code}/result.json",
+        )
+        self._seq += 1
+        self.db.add(t)
+        self.db.commit()
+        return t
+
+    def test_frozen_task_not_dispatched(self):
+        """A DAG-ready task whose business state is 'frozen' must not enter the ready list."""
+        t = self._task("TASK-003")
+        with patch("services.auto_dispatch.project_uses_issue_review_loop", return_value=True), \
+             patch("services.auto_dispatch.get_effective_business_state", return_value="frozen"):
+            ready = get_ready_auto_tasks(self.db, project_id=1)
+        self.assertNotIn(t.id, ready)
+        # Must remain pending — frozen is a normal transient state, not an error
+        self.db.refresh(t)
+        self.assertEqual(t.status, "pending")
+        self.assertIsNone(t.last_error)
+
+    def test_unlocked_task_is_dispatched(self):
+        """A DAG-ready task whose business state is 'unlocked' must appear in the ready list."""
+        t = self._task("TASK-003")
+        with patch("services.auto_dispatch.project_uses_issue_review_loop", return_value=True), \
+             patch("services.auto_dispatch.get_effective_business_state", return_value="unlocked"):
+            ready = get_ready_auto_tasks(self.db, project_id=1)
+        self.assertIn(t.id, ready)
+
+    def test_needs_fix_task_is_dispatched(self):
+        """'needs_fix' is the other dispatchable state (reviewer requested changes)."""
+        t = self._task("TASK-002")
+        with patch("services.auto_dispatch.project_uses_issue_review_loop", return_value=True), \
+             patch("services.auto_dispatch.get_effective_business_state", return_value="needs_fix"):
+            ready = get_ready_auto_tasks(self.db, project_id=1)
+        self.assertIn(t.id, ready)
+
+    def test_non_loop_project_unaffected(self):
+        """Projects not using the issue review loop are not subject to the business state gate."""
+        t = self._task("TASK-001")
+        with patch("services.auto_dispatch.project_uses_issue_review_loop", return_value=False):
+            ready = get_ready_auto_tasks(self.db, project_id=1)
+        self.assertIn(t.id, ready)
+
+    def test_multiple_tasks_only_unlocked_returned(self):
+        """Mixed states: only the unlocked task enters the ready list."""
+        t_frozen = self._task("TASK-003")
+        t_unlocked = self._task("TASK-004")
+
+        def _biz_state(_db, _project, task_code):
+            return "unlocked" if task_code == "TASK-004" else "frozen"
+
+        with patch("services.auto_dispatch.project_uses_issue_review_loop", return_value=True), \
+             patch("services.auto_dispatch.get_effective_business_state", side_effect=_biz_state):
+            ready = get_ready_auto_tasks(self.db, project_id=1)
+
+        self.assertNotIn(t_frozen.id, ready)
+        self.assertIn(t_unlocked.id, ready)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,11 @@ from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import Agent, AgentTypeConfig, Project, Task, TaskEvent
 from services.agent_runner.registry import run_task_for_agent
+from services.issue_review_loop import (
+    get_effective_business_state,
+    is_business_dispatch_allowed,
+    project_uses_issue_review_loop,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +100,21 @@ def get_ready_auto_tasks(
 
     tasks = query.all()
 
+    # Bulk-fetch projects and pre-compute whether each uses the issue review
+    # loop template — one query for all project IDs, then one plan query per
+    # project (inside project_uses_issue_review_loop).  Repeated calls for
+    # the same project_id are de-duplicated by the dict.
+    project_ids = {t.project_id for t in tasks}
+    projects_by_id: dict[int, Project] = {
+        p.id: p
+        for p in db.query(Project).filter(Project.id.in_(project_ids)).all()
+    }
+    uses_loop_by_project_id: dict[int, bool] = {
+        pid: project_uses_issue_review_loop(db, projects_by_id[pid])
+        for pid in project_ids
+        if pid in projects_by_id
+    }
+
     # Bulk-fetch agents and their type configs to avoid N+1 queries
     agent_ids = {t.assignee_agent_id for t in tasks if t.assignee_agent_id}
     agents_by_id: dict[int, Agent] = {}
@@ -123,6 +143,21 @@ def get_ready_auto_tasks(
         agent_type = agent_types_by_name.get(agent.agent_type) if agent and agent.agent_type else None
         if not is_auto_agent_type(agent_type):
             continue
+        # Check DAG readiness first: only tasks whose predecessors are all
+        # done should be considered for credential validation or dispatch.
+        # A not-yet-ready task must never be prematurely failed even if its
+        # agent has missing credentials.
+        if not is_task_ready(db, task):
+            continue
+        # Business state gate: tasks in an issue-review-loop project must only
+        # run when the loop has explicitly unlocked them (state "unlocked" or
+        # "needs_fix").  Frozen tasks are silently skipped — they will be
+        # re-checked on the next dispatch cycle once the loop advances.
+        if uses_loop_by_project_id.get(task.project_id):
+            project = projects_by_id[task.project_id]
+            biz_state = get_effective_business_state(db, project, task.task_code)
+            if not is_business_dispatch_allowed(biz_state):
+                continue
         if not agent.api_base_url or not agent.api_key_encrypted or not agent_type.sdk_type:
             task.status = "needs_attention"
             task.last_error = "Auto-dispatch agent is missing API credentials"
@@ -138,8 +173,7 @@ def get_ready_auto_tasks(
             ))
             needs_attention_found = True
             continue
-        if is_task_ready(db, task):
-            ready.append(task.id)
+        ready.append(task.id)
 
     if needs_attention_found:
         db.commit()

@@ -689,7 +689,9 @@ def create_task_workspace(project_id: int, task_id: int) -> TaskWorkspace:
 
     os.makedirs(task_ws, exist_ok=True)
     branch = f"task-{task_id}"
-    _run_git(base_repo, ["worktree", "add", "-b", branch, code_wt])
+    # Use -B (force-reset) so that a stale branch from a previous failed run
+    # does not block re-dispatch of the same task.
+    _run_git(base_repo, ["worktree", "add", "-B", branch, code_wt])
     logger.info("Created worktree for task %s at %s (branch=%s)", task_id, code_wt, branch)
 
     default_branch = _get_default_branch(base_repo)
@@ -722,6 +724,15 @@ def delete_task_workspace(project_id: int, task_id: int) -> None:
         _run_git(base_repo, ["worktree", "prune"])
     except Exception:
         pass
+
+    # Delete the task branch so that a subsequent re-dispatch can recreate it
+    # without hitting "branch already exists" errors.
+    branch = f"task-{task_id}"
+    try:
+        _run_git(base_repo, ["branch", "-D", branch])
+        logger.info("Deleted branch %s for task %s", branch, task_id)
+    except Exception:
+        logger.debug("Branch %s not found or could not be deleted (may already be gone)", branch)
 
     try:
         shutil.rmtree(task_ws, ignore_errors=True)
