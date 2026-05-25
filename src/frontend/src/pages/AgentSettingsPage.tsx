@@ -180,7 +180,7 @@ export default function AgentSettingsPage() {
   }
 
   async function handleClearSdkConfig(typeId: number, typeName: string) {
-    if (!confirm(`切换后 "${typeName}" 将变为手动模式，确认继续？`)) return;
+    if (!confirm(`切换后 "${typeName}" 将变为手动模式，且该类型下所有 Agent 的 API 凭证将被清除，确认继续？`)) return;
     setError('');
     try {
       await api.put(`/api/agent-settings/types/${typeId}`, { sdk_type: null });

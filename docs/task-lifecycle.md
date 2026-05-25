@@ -151,7 +151,7 @@ Prompt 模板的具体填充逻辑在 `services/prompt_service.py::generate_task
 3. **执行**：`run_auto_task(task_id)` 在 FastAPI `BackgroundTasks` 中以 `asyncio.gather` 并发运行所有就绪任务。每个任务：
    - 在正式调用 Agent API 前将任务状态更新为 `running`（`dispatch_mode=auto`）并提交到 DB
    - 创建 per-task git worktree（基于 `{project_id}/code/` 仓库）供 Agent 使用
-   - 通过 `agent_runner/claude_runner.py` 调用 Anthropic Messages API
+   - 通过 `agent_runner/claude_runner.py` 调用 Claude Agent SDK (ClaudeSDKClient)
    - 执行成功 → 任务 `completed`；失败 → 任务 `needs_attention` + 写 `last_error`
    - 完成后删除 worktree，再次调用 `get_ready_auto_tasks` 触发下游任务（DAG 链式推进）
 4. **与轮询的关系**：自动模式任务的状态由 Agent Runner 直接管理，**不依赖 `polling_service`**；`polling_service` 仍对手动模式任务做 `result.json` 检测，但会跳过 `dispatch_mode=auto` 的 `running` 任务的 timeout 判定。

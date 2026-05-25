@@ -218,6 +218,12 @@ def update_agent_type(type_id: int, body: AgentTypeUpdate, db: Session = Depends
                         status_code=400,
                         detail="该 Agent 类型已有手动项目的活跃任务引用，设置 sdk_type 将影响现有任务行为",
                     )
+        # Switching from auto → manual: clear all agent credentials for this type
+        if new_sdk_type is None and agent_type.sdk_type is not None:
+            db.query(Agent).filter(Agent.agent_type == agent_type.name).update(
+                {"api_key_encrypted": None, "api_base_url": None},
+                synchronize_session="fetch",
+            )
         agent_type.sdk_type = new_sdk_type
 
     db.commit()

@@ -38,7 +38,7 @@ def _mark_task_error(db, task: Task, message: str) -> None:
     task.status = "needs_attention"
     task.last_error = message
     task.updated_at = now
-    db.add(TaskEvent(task_id=task.id, event_type="error", detail=message))
+    db.add(TaskEvent(task_id=task.id, event_type="auto_dispatch_failed", detail=message))
     db.commit()
 
 
@@ -57,10 +57,15 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
     try:
         task = db.query(Task).filter(Task.id == task_id).first()
         project = db.query(Project).filter(Project.id == project_id).first()
-        if not task or not project:
+        if not task:
             logger.error(
-                "run_task_for_agent: task %s or project %s not found", task_id, project_id
+                "run_task_for_agent: task %s not found", task_id
             )
+            return
+        if not project:
+            msg = f"run_task_for_agent: project {project_id} not found for task {task_id}"
+            logger.error(msg)
+            _mark_task_error(db, task, msg)
             return
 
         agent = (
@@ -69,9 +74,9 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
             else None
         )
         if not agent:
-            logger.error(
-                "run_task_for_agent: agent not found for task %s", task_id
-            )
+            msg = f"run_task_for_agent: agent not found for task {task_id}"
+            logger.error(msg)
+            _mark_task_error(db, task, msg)
             return
 
         # Look up sdk_type from AgentTypeConfig (type-level, not per-instance)
@@ -79,9 +84,9 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
         effective_sdk_type = (agent_type_config.sdk_type or "").strip() if agent_type_config else ""
 
         if not effective_sdk_type:
-            logger.error(
-                "run_task_for_agent: sdk_type not configured for agent %s in task %s", agent.id, task_id
-            )
+            msg = f"run_task_for_agent: sdk_type not configured for agent {agent.id} in task {task_id}"
+            logger.error(msg)
+            _mark_task_error(db, task, msg)
             return
 
         model_name = (agent.model_name or "").strip()

@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import Agent, AgentTypeConfig, Project, Task, TaskEvent
+from services import git_service
 from services.agent_runner.registry import run_task_for_agent
 from services.issue_review_loop import (
     get_effective_business_state,
     is_business_dispatch_allowed,
     project_uses_issue_review_loop,
 )
+from services.polling_service import detect_task_result
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +292,25 @@ async def run_auto_task(task_id: int) -> None:
         db.expire_all()
         task = db.query(Task).filter(Task.id == task_id).first()
         if task and task.status == "running":
-            _mark_task_completed(db, task, agent_type)
+            # Sync collaboration repo before checking result.json
+            sync_status = git_service.ensure_repo_sync(project_id, project.git_repo_url)
+            if sync_status.error:
+                error_msg = f"Git sync failed after agent execution: {sync_status.error}"
+                logger.error("Task %s: %s", task.task_code, error_msg)
+                _mark_task_error(db, task, error_msg, agent_type)
+            else:
+                # Validate result.json sentinel — reuse polling_service contract logic
+                detection = detect_task_result(project, task)
+                if not detection.found:
+                    error_msg = f"result.json not found at {detection.path} after agent execution"
+                    logger.error("Task %s: %s", task.task_code, error_msg)
+                    _mark_task_error(db, task, error_msg, agent_type)
+                elif detection.validation_error:
+                    error_msg = detection.validation_error
+                    logger.error("Task %s: %s", task.task_code, error_msg)
+                    _mark_task_error(db, task, error_msg, agent_type)
+                else:
+                    _mark_task_completed(db, task, agent_type)
         if project_id is not None:
             next_ids = get_ready_auto_tasks(db, project_id=project_id)
             _complete_project_if_done(db, project_id)

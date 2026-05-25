@@ -76,7 +76,7 @@ backend/
 │   ├── usage_limits.py            # 用量相关辅助
 │   └── agent_runner/              # Agent SDK 调用层（自动模式）
 │       ├── base.py                # AgentRunner 抽象基类
-│       ├── claude_runner.py       # ClaudeRunner：调用 Anthropic Messages API
+│       ├── claude_runner.py       # ClaudeRunner：调用 Claude Agent SDK (ClaudeSDKClient)
 │       └── registry.py            # 按 sdk_type 返回对应 Runner 实例；目前支持 claude
 ├── middleware/
 │   └── rate_limit.py              # 登录限流（5 次失败锁 15 分钟）

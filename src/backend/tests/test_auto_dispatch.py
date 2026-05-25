@@ -19,7 +19,7 @@ import sys
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -56,6 +56,8 @@ from services.auto_dispatch import (
     is_task_ready,
     run_auto_task,
 )
+from services.git_service import RepoSyncStatus
+from services.polling_service import TaskResultDetection
 
 
 # ---------------------------------------------------------------------------
@@ -346,20 +348,81 @@ class TestRunAutoTask(unittest.TestCase):
             db.commit()
             return t.id
 
-    def test_successful_run_marks_task_completed(self):
-        """AC-1: pending → running → completed on successful runner invocation."""
+    def test_successful_run_without_result_json_does_not_complete(self):
+        """AC-1 (sentinel): runner returns but no result.json → task must NOT be completed."""
         task_id = self._add_task("T1")
-        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock):
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        _no_result = TaskResultDetection(found=False, path="o/1/T1/result.json")
+        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", return_value=_no_result):
+            asyncio.run(run_auto_task(task_id))
+        with self.SessionLocal() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            self.assertEqual(task.status, "needs_attention")
+            self.assertIsNone(task.completed_at)
+            self.assertIn("result.json not found", task.last_error)
+
+    def test_downstream_not_dispatched_when_result_json_missing(self):
+        """AC-1 (sentinel): no result.json → downstream task must NOT be dispatched."""
+        t1_id = self._add_task("T1")
+        t2_id = self._add_task("T2", depends_on=["T1"])
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        _no_result = TaskResultDetection(found=False, path="o/1/T1/result.json")
+        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", return_value=_no_result):
+            asyncio.run(run_auto_task(t1_id))
+        with self.SessionLocal() as db:
+            t2 = db.query(Task).filter(Task.id == t2_id).first()
+            self.assertEqual(t2.status, "pending", "T2 must remain pending when T1 has no result.json")
+
+    def test_successful_run_with_result_json_marks_task_completed(self):
+        """AC-1 (sentinel): runner returns + valid result.json → task completed."""
+        task_id = self._add_task("T1")
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        _found = TaskResultDetection(found=True, path="o/1/T1/result.json")
+        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", return_value=_found):
             asyncio.run(run_auto_task(task_id))
         with self.SessionLocal() as db:
             task = db.query(Task).filter(Task.id == task_id).first()
             self.assertEqual(task.status, "completed")
             self.assertIsNotNone(task.completed_at)
 
+    def test_downstream_dispatched_when_result_json_present(self):
+        """AC-1 (sentinel): valid result.json present → downstream task is dispatched."""
+        t1_id = self._add_task("T1")
+        t2_id = self._add_task("T2", depends_on=["T1"])
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        call_order: list[int] = []
+
+        async def _mock_runner(task_id: int, project_id: int) -> None:
+            call_order.append(task_id)
+
+        def _mock_detect(project, task):
+            return TaskResultDetection(found=True, path=f"o/1/{task.task_code}/result.json")
+
+        with patch("services.auto_dispatch.run_task_for_agent", new=AsyncMock(side_effect=_mock_runner)), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", side_effect=_mock_detect):
+            asyncio.run(run_auto_task(t1_id))
+
+        self.assertIn(t1_id, call_order)
+        self.assertIn(t2_id, call_order)
+        with self.SessionLocal() as db:
+            t1 = db.query(Task).filter(Task.id == t1_id).first()
+            self.assertEqual(t1.status, "completed")
+
     def test_successful_run_records_started_and_completed_events(self):
         """AC-1: both auto_dispatch_started and auto_dispatch_completed events logged."""
         task_id = self._add_task("T1")
-        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock):
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        _found = TaskResultDetection(found=True, path="o/1/T1/result.json")
+        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", return_value=_found):
             asyncio.run(run_auto_task(task_id))
         with self.SessionLocal() as db:
             events = db.query(TaskEvent).filter(TaskEvent.task_id == task_id).all()
@@ -370,7 +433,11 @@ class TestRunAutoTask(unittest.TestCase):
     def test_event_details_do_not_contain_api_key(self):
         """AC-6: task events must never leak the stored API key."""
         task_id = self._add_task("T1")
-        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock):
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        _found = TaskResultDetection(found=True, path="o/1/T1/result.json")
+        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", return_value=_found):
             asyncio.run(run_auto_task(task_id))
         with self.SessionLocal() as db:
             events = db.query(TaskEvent).filter(TaskEvent.task_id == task_id).all()
@@ -409,7 +476,11 @@ class TestRunAutoTask(unittest.TestCase):
     def test_project_completed_when_all_tasks_finish(self):
         """AC-1: project transitions to completed once all tasks are done."""
         task_id = self._add_task("T1")
-        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock):
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        _found = TaskResultDetection(found=True, path="o/1/T1/result.json")
+        with patch("services.auto_dispatch.run_task_for_agent", new_callable=AsyncMock), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", return_value=_found):
             asyncio.run(run_auto_task(task_id))
         with self.SessionLocal() as db:
             project = db.query(Project).filter(Project.id == 1).first()
@@ -435,10 +506,13 @@ class TestRunAutoTask(unittest.TestCase):
         async def _mock_runner(task_id: int, project_id: int) -> None:
             call_order.append(task_id)
 
-        with patch(
-            "services.auto_dispatch.run_task_for_agent",
-            new=AsyncMock(side_effect=_mock_runner),
-        ):
+        def _mock_detect(project, task):
+            return TaskResultDetection(found=True, path=f"o/1/{task.task_code}/result.json")
+
+        _ok_sync = RepoSyncStatus(repo_dir="/tmp/r", remote_ready=True)
+        with patch("services.auto_dispatch.run_task_for_agent", new=AsyncMock(side_effect=_mock_runner)), \
+             patch("services.auto_dispatch.git_service.ensure_repo_sync", return_value=_ok_sync), \
+             patch("services.auto_dispatch.detect_task_result", side_effect=_mock_detect):
             asyncio.run(run_auto_task(t1_id))
 
         self.assertIn(t1_id, call_order)

@@ -31,7 +31,7 @@ from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_
 from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
 from services.issue_review_loop import ensure_issue_review_loop_template
 
-logging.basicConfig(level=logging.DEBUG if os.getenv("HALF_DEBUG") else logging.INFO)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("half")
 
 
