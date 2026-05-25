@@ -77,7 +77,7 @@ agent 通过 UI 交互，而非通过 API 调用。HALF 生成一份 handoff pro
 **自动模式**适用于支持 API 调用的 agent（如配置了 Anthropic API Key 的 Claude
 Code）。智能体类型配置 SDK 类型（目前支持 `claude`），每个智能体实例单独填写
 API Base URL 和 API Key。任务的所有前置依赖完成后，HALF 自动派发并执行该任务，
-无需任何人工干预。
+无需任何人工干预。使用自动模式需在部署机上安装 `claude` CLI 和 `bubblewrap`。
 
 两种模式均通过相同的 Git 协作仓库和任务看板跟踪产物。项目必须为纯手动或纯自动
 模式，不支持混合模式。

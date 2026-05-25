@@ -10,7 +10,7 @@
 HALF（Human-AI Loop Framework）是一个人机协同多智能体任务管理平台。它面向同时使用多个 AI coding agent（Claude Code、Codex 等）的研究者和团队，提供两种任务执行模式：
 
 - **手动模式**：系统生成 prompt，负责人手工粘贴到 agent 执行，agent 把计划、任务结果等协作产物写回 HALF 协作仓库，HALF 后台轮询协作仓库识别完成。整个闭环不调用 agent 平台的非公开接口，不做接口逆向。
-- **自动模式**：对配置了 API 凭证的 agent 类型，HALF 后端通过 Claude Agent SDK 触发任务执行，按 DAG 依赖顺序自动推进，无需人工介入。
+- **自动模式**：对配置了 API 凭证的 agent 类型，HALF 后端通过 Claude Agent SDK 触发任务执行，按 DAG 依赖顺序自动推进，无需人工介入。需在部署机上安装 `claude` CLI 和 `bubblewrap`。
 
 ---
 
