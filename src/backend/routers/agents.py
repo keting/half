@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from access import get_agent_owner_roles, get_mutable_agent, is_agent_public, list_visible_agents
@@ -40,6 +40,13 @@ class AgentCreate(BaseModel):
     api_base_url: Optional[str] = None
     api_key: Optional[str] = None
 
+    @field_validator("api_base_url")
+    @classmethod
+    def validate_api_base_url(cls, v: Optional[str]) -> Optional[str]:
+        if v and not v.strip().startswith(("http://", "https://")):
+            raise ValueError("api_base_url 必须以 http:// 或 https:// 开头")
+        return v
+
 
 class AgentUpdate(BaseModel):
     name: Optional[str] = None
@@ -58,6 +65,13 @@ class AgentUpdate(BaseModel):
     long_term_reset_mode: Optional[str] = None
     api_base_url: Optional[str] = None
     api_key: Optional[str] = None
+
+    @field_validator("api_base_url")
+    @classmethod
+    def validate_api_base_url(cls, v: Optional[str]) -> Optional[str]:
+        if v and not v.strip().startswith(("http://", "https://")):
+            raise ValueError("api_base_url 必须以 http:// 或 https:// 开头")
+        return v
 
 
 class StatusUpdate(BaseModel):
@@ -284,13 +298,12 @@ def _normalize_agent_update_input(payload: dict) -> dict:
         payload["models_json"] = json.dumps(normalized_models, ensure_ascii=False)
         payload["model_name"], payload["capability"] = _derive_primary_fields_from_models(normalized_models)
         payload.pop("models", None)
-        return payload
-
-    if "model_name" in payload:
-        payload["model_name"] = (payload.get("model_name") or "").strip() or None
-    if "capability" in payload:
-        raw_capability = payload.get("capability")
-        payload["capability"] = raw_capability.strip() if raw_capability else None
+    else:
+        if "model_name" in payload:
+            payload["model_name"] = (payload.get("model_name") or "").strip() or None
+        if "capability" in payload:
+            raw_capability = payload.get("capability")
+            payload["capability"] = raw_capability.strip() if raw_capability else None
 
     # Handle API credentials: only update if explicitly provided
     api_key = payload.pop("api_key", None)

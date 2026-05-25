@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -7,6 +8,10 @@ from dataclasses import dataclass
 from models import Agent, Project, Task
 
 logger = logging.getLogger(__name__)
+
+
+class TaskTimeoutError(RuntimeError):
+    """Raised by AgentRunner.run() when the task exceeds its configured timeout."""
 
 
 @dataclass
@@ -59,7 +64,11 @@ class AgentRunner(ABC):
             self._model,
         )
         await self._ensure_ready(ctx)
-        await self._dispatch(ctx)
+        timeout_minutes: int = ctx.task.timeout_minutes or ctx.project.task_timeout_minutes or 60
+        try:
+            await asyncio.wait_for(self._dispatch(ctx), timeout=timeout_minutes * 60)
+        except asyncio.TimeoutError:
+            raise TaskTimeoutError(f"Auto-dispatch timed out after {timeout_minutes} minutes")
         logger.info("%s finished task %s", type(self).__name__, ctx.task.task_code)
 
     # ------------------------------------------------------------------

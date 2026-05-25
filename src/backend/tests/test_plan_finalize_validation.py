@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from database import Base
 from auth import hash_password
-from models import Project, ProjectPlan, User
+from models import Agent, Project, ProjectPlan, User
 from routers.plans import FinalizeRequest, finalize_plan
 
 
@@ -28,7 +28,13 @@ class PlanFinalizeValidationTests(unittest.TestCase):
         self.db.commit()
         self.addCleanup(self.db.close)
 
-    def _seed_plan(self, expected_output: str) -> tuple[Project, ProjectPlan]:
+    def _seed_plan(
+        self,
+        expected_output: str,
+        *,
+        assignee: str | None = None,
+        selected_agent_models_json: str = "{}",
+    ) -> tuple[Project, ProjectPlan]:
         project = Project(
             id=20,
             name="Demo",
@@ -36,6 +42,17 @@ class PlanFinalizeValidationTests(unittest.TestCase):
             status="planning",
             created_by=self.user.id,
             task_timeout_minutes=42,
+            agent_ids_json='[{"id": 10, "co_located": false}]',
+        )
+        agent = Agent(
+            id=10,
+            name="Worker",
+            slug="worker",
+            agent_type="claude",
+            model_name="claude-default",
+            models_json='[{"model_name":"claude-default"},{"model_name":"claude-opus"}]',
+            is_active=True,
+            created_by=self.user.id,
         )
         plan = ProjectPlan(
             id=30,
@@ -47,12 +64,14 @@ class PlanFinalizeValidationTests(unittest.TestCase):
                     {
                         "task_code": "TASK-001",
                         "task_name": "修复",
+                        "assignee": assignee,
                         "expected_output": expected_output,
                     }
                 ]
             }, ensure_ascii=False),
+            selected_agent_models_json=selected_agent_models_json,
         )
-        self.db.add_all([project, plan])
+        self.db.add_all([project, agent, plan])
         self.db.commit()
         return project, plan
 
@@ -75,6 +94,19 @@ class PlanFinalizeValidationTests(unittest.TestCase):
         from models import Task
         task = self.db.query(Task).filter(Task.project_id == 20).one()
         self.assertEqual(task.timeout_minutes, 42)
+
+    def test_finalize_plan_snapshots_selected_agent_model_to_task(self):
+        _project, plan = self._seed_plan(
+            "outputs/proj-20/result.json",
+            assignee="worker",
+            selected_agent_models_json='{"10": "claude-opus"}',
+        )
+        response = finalize_plan(20, FinalizeRequest(plan_id=plan.id), BackgroundTasks(), db=self.db, user=self.user)
+        self.assertEqual(response["tasks_created"], 1)
+        from models import Task
+        task = self.db.query(Task).filter(Task.project_id == 20).one()
+        self.assertEqual(task.assignee_agent_id, 10)
+        self.assertEqual(task.model_name, "claude-opus")
 
 
 if __name__ == "__main__":

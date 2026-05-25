@@ -26,6 +26,8 @@ DISPATCH_MODE_AUTO = "auto"
 DISPATCH_MODE_MANUAL = "manual"
 _running_auto_tasks: set[int] = set()
 _running_auto_tasks_lock = asyncio.Lock()
+# Maps task_id → asyncio.Task handle (populated inside the lock on task start).
+_running_asyncio_tasks: dict[int, asyncio.Task] = {}
 
 
 def _task_dependency_codes(task: Task) -> list[str]:
@@ -182,6 +184,22 @@ def get_ready_auto_tasks(
     return ready
 
 
+async def cancel_auto_task(task_id: int) -> None:
+    """Cancel a single in-flight auto task coroutine and wait for its cleanup.
+
+    Injects CancelledError at the coroutine's next await point; the
+    finally-blocks in run_task_for_agent (runner.close, delete_task_workspace)
+    still execute before this function returns.  If task_id is not currently
+    running, this is a no-op.
+    """
+    async with _running_auto_tasks_lock:
+        handle = _running_asyncio_tasks.get(task_id)
+    if handle is None:
+        return
+    handle.cancel()
+    await asyncio.gather(handle, return_exceptions=True)
+
+
 def dispatch_auto_tasks(
     background_tasks: BackgroundTasks,
     db: Session,
@@ -248,6 +266,9 @@ async def run_auto_task(task_id: int) -> None:
         if task_id in _running_auto_tasks:
             return
         _running_auto_tasks.add(task_id)
+        current = asyncio.current_task()
+        if current is not None:
+            _running_asyncio_tasks[task_id] = current
     db = SessionLocal()
     agent_type: AgentTypeConfig | None = None
     project_id: int | None = None
@@ -330,4 +351,5 @@ async def run_auto_task(task_id: int) -> None:
     finally:
         async with _running_auto_tasks_lock:
             _running_auto_tasks.discard(task_id)
+            _running_asyncio_tasks.pop(task_id, None)
         db.close()

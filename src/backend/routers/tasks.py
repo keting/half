@@ -17,6 +17,7 @@ from services import git_service
 from services.auto_dispatch import (
     DISPATCH_MODE_AUTO,
     DISPATCH_MODE_MANUAL,
+    cancel_auto_task,
     dispatch_auto_tasks,
     is_auto_task,
 )
@@ -37,6 +38,7 @@ class TaskResponse(UtcDatetimeModel):
     task_name: str
     description: Optional[str]
     assignee_agent_id: Optional[int]
+    model_name: Optional[str] = None
     status: str
     depends_on_json: Optional[str]
     expected_output_path: Optional[str]
@@ -459,6 +461,8 @@ def abandon_task(
     if task.status in ("completed", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot abandon a task in status: {task.status}")
 
+    was_running_auto = task.status == "running" and task.dispatch_mode == DISPATCH_MODE_AUTO
+
     now = datetime.now(timezone.utc)
     task.status = "abandoned"
     task.updated_at = now
@@ -477,6 +481,8 @@ def abandon_task(
             project.updated_at = now
 
     db.commit()
+    if was_running_auto:
+        background_tasks.add_task(cancel_auto_task, task_id)
     dispatch_auto_tasks(background_tasks, db, project_id=task.project_id)
     db.refresh(task)
     return task

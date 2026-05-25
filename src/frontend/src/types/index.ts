@@ -159,6 +159,7 @@ export interface Task {
   assignee_label?: string | null;
   description: string;
   assignee_agent_id: number | null;
+  model_name?: string | null;
   status: string;
   depends_on_json: string;
   expected_output_path: string;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 from services import git_service
 from services.agent_runner.base import AgentRunContext, AgentRunner
@@ -48,6 +49,24 @@ class ClaudeRunner(AgentRunner):
         proj_code_dir = git_service._code_dir(ctx.project.id) if ctx.project.project_repo_url else None
         task_workspace_dir = git_service._task_workspace_dir(ctx.project.id, ctx.task.id)
 
+        # Build sandbox network whitelist from the project's actual Git hosts so
+        # GitLab, Bitbucket, and self-hosted instances work without manual config.
+        _git_urls = [
+            u for u in (ctx.project.git_repo_url, getattr(ctx.project, "project_repo_url", None))
+            if u
+        ]
+        _allowed_domains: list[str] = ["github.com", "*.github.com", "gitee.com", "*.gitee.com"]
+        _seen_hosts: set[str] = set(["github.com", "gitee.com"])
+        for _url in _git_urls:
+            try:
+                _host = urlparse(_url).hostname or ""
+            except Exception:
+                _host = ""
+            if _host and _host not in _seen_hosts:
+                _seen_hosts.add(_host)
+                _allowed_domains.append(_host)
+                _allowed_domains.append(f"*.{_host}")
+
         options = ClaudeAgentOptions(
             model=self._model,
             cwd=task_workspace_dir,
@@ -59,12 +78,7 @@ class ClaudeRunner(AgentRunner):
                 "autoAllowBashIfSandboxed": True,      # Sandbox 内 Bash 自动批准
                 "failIfUnavailable": True,           # 可选：Sandbox 不可用时失败
                 "network": {
-                    "allowedDomains": [
-                        "gitee.com",
-                        "*.gitee.com",
-                        "github.com",
-                        "*.github.com",
-                    ]
+                    "allowedDomains": _allowed_domains,
                 },
             },
             env=env,

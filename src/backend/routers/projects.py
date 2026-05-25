@@ -1,3 +1,4 @@
+import asyncio
 import json
 import secrets
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from schemas import UtcDatetimeModel
 from config import DEFAULT_MAX_REVIEW_ROUNDS
 from services.polling_config_service import get_global_polling_settings
 from services.git_service import validate_git_url, delete_project_repo
+from services.auto_dispatch import cancel_auto_task
 from services.project_agents import (
     agent_ids_from_assignments_json,
     parse_agent_assignments_json,
@@ -578,6 +580,12 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
     # Validate agent mode compatibility against the merged is_auto
     if 'agent_ids_json' in update_data or 'is_auto' in update_data:
         merged_is_auto = bool(update_data.get('is_auto', getattr(project, 'is_auto', False)))
+        # Disallow toggling is_auto once the project has left draft status
+        if 'is_auto' in update_data and update_data['is_auto'] != bool(project.is_auto) and project.status != 'draft':
+            raise HTTPException(
+                status_code=400,
+                detail="只有草稿状态的项目才可以切换自动/手动模式",
+            )
         if 'agent_ids_json' in update_data:
             merged_agent_ids = [int(a["id"]) for a in json.loads(update_data['agent_ids_json'])]
         else:
@@ -612,8 +620,29 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
 
 
 @router.delete('/{project_id}', status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def delete_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = get_owned_project(db, project_id, user)
+
+    # Collect running auto task IDs before touching their status.
+    running_auto_ids = [
+        t.id for t in db.query(Task).filter(
+            Task.project_id == project_id,
+            Task.status == "running",
+            Task.dispatch_mode == "auto",
+        ).all()
+    ]
+    if running_auto_ids:
+        # Mark abandoned first so coroutine finally-blocks won't write
+        # needs_attention (registry.py skips the update when status != 'running').
+        db.query(Task).filter(Task.id.in_(running_auto_ids)).update(
+            {"status": "abandoned"}, synchronize_session=False
+        )
+        db.commit()
+        # Cancel each coroutine and wait for runner.close + delete_task_workspace.
+        await asyncio.gather(
+            *[cancel_auto_task(tid) for tid in running_auto_ids],
+            return_exceptions=True,
+        )
 
     tasks = db.query(Task).filter(Task.project_id == project_id).all()
     task_ids = [task.id for task in tasks]

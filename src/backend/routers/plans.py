@@ -475,6 +475,7 @@ def finalize_plan_record(
     plan.status = "final"
     plan.updated_at = datetime.now(timezone.utc)
     task_timeout_minutes = get_project_polling_settings(db, project)["task_timeout_minutes"]
+    selected_agent_models = _parse_selected_agent_models(plan.selected_agent_models_json)
 
     # Create task records
     created_tasks = []
@@ -493,6 +494,7 @@ def finalize_plan_record(
 
         # Resolve assignee
         assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"), project, user)
+        model_name = selected_agent_models.get(assignee_agent_id) if assignee_agent_id else None
 
         depends_on = t.get("depends_on", [])
         collab = _normalize_collab_dir(project)
@@ -516,6 +518,7 @@ def finalize_plan_record(
             task_name=t.get("task_name", task_code),
             description=t.get("description", ""),
             assignee_agent_id=assignee_agent_id,
+            model_name=model_name,
             status="pending",
             depends_on_json=json.dumps(depends_on),
             expected_output_path=expected_output,

@@ -7,7 +7,7 @@ from database import SessionLocal
 from models import Agent, AgentTypeConfig, Project, Task, TaskEvent
 from services import git_service
 from services.agent_credentials import decrypt_api_key
-from services.agent_runner.base import AgentRunner, AgentRunContext
+from services.agent_runner.base import AgentRunner, AgentRunContext, TaskTimeoutError
 from services.prompt_service import generate_task_prompt
 
 logger = logging.getLogger(__name__)
@@ -18,11 +18,12 @@ def _create_runner(
     sdk_type: str,
     api_base_url: str | None = None,
     api_key: str | None = None,
+    model_name: str | None = None,
 ) -> AgentRunner:
     """Instantiate the concrete runner for the given sdk_type."""
     from services.agent_runner.claude_runner import ClaudeRunner
 
-    effective_model = (agent.model_name or "").strip()
+    effective_model = (model_name or agent.model_name or "").strip()
 
     if sdk_type == "claude":
         return ClaudeRunner(model=effective_model, api_base_url=api_base_url, api_key=api_key)
@@ -89,7 +90,7 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
             _mark_task_error(db, task, msg)
             return
 
-        model_name = (agent.model_name or "").strip()
+        model_name = (getattr(task, "model_name", None) or agent.model_name or "").strip()
         if not model_name:
             msg = f"Agent {agent.id} 未配置 model_name，无法自动执行任务"
             logger.error("Task %s: %s", task.task_code, msg)
@@ -138,7 +139,13 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
 
         api_base_url = agent.api_base_url
         api_key = decrypt_api_key(agent.api_key_encrypted)
-        runner = _create_runner(agent, effective_sdk_type, api_base_url=api_base_url, api_key=api_key)
+        runner = _create_runner(
+            agent,
+            effective_sdk_type,
+            api_base_url=api_base_url,
+            api_key=api_key,
+            model_name=model_name,
+        )
 
         logger.info(
             "Auto-executing task %s via sdk_type=%s (runner=%s)",
@@ -149,6 +156,20 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
         await runner.run(ctx)
         logger.info("Auto-execution finished for task %s", task.task_code)
 
+    except TaskTimeoutError as exc:
+        logger.warning("Task %s timed out: %s", task_id, exc)
+        try:
+            fresh_db = SessionLocal()
+            try:
+                task = fresh_db.query(Task).filter(Task.id == task_id).first()
+                if task and task.status == "running":
+                    _mark_task_error(fresh_db, task, str(exc))
+            finally:
+                fresh_db.close()
+        except Exception:
+            logger.exception(
+                "Failed to update timeout state for task %s", task_id
+            )
     except Exception as exc:
         logger.exception("Auto-execution failed for task %s: %s", task_id, exc)
         try:
@@ -172,4 +193,3 @@ async def run_task_for_agent(task_id: int, project_id: int) -> None:
         if task_workspace_dir is not None:
             git_service.delete_task_workspace(project_id, task_id)
         db.close()
-

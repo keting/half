@@ -244,7 +244,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, flowState, onR
 
       <div className="detail-section">
         <label>指派 Agent</label>
-        <p>{assignee ? `${assignee.name} (${assignee.agent_type}${assignee.model_name ? ` / ${assignee.model_name}` : ''})` : (task.assignee_agent_id ? `Agent #${task.assignee_agent_id}` : '未指派')}</p>
+        <p>{assignee ? `${assignee.name} (${assignee.agent_type}${(task.model_name || assignee.model_name) ? ` / ${task.model_name || assignee.model_name}` : ''})` : (task.assignee_agent_id ? `Agent #${task.assignee_agent_id}` : '未指派')}</p>
         {assignee && (
           <div className="helper-text">
             {assignee.sdk_type

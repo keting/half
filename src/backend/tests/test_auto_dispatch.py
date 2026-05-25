@@ -48,6 +48,7 @@ from routers import agent_settings as agent_settings_router
 from routers import auth as auth_router
 from routers import projects as projects_router
 from services.agent_credentials import encrypt_api_key
+from services.agent_runner import registry as runner_registry
 from services.auto_dispatch import (
     _complete_project_if_done,
     get_ready_auto_tasks,
@@ -56,6 +57,8 @@ from services.auto_dispatch import (
     is_task_ready,
     run_auto_task,
 )
+from services.agent_runner.base import AgentRunContext
+from services.agent_runner.claude_runner import ClaudeRunner
 from services.git_service import RepoSyncStatus
 from services.polling_service import TaskResultDetection
 
@@ -519,6 +522,157 @@ class TestRunAutoTask(unittest.TestCase):
         self.assertIn(t2_id, call_order)
         # T1 must have been dispatched before T2
         self.assertLess(call_order.index(t1_id), call_order.index(t2_id))
+
+    def test_task_timeout_marks_needs_attention(self):
+        """Timeout: RuntimeError from _dispatch propagates → task enters needs_attention."""
+        task_id = self._add_task("T1")
+        with patch(
+            "services.auto_dispatch.run_task_for_agent",
+            new=AsyncMock(side_effect=RuntimeError("Auto-dispatch timed out after 1 minutes")),
+        ):
+            asyncio.run(run_auto_task(task_id))
+
+        with self.SessionLocal() as db:
+            task = db.query(Task).filter(Task.id == task_id).first()
+            self.assertEqual(task.status, "needs_attention")
+            self.assertIsNotNone(task.last_error)
+            self.assertIn("timed out", task.last_error)
+
+
+# ---------------------------------------------------------------------------
+# Timeout is enforced inside ClaudeRunner._dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeRunnerDispatchTimeout(unittest.TestCase):
+    """asyncio.wait_for is called with the correct timeout inside _dispatch."""
+
+    def _make_ctx(self, task_timeout, project_timeout) -> AgentRunContext:
+        task = MagicMock()
+        task.task_code = "T-test"
+        task.timeout_minutes = task_timeout
+        project = MagicMock()
+        project.task_timeout_minutes = project_timeout
+        return AgentRunContext(task=task, project=project, agent=MagicMock(), prompt="hello")
+
+    def _make_runner(self) -> ClaudeRunner:
+        runner = ClaudeRunner(model="claude-test")
+        mock_client = MagicMock()
+        mock_client.query = AsyncMock()
+
+        async def _empty():
+            return
+            yield  # makes it an async generator
+
+        mock_client.receive_response = MagicMock(return_value=_empty())
+        runner._client = mock_client
+        return runner
+
+    def test_dispatch_uses_task_level_timeout(self):
+        """task.timeout_minutes takes priority over project.task_timeout_minutes."""
+        ctx = self._make_ctx(task_timeout=5, project_timeout=60)
+        runner = self._make_runner()
+        captured: list[float] = []
+
+        async def _fake_wait_for(coro, timeout):
+            captured.append(timeout)
+            await coro
+
+        with patch("services.agent_runner.base.asyncio.wait_for", side_effect=_fake_wait_for):
+            asyncio.run(runner.run(ctx))
+
+        self.assertEqual(captured, [5 * 60])
+
+    def test_dispatch_falls_back_to_project_timeout(self):
+        """project.task_timeout_minutes is used when task.timeout_minutes is None."""
+        ctx = self._make_ctx(task_timeout=None, project_timeout=30)
+        runner = self._make_runner()
+        captured: list[float] = []
+
+        async def _fake_wait_for(coro, timeout):
+            captured.append(timeout)
+            await coro
+
+        with patch("services.agent_runner.base.asyncio.wait_for", side_effect=_fake_wait_for):
+            asyncio.run(runner.run(ctx))
+
+        self.assertEqual(captured, [30 * 60])
+
+    def test_dispatch_defaults_to_60_minutes(self):
+        """Falls back to 60 min when neither task nor project sets a timeout."""
+        ctx = self._make_ctx(task_timeout=None, project_timeout=None)
+        runner = self._make_runner()
+        captured: list[float] = []
+
+        async def _fake_wait_for(coro, timeout):
+            captured.append(timeout)
+            await coro
+
+        with patch("services.agent_runner.base.asyncio.wait_for", side_effect=_fake_wait_for):
+            asyncio.run(runner.run(ctx))
+
+        self.assertEqual(captured, [60 * 60])
+
+    def test_timeout_converts_to_runtime_error(self):
+        """asyncio.TimeoutError from wait_for is re-raised as RuntimeError with message."""
+        ctx = self._make_ctx(task_timeout=2, project_timeout=None)
+        runner = self._make_runner()
+
+        with patch(
+            "services.agent_runner.base.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError(),
+        ):
+            with self.assertRaises(RuntimeError) as cm:
+                asyncio.run(runner.run(ctx))
+
+        self.assertIn("timed out", str(cm.exception))
+        self.assertIn("2", str(cm.exception))
+
+
+class TestAgentRunnerModelSelection(unittest.TestCase):
+    """Auto runner must honor the task-level model snapshot from plan finalization."""
+
+    def test_create_runner_prefers_task_model_over_agent_default(self):
+        agent = Agent(
+            id=1,
+            name="Auto",
+            slug="auto",
+            agent_type="claude",
+            model_name="claude-default",
+        )
+
+        with patch("services.agent_runner.claude_runner.ClaudeRunner") as mock_runner:
+            runner_registry._create_runner(
+                agent,
+                "claude",
+                api_base_url="https://api.example.com",
+                api_key="secret",
+                model_name="claude-opus",
+            )
+
+        mock_runner.assert_called_once_with(
+            model="claude-opus",
+            api_base_url="https://api.example.com",
+            api_key="secret",
+        )
+
+    def test_create_runner_falls_back_to_agent_default_model(self):
+        agent = Agent(
+            id=1,
+            name="Auto",
+            slug="auto",
+            agent_type="claude",
+            model_name="claude-default",
+        )
+
+        with patch("services.agent_runner.claude_runner.ClaudeRunner") as mock_runner:
+            runner_registry._create_runner(agent, "claude")
+
+        mock_runner.assert_called_once_with(
+            model="claude-default",
+            api_base_url=None,
+            api_key=None,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -146,6 +146,7 @@ class Task(Base):
     task_name = Column(Text, nullable=False)
     description = Column(Text)
     assignee_agent_id = Column(Integer, ForeignKey("agents.id"), nullable=True)
+    model_name = Column(Text, nullable=True)
     status = Column(Text, default="pending")  # pending/running/completed/needs_attention/abandoned
     depends_on_json = Column(Text, default="[]")
     expected_output_path = Column(Text)
