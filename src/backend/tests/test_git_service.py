@@ -117,7 +117,7 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
         self.base_dir = Path(self.temp_dir.name)
         self.repos_dir = self.base_dir / "repos"
         self.workspace_dir = self.base_dir / "workspace"
-        (self.repos_dir / "3").mkdir(parents=True)
+        (self.repos_dir / "3" / "collab").mkdir(parents=True)
         (self.workspace_dir / "outputs" / "proj-3").mkdir(parents=True)
 
         self.original_repos_dir = settings.REPOS_DIR
@@ -176,7 +176,7 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
         ) as mock_pull:
             repo_dir = git_service.ensure_repo(3, "git@github.com:example-org/example-repo.git")
 
-        self.assertEqual(repo_dir, str(self.repos_dir / "3"))
+        self.assertEqual(repo_dir, str(self.repos_dir / "3" / "collab"))
         mock_fetch.assert_called_once_with(3)
         mock_pull.assert_called_once_with(3)
 
@@ -330,6 +330,66 @@ class GitServiceWorkspaceFallbackTests(unittest.TestCase):
             )
 
         self.assertEqual(entries, ["result.md", "usage.json"])
+
+
+# ---------------------------------------------------------------------------
+# Regression: worktree branch residue must not block re-dispatch
+# ---------------------------------------------------------------------------
+
+class GitServiceWorktreeRedispatchTests(unittest.TestCase):
+    """Regression: create → delete → create cycle must succeed without branch conflicts.
+
+    Before the fix, delete_task_workspace() left the task-N branch behind, so
+    a subsequent create_task_workspace() for the same task ID would fail with
+    'branch already exists'.  After the fix, the branch is deleted as part of
+    workspace teardown (and create uses -B for extra resilience).
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        base = Path(self.temp_dir.name)
+
+        repos_dir = base / "repos"
+        settings.REPOS_DIR = str(repos_dir)
+        git_service._workspace_repo_identity.cache_clear()
+        git_service._ensure_repo_last_run.clear()
+        self.addCleanup(self._restore_settings)
+        self._original_repos_dir = settings.REPOS_DIR  # captured after assignment
+
+        # Bootstrap a real git repo to serve as the collab repo
+        collab = repos_dir / "10" / "collab"
+        collab.mkdir(parents=True)
+        subprocess.run(["git", "init", str(collab)], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=str(collab), check=True, capture_output=True,
+            env={**__import__("os").environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"},
+        )
+
+    def _restore_settings(self):
+        settings.REPOS_DIR = self._original_repos_dir
+        git_service._workspace_repo_identity.cache_clear()
+
+    def test_create_delete_create_succeeds(self):
+        """Workspace for the same task ID can be recreated after deletion (no branch residue)."""
+        project_id, task_id = 10, 42
+
+        ws1 = git_service.create_task_workspace(project_id, task_id)
+        self.assertTrue(Path(ws1.workspace_dir).exists())
+
+        git_service.delete_task_workspace(project_id, task_id)
+        self.assertFalse(Path(ws1.workspace_dir).exists())
+
+        # Second creation must succeed — previously this raised a Git error
+        # "fatal: A branch named 'task-42' already exists."
+        ws2 = git_service.create_task_workspace(project_id, task_id)
+        self.assertTrue(Path(ws2.workspace_dir).exists())
+        self.assertEqual(ws2.task_branch, f"task-{task_id}")
+
+        # Cleanup
+        git_service.delete_task_workspace(project_id, task_id)
 
 
 if __name__ == "__main__":

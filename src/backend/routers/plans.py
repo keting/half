@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from services.polling_config_service import get_project_polling_settings
 from services.prompt_settings import get_plan_co_location_guidance
 from schemas import UtcDatetimeModel
 from services.project_agents import agent_ids_from_assignments_json
+from services.auto_dispatch import dispatch_auto_tasks
 
 router = APIRouter(prefix="/api/projects", tags=["plans"])
 
@@ -474,6 +475,7 @@ def finalize_plan_record(
     plan.status = "final"
     plan.updated_at = datetime.now(timezone.utc)
     task_timeout_minutes = get_project_polling_settings(db, project)["task_timeout_minutes"]
+    selected_agent_models = _parse_selected_agent_models(plan.selected_agent_models_json)
 
     # Create task records
     created_tasks = []
@@ -492,6 +494,7 @@ def finalize_plan_record(
 
         # Resolve assignee
         assignee_agent_id = _resolve_assignee_agent_id(db, t.get("assignee"), project, user)
+        model_name = selected_agent_models.get(assignee_agent_id) if assignee_agent_id else None
 
         depends_on = t.get("depends_on", [])
         collab = _normalize_collab_dir(project)
@@ -515,6 +518,7 @@ def finalize_plan_record(
             task_name=t.get("task_name", task_code),
             description=t.get("description", ""),
             assignee_agent_id=assignee_agent_id,
+            model_name=model_name,
             status="pending",
             depends_on_json=json.dumps(depends_on),
             expected_output_path=expected_output,
@@ -537,7 +541,13 @@ def finalize_plan_record(
 
 
 @router.post("/{project_id}/plans/finalize")
-def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def finalize_plan(
+    project_id: int,
+    body: FinalizeRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     project = get_owned_project(db, project_id, user)
 
     plan = db.query(ProjectPlan).filter(
@@ -547,4 +557,6 @@ def finalize_plan(project_id: int, body: FinalizeRequest, db: Session = Depends(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    return finalize_plan_record(db, project, plan, user)
+    result = finalize_plan_record(db, project, plan, user)
+    dispatch_auto_tasks(background_tasks, db, project_id=project_id)
+    return result

@@ -14,9 +14,10 @@ if str(BACKEND_DIR) not in sys.path:
 
 import database
 from auth import hash_password
-from models import Agent, Base, User
+from models import Agent, AgentTypeConfig, Base, User
 from routers import agents as agents_router
 from routers import auth as auth_router
+from services.agent_credentials import decrypt_api_key
 
 
 class AgentUpdateSemanticsTests(unittest.TestCase):
@@ -47,6 +48,7 @@ class AgentUpdateSemanticsTests(unittest.TestCase):
             user = User(username="alice", password_hash=hash_password("Alice123"))
             db.add(user)
             db.flush()
+            db.add(AgentTypeConfig(name="claude", sdk_type="claude"))
             agent = Agent(
                 name="alice-agent",
                 slug="alice-agent",
@@ -120,6 +122,30 @@ class AgentUpdateSemanticsTests(unittest.TestCase):
             self.assertEqual(agent.model_name, "claude-4")
             self.assertEqual(agent.capability, "新能力")
             self.assertEqual(agent.models_json, '[{"model_name": "claude-4", "capability": "新能力"}]')
+
+    def test_models_update_can_also_update_api_credentials(self):
+        response = self.client.put(
+            "/api/agents/1",
+            json={
+                "models": [
+                    {"model_name": "claude-4", "capability": "新能力"},
+                ],
+                "api_base_url": "https://api.example.com/",
+                "api_key": "secret-key",
+            },
+            headers=self._headers(),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["model_name"], "claude-4")
+        self.assertEqual(payload["api_base_url"], "https://api.example.com")
+        self.assertEqual(payload["has_api_key"], True)
+        self.assertNotIn("api_key", payload)
+
+        with self.SessionLocal() as db:
+            agent = db.query(Agent).filter(Agent.id == 1).one()
+            self.assertEqual(agent.api_base_url, "https://api.example.com")
+            self.assertEqual(decrypt_api_key(agent.api_key_encrypted), "secret-key")
 
     def test_partial_model_name_update_preserves_other_fields(self):
         response = self.client.put(

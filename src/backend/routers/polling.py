@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from access import get_owned_project
 from database import get_db
-from models import Project, Task, TaskEvent, User
+from models import Task, TaskEvent, User
 from auth import get_current_user
 from services import feishu_service
 from services.polling_service import poll_project

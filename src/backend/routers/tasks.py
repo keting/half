@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,13 @@ from schemas import UtcDatetimeModel
 from services.path_service import ExpectedOutputPathError, normalize_expected_output_path
 from services.prompt_service import generate_task_prompt
 from services import git_service
+from services.auto_dispatch import (
+    DISPATCH_MODE_AUTO,
+    DISPATCH_MODE_MANUAL,
+    cancel_auto_task,
+    dispatch_auto_tasks,
+    is_auto_task,
+)
 from services.issue_review_loop import (
     get_effective_business_state,
     is_business_dispatch_allowed,
@@ -31,6 +38,7 @@ class TaskResponse(UtcDatetimeModel):
     task_name: str
     description: Optional[str]
     assignee_agent_id: Optional[int]
+    model_name: Optional[str] = None
     status: str
     depends_on_json: Optional[str]
     expected_output_path: Optional[str]
@@ -38,6 +46,7 @@ class TaskResponse(UtcDatetimeModel):
     usage_file_path: Optional[str]
     last_error: Optional[str]
     timeout_minutes: Optional[int]
+    dispatch_mode: Optional[str] = None
     dispatched_at: Optional[datetime]
     completed_at: Optional[datetime]
     created_at: Optional[datetime]
@@ -379,15 +388,17 @@ def dispatch_task(
     if not is_loop_dispatch and task.status not in ("pending", "needs_attention"):
         raise HTTPException(status_code=400, detail=f"Cannot dispatch task in status: {task.status}")
 
-    if not is_loop_dispatch:
-        _validate_dispatch_predecessors(
-            db,
-            task,
-            ignore_missing_predecessor_outputs=body.ignore_missing_predecessor_outputs,
-        )
+    _validate_dispatch_predecessors(
+        db,
+        task,
+        ignore_missing_predecessor_outputs=body.ignore_missing_predecessor_outputs,
+    )
+    if is_auto_task(db, task):
+        raise HTTPException(status_code=400, detail="Auto-mode tasks are dispatched automatically")
 
     now = datetime.now(timezone.utc)
     task.status = "running"
+    task.dispatch_mode = DISPATCH_MODE_MANUAL
     task.dispatched_at = now
     task.updated_at = now
     db.add(TaskEvent(
@@ -397,12 +408,18 @@ def dispatch_task(
     ))
     db.commit()
     db.refresh(task)
+
     return task
 
 
 # Mark complete
 @router.post("/api/tasks/{task_id}/mark-complete", response_model=TaskResponse)
-def mark_complete(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def mark_complete(
+    task_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     task = get_owned_task(db, task_id, user)
     if task.status not in ("running", "needs_attention"):
         raise HTTPException(status_code=400, detail=f"Cannot mark complete a task in status: {task.status}")
@@ -427,16 +444,24 @@ def mark_complete(task_id: int, db: Session = Depends(get_db), user: User = Depe
             project.updated_at = now
 
     db.commit()
+    dispatch_auto_tasks(background_tasks, db, project_id=task.project_id)
     db.refresh(task)
     return task
 
 
 # Abandon task
 @router.post("/api/tasks/{task_id}/abandon", response_model=TaskResponse)
-def abandon_task(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def abandon_task(
+    task_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     task = get_owned_task(db, task_id, user)
     if task.status in ("completed", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot abandon a task in status: {task.status}")
+
+    was_running_auto = task.status == "running" and task.dispatch_mode == DISPATCH_MODE_AUTO
 
     now = datetime.now(timezone.utc)
     task.status = "abandoned"
@@ -456,6 +481,9 @@ def abandon_task(task_id: int, db: Session = Depends(get_db), user: User = Depen
             project.updated_at = now
 
     db.commit()
+    if was_running_auto:
+        background_tasks.add_task(cancel_auto_task, task_id)
+    dispatch_auto_tasks(background_tasks, db, project_id=task.project_id)
     db.refresh(task)
     return task
 
@@ -464,6 +492,7 @@ def abandon_task(task_id: int, db: Session = Depends(get_db), user: User = Depen
 @router.post("/api/tasks/{task_id}/redispatch", response_model=TaskResponse)
 def redispatch_task(
     task_id: int,
+    background_tasks: BackgroundTasks,
     body: TaskDispatchRequest = TaskDispatchRequest(),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -474,17 +503,18 @@ def redispatch_task(
     if not is_loop_dispatch and task.status not in ("needs_attention", "running", "abandoned"):
         raise HTTPException(status_code=400, detail=f"Cannot redispatch task in status: {task.status}")
 
-    if not is_loop_dispatch:
-        _validate_dispatch_predecessors(
-            db,
-            task,
-            ignore_missing_predecessor_outputs=body.ignore_missing_predecessor_outputs,
-        )
+    auto_task = is_auto_task(db, task)
+    _validate_dispatch_predecessors(
+        db,
+        task,
+        ignore_missing_predecessor_outputs=body.ignore_missing_predecessor_outputs,
+    )
 
     now = datetime.now(timezone.utc)
     prev_status = task.status
     prev_error = task.last_error
-    task.status = "running"
+    task.status = "pending" if auto_task else "running"
+    task.dispatch_mode = DISPATCH_MODE_AUTO if auto_task else DISPATCH_MODE_MANUAL
     task.dispatched_at = now
     task.last_error = None
     task.updated_at = now
@@ -507,4 +537,8 @@ def redispatch_task(
 
     db.commit()
     db.refresh(task)
+
+    if auto_task:
+        dispatch_auto_tasks(background_tasks, db, task_ids=[task.id])
+
     return task

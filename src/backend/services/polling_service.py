@@ -104,7 +104,7 @@ class TaskResultDetection:
     validation_error: str | None = None
 
 
-def _detect_task_result(project: Project, task: Task) -> TaskResultDetection:
+def detect_task_result(project: Project, task: Task) -> TaskResultDetection:
     """Read and validate the fixed result.json sentinel file."""
     base = _normalize_collab_dir(project)
     result_path = f"{base}/{task.task_code}/result.json" if base else f"{task.task_code}/result.json"
@@ -279,6 +279,8 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
     )
 
     for task in running_tasks:
+        if getattr(task, "dispatch_mode", None) == "auto":
+            continue
         # Skip polling this task if start delay has not elapsed yet
         if not _delay_satisfied(task.dispatched_at):
             logger.debug(
@@ -286,7 +288,7 @@ def poll_project(db: Session, project: Project) -> list[NotificationEvent]:
                 project.id, task.task_code, delay_seconds,
             )
             continue
-        result = _detect_task_result(project, task)
+        result = detect_task_result(project, task)
         result_path = result.path
 
         if result.found and result.validation_error:

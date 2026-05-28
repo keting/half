@@ -17,9 +17,10 @@ A task management console for teams orchestrating multiple AI coding agents
 - **Project-scoped agent coordination.** Bind a set of agents to a project,
   generate DAG-shaped work plans, dispatch task prompts, and track status by
   polling a configured Git collaboration repository.
-- **Human-in-the-loop by design.** HALF does not execute agent commands. It
-  produces prompts for a human operator to paste into the agent's UI, and
-  watches the collaboration repository for the resulting outputs.
+- **Dual dispatch modes.** Manual mode produces prompts for a human operator
+  to paste into the agent's UI. Auto mode directly invokes API-capable agents
+  (using a per-instance API key) when a task's dependencies are satisfied,
+  enabling unattended execution for teams using API-accessible agents.
 - **Agent availability model.** Track per-agent subscription expiry,
   short-term reset windows, and long-term reset windows so planners do not
   dispatch work to an unavailable agent.
@@ -51,8 +52,9 @@ understanding the project board, task dependencies, and agent availability.
 
 - A replacement for Jira, Linear, or a general-purpose project management
   tool.
-- An agent runner. It coordinates prompts and outputs; it does not invoke
-  LLMs directly.
+- A general-purpose agent runner. For subscription-based agents, HALF
+  coordinates prompts and tracks outputs. For API-capable agents configured
+  in auto mode, HALF invokes them directly through the configured API key.
 
 ## FAQ
 
@@ -69,25 +71,25 @@ A: Common reasons include:
   multiple agents is often more resilient than depending on a single tool over
   time.
 
-**Q: Why is HALF human-in-the-loop instead of fully automated?**
+**Q: When should I use manual mode vs. auto mode?**
 
-A: The main reason is compliance.
+A: The choice depends on whether your agents support API access.
 
-HALF is designed to support multi-agent collaboration within a compliant
-operating model. Many common coding agent products, especially subscription
-based ones, are designed for direct use by individuals or teams through their
-own interfaces, not as externally hosted services that a third-party system
-can automatically invoke. For programmatic integration and automation, teams
-usually need separate API products, API keys, billing models, and terms.
+**Manual mode** is designed for subscription-based agents (Claude.ai, Copilot,
+Cursor, etc.) where interaction happens through a UI rather than an API. HALF
+generates a handoff prompt that an operator pastes into the agent's interface.
+This is the compliant path for agents whose terms are intended for direct human
+use rather than automated invocation by a third-party system.
 
-Because of that, HALF deliberately sets the system boundary at:
+**Auto mode** is designed for agents with API access (e.g. Claude Code via an
+Anthropic API key). The agent type is configured with an SDK type (`claude` is
+currently supported), and each agent instance is given its own API base URL and
+API key. When a task's dependencies are satisfied, HALF dispatches and runs it
+without any manual step.
 
-- generating prompts that a human can use directly
-- letting a responsible operator manually dispatch them to agents
-- tracking results through Git writes and repository polling
-
-In other words, HALF addresses compliant human-and-agent orchestration. It is
-not trying to turn subscription agents into a platform-managed runner.
+Both modes track outputs through the same Git collaboration repository and task
+board. A project is either fully manual or fully auto; mixed-mode projects are
+not supported.
 
 **Q: What problems appear when coordinating multiple subscription-based agents?**
 
@@ -121,6 +123,9 @@ handoff in multi-agent collaboration:
   reduce repeated coordination overhead.
 - **Agent availability management.** View agent availability and reset times in
   one place to avoid unexpected blocking during execution.
+- **Unattended execution for API-capable agents.** When all project agents are
+  configured in auto mode, HALF dispatches tasks automatically in DAG
+  dependency order — no manual prompt-copying needed.
 - **Archival and traceability.** Persist task outputs in a Git collaboration
   repository so the process and results remain reviewable.
 
@@ -190,8 +195,10 @@ After logging in:
    - Polling intervals and timeout settings
 3. **Generate a Plan** - Select a process template and provide required inputs
    (e.g., doc paths, test URLs) to generate the task DAG.
-4. **Dispatch Tasks** - Start tasks from the task board; HALF generates prompts
-   for you to paste into your agent's UI.
+4. **Dispatch Tasks** - For manual-mode projects, start tasks from the task
+   board; HALF generates prompts for you to paste into your agent's UI. For
+   auto-mode projects, tasks are dispatched and executed automatically once
+   their dependencies are satisfied — no manual step required.
 
 See [docs/quickstart.md](./docs/quickstart.md) for a detailed walkthrough and
 troubleshooting.

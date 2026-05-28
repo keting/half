@@ -2,8 +2,9 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -552,6 +553,7 @@ class ProcessTemplateTests(unittest.TestCase):
             template.id,
             20,
             TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 11}),
+            BackgroundTasks(),
             self.db,
             self.user,
         )
@@ -575,6 +577,7 @@ class ProcessTemplateTests(unittest.TestCase):
             template.id,
             20,
             TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 11}),
+            BackgroundTasks(),
             self.db,
             self.user,
         )
@@ -601,6 +604,7 @@ class ProcessTemplateTests(unittest.TestCase):
             template.id,
             20,
             TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 13}),
+            BackgroundTasks(),
             self.db,
             self.user,
         )
@@ -623,6 +627,7 @@ class ProcessTemplateTests(unittest.TestCase):
                 template.id,
                 20,
                 TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 11}),
+                BackgroundTasks(),
                 self.db,
                 self.user,
             )
@@ -640,6 +645,7 @@ class ProcessTemplateTests(unittest.TestCase):
                 template.id,
                 20,
                 TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 12}),
+                BackgroundTasks(),
                 self.db,
                 self.user,
             )
@@ -675,6 +681,7 @@ class ProcessTemplateTests(unittest.TestCase):
             template.id,
             20,
             TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 11}),
+            BackgroundTasks(),
             self.db,
             self.user,
         )
@@ -693,11 +700,31 @@ class ProcessTemplateTests(unittest.TestCase):
                 template.id,
                 20,
                 TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 10}),
+                BackgroundTasks(),
                 self.db,
                 self.user,
             )
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("cannot be mapped", ctx.exception.detail)
+
+    def test_apply_template_triggers_auto_dispatch(self):
+        """dispatch_auto_tasks must be called with the project id after apply."""
+        template = create_template(
+            ProcessTemplateCreate(name="", description="", template_json=self._template_json()),
+            self.db,
+            self.user,
+        )
+        bg = BackgroundTasks()
+        with patch("routers.process_templates.dispatch_auto_tasks") as mock_dispatch:
+            apply_template(
+                template.id,
+                20,
+                TemplateApplyRequest(slot_agent_ids={"agent-1": 10, "agent-2": 11}),
+                bg,
+                self.db,
+                self.user,
+            )
+        mock_dispatch.assert_called_once_with(bg, self.db, project_id=20)
 
 
 if __name__ == "__main__":

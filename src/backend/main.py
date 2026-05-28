@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI
 from sqlalchemy import inspect, text
@@ -66,6 +67,7 @@ def migrate_task_code_unique_constraint():
                     task_name TEXT NOT NULL,
                     description TEXT,
                     assignee_agent_id INTEGER REFERENCES agents(id),
+                    model_name TEXT,
                     status TEXT DEFAULT 'pending',
                     depends_on_json TEXT DEFAULT '[]',
                     expected_output_path TEXT,
@@ -73,6 +75,7 @@ def migrate_task_code_unique_constraint():
                     usage_file_path TEXT,
                     last_error TEXT,
                     timeout_minutes INTEGER DEFAULT 10,
+                    dispatch_mode TEXT,
                     dispatched_at DATETIME,
                     completed_at DATETIME,
                     created_at DATETIME,
@@ -80,7 +83,52 @@ def migrate_task_code_unique_constraint():
                     UNIQUE(project_id, task_code)
                 )
             """))
-            conn.execute(text("INSERT INTO tasks_new SELECT * FROM tasks"))
+            conn.execute(text("""
+                INSERT INTO tasks_new (
+                    id,
+                    project_id,
+                    plan_id,
+                    task_code,
+                    task_name,
+                    description,
+                    assignee_agent_id,
+                    model_name,
+                    status,
+                    depends_on_json,
+                    expected_output_path,
+                    result_file_path,
+                    usage_file_path,
+                    last_error,
+                    timeout_minutes,
+                    dispatch_mode,
+                    dispatched_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    id,
+                    project_id,
+                    plan_id,
+                    task_code,
+                    task_name,
+                    description,
+                    assignee_agent_id,
+                    model_name,
+                    status,
+                    depends_on_json,
+                    expected_output_path,
+                    result_file_path,
+                    usage_file_path,
+                    last_error,
+                    timeout_minutes,
+                    dispatch_mode,
+                    dispatched_at,
+                    completed_at,
+                    created_at,
+                    updated_at
+                FROM tasks
+            """))
             conn.execute(text("DROP TABLE tasks"))
             conn.execute(text("ALTER TABLE tasks_new RENAME TO tasks"))
             logger.info("Migrated tasks table: task_code unique constraint changed to (project_id, task_code)")
@@ -106,6 +154,8 @@ def ensure_schema_updates():
             "long_term_reset_mode": "TEXT DEFAULT 'days'",
             "display_order": "INTEGER DEFAULT 0",
             "created_by": "INTEGER",
+            "api_base_url": "TEXT",
+            "api_key_encrypted": "TEXT",
         },
         "users": {
             "role": "TEXT DEFAULT 'user'",
@@ -126,6 +176,7 @@ def ensure_schema_updates():
             "default_max_review_rounds": f"INTEGER DEFAULT {DEFAULT_MAX_REVIEW_ROUNDS}",
             "planning_mode": "TEXT DEFAULT 'balanced'",
             "template_inputs_json": "TEXT DEFAULT '{}'",
+            "is_auto": "INTEGER DEFAULT 0",
         },
         "project_plans": {
             "prompt_text": "TEXT",
@@ -138,8 +189,13 @@ def ensure_schema_updates():
             "detected_at": "DATETIME",
             "last_error": "TEXT",
         },
+        "tasks": {
+            "model_name": "TEXT",
+            "dispatch_mode": "TEXT",
+        },
         "agent_type_configs": {
             "description": "TEXT",
+            "sdk_type": "TEXT",
             "display_order": "INTEGER DEFAULT 0",
         },
         "agent_type_model_map": {

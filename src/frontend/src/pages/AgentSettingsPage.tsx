@@ -45,6 +45,10 @@ export default function AgentSettingsPage() {
   const [dragOverModelId, setDragOverModelId] = useState<number | null>(null);
   const [dragModelTypeId, setDragModelTypeId] = useState<number | null>(null);
 
+  // SDK config editing per type
+  const [editingSdkTypeId, setEditingSdkTypeId] = useState<number | null>(null);
+  const [sdkConfigForm, setSdkConfigForm] = useState({ sdk_type: '' });
+
   const fetchTypes = useCallback(() => {
     api.get<AgentTypeConfig[]>('/api/agent-settings/types')
       .then(setTypes)
@@ -154,6 +158,34 @@ export default function AgentSettingsPage() {
       setShowModelSuggestions(false);
       fetchTypes();
     } catch (err) { setError(`添加模型失败：${err}`); }
+  }
+
+  function startEditSdk(agentType: AgentTypeConfig) {
+    setEditingSdkTypeId(agentType.id);
+    setSdkConfigForm({
+      sdk_type: agentType.sdk_type || '',
+    });
+  }
+
+  async function handleSaveSdkConfig(typeId: number) {
+    const { sdk_type } = sdkConfigForm;
+    setError('');
+    try {
+      await api.put(`/api/agent-settings/types/${typeId}`, {
+        sdk_type: sdk_type || null,
+      });
+      setEditingSdkTypeId(null);
+      fetchTypes();
+    } catch (err) { setError(`保存 SDK 配置失败：${err}`); }
+  }
+
+  async function handleClearSdkConfig(typeId: number, typeName: string) {
+    if (!confirm(`切换后 "${typeName}" 将变为手动模式，且该类型下所有 Agent 的 API 凭证将被清除，确认继续？`)) return;
+    setError('');
+    try {
+      await api.put(`/api/agent-settings/types/${typeId}`, { sdk_type: null });
+      fetchTypes();
+    } catch (err) { setError(`清除 SDK 配置失败：${err}`); }
   }
 
   async function handleRemoveModel(typeId: number, modelId: number, modelName: string) {
@@ -354,6 +386,43 @@ export default function AgentSettingsPage() {
                     ? <p className="settings-desc-text">{agentType.description}</p>
                     : <p className="settings-desc-placeholder">点击添加 Agent 介绍...</p>
                   }
+                </div>
+              )}
+            </div>
+
+            {/* SDK / auto-execution config */}
+            <div className="settings-sdk-section">
+              {editingSdkTypeId === agentType.id ? (
+                <div className="settings-sdk-form">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>执行模式</label>
+                      <select
+                        value={sdkConfigForm.sdk_type}
+                        onChange={(e) => setSdkConfigForm((prev) => ({ ...prev, sdk_type: e.target.value }))}
+                      >
+                        <option value="">手动（不自动执行）</option>
+                        <option value="claude">自动 — Claude</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="settings-sdk-form-actions">
+                    <button className="btn btn-primary btn-sm" onClick={() => handleSaveSdkConfig(agentType.id)}>保存</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditingSdkTypeId(null)}>取消</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="settings-sdk-display">
+                  {agentType.sdk_type ? (
+                    <>
+                      <span className="badge badge-sdk">⚡ 自动</span>
+                      <span className="settings-sdk-info">Claude</span>
+                      <button className="btn btn-xs btn-outline" onClick={() => startEditSdk(agentType)}>编辑</button>
+                      <button className="btn btn-xs btn-outline btn-danger-text" onClick={() => handleClearSdkConfig(agentType.id, agentType.name)}>清除</button>
+                    </>
+                  ) : (
+                    <button className="btn btn-sm btn-secondary" onClick={() => startEditSdk(agentType)}>配置执行模式</button>
+                  )}
                 </div>
               )}
             </div>
