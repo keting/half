@@ -1,0 +1,69 @@
+{
+  "plan_name": "功能开发与双 Agent 验收",
+  "description": "适用于边界清楚的功能开发：一个 Agent 完成设计和实现，两个 Agent 分别进行需求验收和工程评审，最后统一收敛并交付。",
+  "agent_roles": [
+    {
+      "slot": "agent-1",
+      "description": "开发 Agent，负责澄清需求、设计方案、实现功能、补充测试并根据验收意见完成最终交付。"
+    },
+    {
+      "slot": "agent-2",
+      "description": "验收 Agent，负责从用户目标和验收标准出发独立验证功能行为与异常路径。"
+    },
+    {
+      "slot": "agent-3",
+      "description": "工程评审 Agent，负责独立审查设计合理性、代码质量、测试覆盖、兼容性和维护成本。"
+    }
+  ],
+  "tasks": [
+    {
+      "task_code": "FEAT-001",
+      "task_name": "澄清需求并设计方案",
+      "description": "梳理功能目标、约束、非目标和验收标准，分析现有实现与影响范围，形成可执行的设计和测试计划；未解决的关键歧义应明确列出。",
+      "assignee": "agent-1",
+      "depends_on": [],
+      "expected_output": "outputs/FEAT-001/result.json"
+    },
+    {
+      "task_code": "FEAT-002",
+      "task_name": "实现功能并完成自测",
+      "description": "按照已确认的设计实现功能，补充正常、边界和失败路径测试，运行相关测试与构建检查，并记录重要实现决策和验证结果。",
+      "assignee": "agent-1",
+      "depends_on": [
+        "FEAT-001"
+      ],
+      "expected_output": "outputs/FEAT-002/result.json"
+    },
+    {
+      "task_code": "FEAT-003",
+      "task_name": "独立需求验收",
+      "description": "依据功能目标和验收标准独立检查完整用户流程、边界输入和失败反馈，记录可复现的验证步骤、结果及未满足的要求。",
+      "assignee": "agent-2",
+      "depends_on": [
+        "FEAT-002"
+      ],
+      "expected_output": "outputs/FEAT-003/result.json"
+    },
+    {
+      "task_code": "FEAT-004",
+      "task_name": "独立工程评审",
+      "description": "审查实现是否符合现有架构和项目约定，检查正确性、安全性、兼容性、测试覆盖和后续维护成本；只报告有证据且可执行的问题。",
+      "assignee": "agent-3",
+      "depends_on": [
+        "FEAT-002"
+      ],
+      "expected_output": "outputs/FEAT-004/result.json"
+    },
+    {
+      "task_code": "FEAT-005",
+      "task_name": "收敛验收意见并交付",
+      "description": "汇总需求验收和工程评审结论，处理确认有效的问题，重新运行必要检查，并输出最终功能摘要、验证证据、已知限制和交付位置。",
+      "assignee": "agent-1",
+      "depends_on": [
+        "FEAT-003",
+        "FEAT-004"
+      ],
+      "expected_output": "outputs/FEAT-005/result.json"
+    }
+  ]
+}

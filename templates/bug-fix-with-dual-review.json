@@ -1,0 +1,69 @@
+{
+  "plan_name": "Bug 修复与双 Agent 验证",
+  "description": "适用于可复现的 Bug：一个 Agent 完成定位和修复，两个 Agent 分别进行功能验证和代码评审，最后统一收敛并交付。",
+  "agent_roles": [
+    {
+      "slot": "agent-1",
+      "description": "修复 Agent，负责复现问题、定位根因、实现修复、自测并根据验证意见完成最终交付。"
+    },
+    {
+      "slot": "agent-2",
+      "description": "测试 Agent，负责独立复现原问题并执行针对性测试与回归测试。"
+    },
+    {
+      "slot": "agent-3",
+      "description": "评审 Agent，负责独立审查根因分析、代码改动、测试覆盖和潜在回归风险。"
+    }
+  ],
+  "tasks": [
+    {
+      "task_code": "BUG-001",
+      "task_name": "复现问题并定位根因",
+      "description": "根据项目目标和问题描述复现 Bug，记录环境、复现步骤、实际行为与预期行为，定位根因并提出范围明确的修复方案。",
+      "assignee": "agent-1",
+      "depends_on": [],
+      "expected_output": "outputs/BUG-001/result.json"
+    },
+    {
+      "task_code": "BUG-002",
+      "task_name": "实现修复并完成自测",
+      "description": "依据根因分析实现最小范围修复，补充能够防止回归的测试，运行相关测试与静态检查，并记录改动和验证结果。",
+      "assignee": "agent-1",
+      "depends_on": [
+        "BUG-001"
+      ],
+      "expected_output": "outputs/BUG-002/result.json"
+    },
+    {
+      "task_code": "BUG-003",
+      "task_name": "独立功能与回归测试",
+      "description": "基于问题描述和修复结果独立验证原问题已解决，检查关键相邻功能，记录测试环境、执行步骤、结果和发现的问题。",
+      "assignee": "agent-2",
+      "depends_on": [
+        "BUG-002"
+      ],
+      "expected_output": "outputs/BUG-003/result.json"
+    },
+    {
+      "task_code": "BUG-004",
+      "task_name": "独立代码评审",
+      "description": "审查根因是否成立、修复是否完整、测试是否覆盖失败路径，并检查安全性、兼容性和潜在回归；只报告有证据且可执行的问题。",
+      "assignee": "agent-3",
+      "depends_on": [
+        "BUG-002"
+      ],
+      "expected_output": "outputs/BUG-004/result.json"
+    },
+    {
+      "task_code": "BUG-005",
+      "task_name": "收敛验证意见并交付",
+      "description": "汇总测试和评审结论，处理确认有效的问题，重新运行必要检查，并输出最终改动摘要、验证证据、遗留风险和交付位置。",
+      "assignee": "agent-1",
+      "depends_on": [
+        "BUG-003",
+        "BUG-004"
+      ],
+      "expected_output": "outputs/BUG-005/result.json"
+    }
+  ]
+}
