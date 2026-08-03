@@ -173,7 +173,7 @@ requires-dist = [
     { name = "bcrypt", specifier = "==4.0.1" },
     { name = "fastapi", specifier = ">=0.138.2" },
     { name = "httpx", specifier = ">=0.27.0" },
-    { name = "json-repair", specifier = ">=0.61.1" },
+    { name = "json-repair", specifier = ">=0.61.7" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
@@ -233,11 +233,11 @@ wheels = [
 
 [[package]]
 name = "json-repair"
-version = "0.61.1"
+version = "0.61.7"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7c/92/b46b19c400cdb87c634778cc7eec140c922f7ec0af3941d1e4a04ebeda81/json_repair-0.61.1.tar.gz", hash = "sha256:24a68de2891c696ad3bd9a94874e8d3ef2d309c56af2973094b8297c975b5b58", size = 50069, upload-time = "2026-06-29T12:09:55.104Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/a3/6001c2448ee54a80f35a2501b848f4bbd87987bd41ead8cc17367a2bfd56/json_repair-0.61.7.tar.gz", hash = "sha256:a3754543f050093efcda6c9ab00b20a236b5d082c8c622bc65b88fa74ff8d51f", size = 51573, upload-time = "2026-07-21T13:01:15.085Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/36/0d/abd5fe1251c8588c6c8d441fab263734bcaa71dfd895ec4b88c202a86254/json_repair-0.61.1-py3-none-any.whl", hash = "sha256:7ab26583e4c73418b8b60cc61202f64f119984a9b5fed61087e84158fa29e7d0", size = 48543, upload-time = "2026-06-29T12:09:53.962Z" },
+    { url = "https://files.pythonhosted.org/packages/76/da/7f9e2b0a1120b107a204bbab6d0ef7ff2ae37790bddc5ee21c9c1f961f3b/json_repair-0.61.7-py3-none-any.whl", hash = "sha256:45c99b8cffef404e846b60d3dc21fc6f0fd5a4595cebad169dfab083ffb8246a", size = 50146, upload-time = "2026-07-21T13:01:13.734Z" },
 ]
 
 [[package]]
