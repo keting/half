@@ -134,7 +134,7 @@ agent 产品，尤其是订阅式产品，主要面向个人或团队直接交�
   指南和故障排除
 - [`docs/user-manual.zh-CN.md`](./docs/user-manual.zh-CN.md) - 页面级用户手册（用途、操作步骤、截图说明）
 - `docs/roadmap/` - 版本级执行计划（即将推出）
-- `docs/research/` - 探索性工作的调研记录（即将推出）
+- [`docs/research/`](./docs/research/) - 探索性工作的调研记录
 - `docs/adr/` - 架构决策记录（即将推出）
 
 **API 参考文档** 由 FastAPI 自动生成。后端启动后，可访问
