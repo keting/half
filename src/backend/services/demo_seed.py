@@ -27,7 +27,20 @@ DEMO_TEMPLATE_NAME = "【代码】中等规模功能开发与 Bug 修复代码�
 DEMO_COLLABORATION_DIR = "demo/half-demo-collaboration"
 DEMO_REPO_URL = "https://github.com/keting/half.git"
 
+# Curated examples, not an exhaustive compatibility list. Availability varies
+# by subscription and client. Last reviewed against current product menus on
+# 2026-09-16.
 DEMO_MODEL_CAPABILITIES = {
+    "Fable 5": "高判断密度任务：架构取舍、复杂需求澄清、严格评审、疑难排障与重要统稿。",
+    "Opus 5 (1M)": "超长上下文任务：跨大量文件或长文档分析、复杂仓库规划与一致性检查。",
+    "Sonnet 5": "日常编码主力：范围明确的实现、测试补全、代码审查与技术文档。",
+    "gpt-5.6-sol": "复杂或高风险 coding：长程规划、工具协调、跨文件实现、验证与终验。",
+    "gpt-5.6-terra": "日常工程任务：仓库探索、常规实现、代码审查与文档维护，兼顾速度和质量。",
+    "gpt-5.6-luna": "目标清晰、可批量验收的任务：分类、提取、格式修补、测试生成与后台自动化。",
+    "Gemini 3.6 Flash": "快速轻量任务：代码解释、初步排查、短反馈循环与辅助审查。",
+}
+
+LEGACY_DEMO_MODEL_CAPABILITIES = {
     "gpt-5.5": (
         "优先处理高复杂度、强推理、长链路的专业工作，如大型代码库改造、跨系统问题排查、"
         "深度研究分析、复杂产品/架构决策与端到端交付；相比 GPT-5.4，它更适合作为高难度任务的主代理、"
@@ -41,9 +54,7 @@ DEMO_MODEL_CAPABILITIES = {
         "派给最难任务：跨文档需求澄清、关键架构取舍、复杂重构、疑难排障、严格代码审查、"
         "深度论文评审；强项是长链路规划、大代码库可靠性和自纠错，不要浪费在常规实现上。"
     ),
-    "Opus 4.6": (
-        "适合高难度代码审查、复杂需求澄清、架构判断和跨文件改造；可作为质量把关和深度评审模型。"
-    ),
+    "Opus 4.6": "适合高难度代码审查、复杂需求澄清、架构判断和跨文件改造；可作为质量把关和深度评审模型。",
     "Sonnet 4.6": (
         "默认主力模型；适合大多数生产任务，尤其是需求细化、设计展开、业务代码实现、测试补全、"
         "技术文档和知识工作；当效果接近旗舰时，优先用它以换取更好成本/速度平衡。"
@@ -55,8 +66,8 @@ DEMO_AGENTS = [
         "name": "Claude Max",
         "slug": "claude-max",
         "agent_type": "claude-max",
-        "model_name": "Opus 4.7",
-        "models": ["Opus 4.7", "Sonnet 4.6"],
+        "model_name": "Fable 5",
+        "models": ["Fable 5", "Opus 5 (1M)", "Sonnet 5"],
         "co_located": False,
         "display_order": 1,
     },
@@ -64,8 +75,8 @@ DEMO_AGENTS = [
         "name": "Codex Pro",
         "slug": "codex-pro",
         "agent_type": "chatgpt-pro",
-        "model_name": "gpt-5.5",
-        "models": ["gpt-5.5", "gpt-5.4"],
+        "model_name": "gpt-5.6-sol",
+        "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
         "co_located": True,
         "display_order": 2,
     },
@@ -73,8 +84,8 @@ DEMO_AGENTS = [
         "name": "Copilot Pro",
         "slug": "copilot-pro",
         "agent_type": "copilot-pro",
-        "model_name": "Opus 4.6",
-        "models": ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"],
+        "model_name": "Sonnet 5",
+        "models": ["Sonnet 5", "gpt-5.6-sol", "Gemini 3.6 Flash"],
         "co_located": False,
         "display_order": 3,
     },
@@ -84,19 +95,34 @@ DEMO_AGENT_TYPE_CATALOG = [
     {
         "name": "claude-max",
         "description": "Claude Max subscription agent for deep review, architecture, and complex reasoning tasks.",
-        "models": ["Opus 4.7", "Sonnet 4.6"],
+        "models": ["Fable 5", "Opus 5 (1M)", "Sonnet 5"],
     },
     {
         "name": "chatgpt-pro",
         "description": "ChatGPT Pro agent for high-complexity implementation, planning, and end-to-end delivery.",
-        "models": ["gpt-5.5", "gpt-5.4"],
+        "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
     },
     {
         "name": "copilot-pro",
         "description": "Copilot Pro agent for implementation support, testing, and code review workflows.",
-        "models": ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"],
+        "models": ["Sonnet 5", "gpt-5.6-sol", "Gemini 3.6 Flash"],
     },
 ]
+
+LEGACY_DEMO_AGENT_MODELS = {
+    "claude-max": {"model_name": "Opus 4.7", "models": ["Opus 4.7", "Sonnet 4.6"]},
+    "codex-pro": {"model_name": "gpt-5.5", "models": ["gpt-5.5", "gpt-5.4"]},
+    "copilot-pro": {
+        "model_name": "Opus 4.6",
+        "models": ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"],
+    },
+}
+
+LEGACY_DEMO_TYPE_MODELS = {
+    "claude-max": ["Opus 4.7", "Sonnet 4.6"],
+    "chatgpt-pro": ["gpt-5.5", "gpt-5.4"],
+    "copilot-pro": ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"],
+}
 
 LEGACY_DEFAULT_AGENT_TYPES = {"claude", "codex", "cursor", "windsurf"}
 
@@ -219,7 +245,8 @@ def _ensure_agent(db: Session, admin: User, spec: dict) -> Agent:
     return agent
 
 
-def _ensure_agent_type_catalog(db: Session) -> None:
+def ensure_demo_agent_type_catalog(db: Session, *, create_missing_types: bool = True) -> None:
+    """Add current demo models without deleting user-defined catalog entries."""
     max_order = db.query(AgentTypeConfig.display_order).order_by(
         AgentTypeConfig.display_order.desc(),
         AgentTypeConfig.id.desc(),
@@ -229,6 +256,8 @@ def _ensure_agent_type_catalog(db: Session) -> None:
     for type_spec in DEMO_AGENT_TYPE_CATALOG:
         agent_type = db.query(AgentTypeConfig).filter(AgentTypeConfig.name == type_spec["name"]).first()
         if agent_type is None:
+            if not create_missing_types:
+                continue
             agent_type = AgentTypeConfig(
                 name=type_spec["name"],
                 description=type_spec["description"],
@@ -240,6 +269,30 @@ def _ensure_agent_type_catalog(db: Session) -> None:
         elif not agent_type.description:
             agent_type.description = type_spec["description"]
 
+        existing_maps = db.query(AgentTypeModelMap).filter(
+            AgentTypeModelMap.agent_type_id == agent_type.id
+        ).order_by(AgentTypeModelMap.display_order, AgentTypeModelMap.id).all()
+        existing_model_ids = [mapping.model_definition_id for mapping in existing_maps]
+        models_by_id = (
+            {
+                model.id: model.name
+                for model in db.query(ModelDefinition).filter(ModelDefinition.id.in_(existing_model_ids)).all()
+            }
+            if existing_model_ids
+            else {}
+        )
+        existing_names = [models_by_id[model_id] for model_id in existing_model_ids if model_id in models_by_id]
+        legacy_names = LEGACY_DEMO_TYPE_MODELS.get(type_spec["name"], [])
+        legacy_default_catalog = existing_names == legacy_names
+
+        if legacy_default_catalog:
+            for mapping in existing_maps:
+                mapping.display_order += len(type_spec["models"])
+
+        next_model_order = max(
+            (mapping.display_order for mapping in existing_maps),
+            default=-1,
+        ) + 1
         for model_order, model_name in enumerate(type_spec["models"]):
             model_def = db.query(ModelDefinition).filter(ModelDefinition.name == model_name).first()
             if model_def is None:
@@ -260,8 +313,44 @@ def _ensure_agent_type_catalog(db: Session) -> None:
                 db.add(AgentTypeModelMap(
                     agent_type_id=agent_type.id,
                     model_definition_id=model_def.id,
-                    display_order=model_order,
+                    display_order=model_order if legacy_default_catalog or not existing_maps else next_model_order,
                 ))
+                if not legacy_default_catalog and existing_maps:
+                    next_model_order += 1
+
+
+def refresh_legacy_demo_agent_models(db: Session) -> int:
+    """Refresh untouched v1 demo Agents while preserving user edits."""
+    specs_by_slug = {spec["slug"]: spec for spec in DEMO_AGENTS}
+    updated = 0
+
+    for slug, legacy in LEGACY_DEMO_AGENT_MODELS.items():
+        agent = db.query(Agent).filter(Agent.slug == slug).first()
+        if agent is None or agent.model_name != legacy["model_name"]:
+            continue
+        try:
+            stored_models = json.loads(agent.models_json or "[]")
+        except json.JSONDecodeError:
+            continue
+        legacy_models = [
+            {
+                "model_name": model_name,
+                "capability": LEGACY_DEMO_MODEL_CAPABILITIES[model_name],
+            }
+            for model_name in legacy["models"]
+        ]
+        legacy_capability = "；".join(item["capability"] for item in legacy_models)
+        if stored_models != legacy_models or agent.capability != legacy_capability:
+            continue
+
+        current = specs_by_slug[slug]
+        current_models = _model_entries(current["models"])
+        agent.model_name = current["model_name"]
+        agent.models_json = json.dumps(current_models, ensure_ascii=False)
+        agent.capability = "；".join(item["capability"] for item in current_models)
+        updated += 1
+
+    return updated
 
 
 def _prune_unused_legacy_default_agent_types(db: Session) -> None:
@@ -394,7 +483,7 @@ def seed_demo_project(db: Session, admin: User) -> bool:
         spec["slug"]: _ensure_agent(db, admin, spec)
         for spec in DEMO_AGENTS
     }
-    _ensure_agent_type_catalog(db)
+    ensure_demo_agent_type_catalog(db)
     _prune_unused_legacy_default_agent_types(db)
     template = _ensure_template(db, admin)
     db.flush()

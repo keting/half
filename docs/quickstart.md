@@ -101,6 +101,8 @@ automatically.
 3. **Select Agents** (required):
    - select at least one agent from the list
    - pre-seeded demo agents include Claude Max, Codex Pro, and Copilot Pro
+   - the pre-seeded model catalog is an editable example snapshot; actual model
+     availability depends on your subscription, client, and organization policy
    - configure same-machine deployment settings for each agent where needed
 4. Click "创建项目".
 

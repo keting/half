@@ -95,6 +95,7 @@ docker compose ps
 3. **选择 Agent**（必需）：
    - 必须从列表中选择至少一个 Agent
    - 预置演示 Agent 包括 Claude Max、Codex Pro、Copilot Pro
+   - 预置模型目录是可编辑的示例快照；实际可用模型取决于订阅、客户端和组织策略
    - 按需为每个 Agent 配置同机部署设置
 4. 点击"创建项目"。
 
