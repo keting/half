@@ -12,7 +12,7 @@ load_dotenv()
 
 from config import DEFAULT_MAX_REVIEW_ROUNDS, settings, validate_security_config
 from database import engine, SessionLocal, Base
-from models import Agent, User, AgentTypeConfig, ModelDefinition, AgentTypeModelMap, Project, ProjectPlan, Task, GlobalSetting, ProcessTemplate
+from models import Agent, User, AgentTypeConfig, Project, ProjectPlan, Task, GlobalSetting, ProcessTemplate
 from auth import hash_password
 from routers import auth as auth_router
 from routers import agents as agents_router
@@ -27,7 +27,12 @@ from routers import process_templates as process_templates_router
 from routers import codex_usage as codex_usage_router
 from services.polling_service import polling_loop
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE, PLAN_CO_LOCATION_GUIDANCE_KEY
-from services.demo_seed import DEMO_AGENT_TYPE_CATALOG, DEMO_MODEL_CAPABILITIES, seed_demo_project
+from services.demo_seed import (
+    DEMO_AGENT_TYPE_CATALOG,
+    ensure_demo_agent_type_catalog,
+    refresh_legacy_demo_agent_models,
+    seed_demo_project,
+)
 from services.issue_review_loop import ensure_issue_review_loop_template
 
 logging.basicConfig(level=logging.INFO)
@@ -210,40 +215,30 @@ def repair_legacy_agent_reset_times():
 
 
 def seed_agent_type_configs():
-    """Seed the default agent type catalog if tables are empty."""
+    """Seed or non-destructively refresh the default demo model catalog."""
     db = SessionLocal()
     try:
-        if db.query(AgentTypeConfig).first() is not None:
-            return  # Already seeded
+        existing_type_names = {
+            agent_type.name
+            for agent_type in db.query(AgentTypeConfig).all()
+        }
+        default_type_names = {spec["name"] for spec in DEMO_AGENT_TYPE_CATALOG}
+        create_missing_types = not existing_type_names
+        managed_default_catalog = create_missing_types or bool(
+            existing_type_names.intersection(default_type_names)
+        )
 
-        model_cache: dict[str, ModelDefinition] = {}
-        for type_order, type_spec in enumerate(DEMO_AGENT_TYPE_CATALOG):
-            agent_type = AgentTypeConfig(
-                name=type_spec["name"],
-                description=type_spec["description"],
-                display_order=type_order,
+        refreshed_agents = 0
+        if managed_default_catalog:
+            ensure_demo_agent_type_catalog(
+                db,
+                create_missing_types=create_missing_types,
             )
-            db.add(agent_type)
-            db.flush()
-            for model_order, model_name in enumerate(type_spec["models"]):
-                if model_name not in model_cache:
-                    model_def = ModelDefinition(
-                        name=model_name,
-                        capability=DEMO_MODEL_CAPABILITIES.get(model_name),
-                    )
-                    db.add(model_def)
-                    db.flush()
-                    model_cache[model_name] = model_def
-                db.add(AgentTypeModelMap(
-                    agent_type_id=agent_type.id,
-                    model_definition_id=model_cache[model_name].id,
-                    display_order=model_order,
-                ))
+            refreshed_agents = refresh_legacy_demo_agent_models(db)
         db.commit()
         logger.info(
-            "Seeded agent type configs with %d types and %d models",
-            len(DEMO_AGENT_TYPE_CATALOG),
-            len(model_cache),
+            "Synchronized demo model catalog (%d legacy demo agents refreshed)",
+            refreshed_agents,
         )
     finally:
         db.close()

@@ -73,7 +73,9 @@ class DemoSeedTests(unittest.TestCase):
 
         agents = {agent.slug: agent for agent in self.db.query(Agent).all()}
         self.assertEqual(set(agents), {"claude-max", "codex-pro", "copilot-pro"})
-        self.assertEqual(agents["codex-pro"].model_name, "gpt-5.5")
+        self.assertEqual(agents["claude-max"].model_name, "Fable 5")
+        self.assertEqual(agents["codex-pro"].model_name, "gpt-5.6-sol")
+        self.assertEqual(agents["copilot-pro"].model_name, "Sonnet 5")
 
         agent_types = {
             agent_type.name: agent_type
@@ -90,9 +92,9 @@ class DemoSeedTests(unittest.TestCase):
             ).order_by(AgentTypeModelMap.display_order, AgentTypeModelMap.id).all()
             return [models_by_id[mapping.model_definition_id] for mapping in maps]
 
-        self.assertEqual(type_models("claude-max"), ["Opus 4.7", "Sonnet 4.6"])
-        self.assertEqual(type_models("chatgpt-pro"), ["gpt-5.5", "gpt-5.4"])
-        self.assertEqual(type_models("copilot-pro"), ["Opus 4.6", "gpt-5.4", "Sonnet 4.6", "Opus 4.7"])
+        self.assertEqual(type_models("claude-max"), ["Fable 5", "Opus 5 (1M)", "Sonnet 5"])
+        self.assertEqual(type_models("chatgpt-pro"), ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+        self.assertEqual(type_models("copilot-pro"), ["Sonnet 5", "gpt-5.6-sol", "Gemini 3.6 Flash"])
 
     def test_seed_prunes_unused_legacy_default_agent_types_from_demo_catalog(self):
         self.db.add_all([
