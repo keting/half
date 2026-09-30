@@ -6,7 +6,7 @@ dependencies = [
     "fastapi>=0.141.1",
     "uvicorn>=0.52.4",
     "sqlalchemy>=2.0.52",
-    "pyjwt>=2.13.0",
+    "pyjwt>=2.15.0",
     "passlib[bcrypt]>=1.7.4",
     "bcrypt==4.0.1",
     "python-multipart>=0.0.32",
